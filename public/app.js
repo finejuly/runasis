@@ -746,40 +746,32 @@ function renderStatus() {
 }
 
 function getFilteredActivities() {
-  const now = Date.now();
-  const rangeMs = appState.rangeDays === "all" ? null : Number(appState.rangeDays) * 24 * 60 * 60 * 1000;
+  const range = getDashboardDateRange(appState.activities);
 
   return appState.activities
     .filter((activity) => {
       if (!isRun(activity)) return false;
-      if (!rangeMs) return true;
-      const startedAt = new Date(activity.start_date || activity.start_date_local || 0).getTime();
-      return Number.isFinite(startedAt) && now - startedAt <= rangeMs;
+      if (!range) return true;
+      const date = getActivityLocalDay(activity);
+      return date && date >= range.start && date <= range.end;
     })
     .sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
 }
 
 function getPreviousPeriodActivities() {
-  const rangeDays = Number(appState.rangeDays);
-  if (!Number.isFinite(rangeDays) || rangeDays <= 0) return [];
-  const rangeMs = rangeDays * DAY_MS;
-  const currentStart = Date.now() - rangeMs;
-  const previousStart = currentStart - rangeMs;
+  const previousRange = getPreviousDashboardDateRange();
+  if (!previousRange) return [];
 
   return appState.activities.filter((activity) => {
     if (!isRun(activity)) return false;
-    const startedAt = getActivityStartTime(activity);
-    return Number.isFinite(startedAt) && startedAt >= previousStart && startedAt < currentStart;
+    const date = getActivityLocalDay(activity);
+    return date && date >= previousRange.start && date <= previousRange.end;
   });
 }
 
 function calculatePreviousPeriodMetrics() {
   if (appState.rangeDays === "all") return null;
   return calculateMetrics(getPreviousPeriodActivities());
-}
-
-function getActivityStartTime(activity) {
-  return new Date(activity.start_date || activity.start_date_local || 0).getTime();
 }
 
 function calculateMetrics(activities) {
@@ -978,12 +970,11 @@ function buildCumulativeMetricAnalysis(activities, metric) {
 
   const rangeDays = Number(appState.rangeDays);
   if (!Number.isFinite(rangeDays) || rangeDays <= 0) return null;
-  const currentEnd = startOfLocalDay(new Date());
-  const currentStart = addLocalDays(currentEnd, -(rangeDays - 1));
-  const previousStart = addLocalDays(currentStart, -rangeDays);
-  const previousEnd = addLocalDays(currentStart, -1);
-  const currentPoints = buildCumulativeMetricPoints(dailyValues, currentStart, currentEnd);
-  const previousPoints = buildCumulativeMetricPoints(dailyValues, previousStart, previousEnd);
+  const currentRange = getDashboardDateRange(appState.activities);
+  const previousRange = getPreviousDashboardDateRange(currentRange);
+  if (!currentRange || !previousRange) return null;
+  const currentPoints = buildCumulativeMetricPoints(dailyValues, currentRange.start, currentRange.end);
+  const previousPoints = buildCumulativeMetricPoints(dailyValues, previousRange.start, previousRange.end);
   const currentTotal = currentPoints.at(-1)?.cumulativeValue || 0;
   const previousTotal = previousPoints.at(-1)?.cumulativeValue || 0;
   const delta = currentTotal - previousTotal;
@@ -2732,11 +2723,11 @@ function maxLocalDate(a, b) {
   return a.getTime() >= b.getTime() ? a : b;
 }
 
-function getDashboardDateRange(activities) {
+function getDashboardDateRange(activities = appState.activities) {
   if (appState.rangeDays !== "all") {
     const rangeDays = Number(appState.rangeDays);
     if (Number.isFinite(rangeDays) && rangeDays > 0) {
-      const end = startOfLocalDay(new Date());
+      const end = getDashboardRangeEndDate(activities);
       return {
         start: addLocalDays(end, -(rangeDays - 1)),
         end
@@ -2752,11 +2743,24 @@ function getDashboardDateRange(activities) {
   };
 }
 
-function getPreviousDashboardDateRange() {
+function getDashboardRangeEndDate(activities = appState.activities) {
+  const today = startOfLocalDay(new Date());
+  return hasRunOnLocalDate(activities, today) ? today : addLocalDays(today, -1);
+}
+
+function hasRunOnLocalDate(activities, date) {
+  const key = localDateKey(date);
+  return activities.some((activity) => {
+    if (!isRun(activity)) return false;
+    const activityDate = getActivityLocalDay(activity);
+    return activityDate && localDateKey(activityDate) === key;
+  });
+}
+
+function getPreviousDashboardDateRange(currentRange = getDashboardDateRange(appState.activities)) {
   if (appState.rangeDays === "all") return null;
   const rangeDays = Number(appState.rangeDays);
   if (!Number.isFinite(rangeDays) || rangeDays <= 0) return null;
-  const currentRange = getDashboardDateRange([]);
   if (!currentRange) return null;
   const end = addLocalDays(currentRange.start, -1);
   return {
