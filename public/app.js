@@ -1857,12 +1857,12 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   els.riegelExpectedPaceChartCaption.textContent = "";
 
   const width = 980;
-  const height = 410;
-  const padding = { top: 34, right: 32, bottom: 48, left: 74 };
+  const height = 480;
+  const padding = { top: 34, right: 32, bottom: 78, left: 92 };
   const chartWidth = width - padding.left - padding.right;
-  const pacePanel = { top: 50, bottom: 206 };
+  const pacePanel = { top: 84, bottom: 226 };
   pacePanel.height = pacePanel.bottom - pacePanel.top;
-  const gapPanel = { top: 254, bottom: 350 };
+  const gapPanel = { top: 290, bottom: 386 };
   gapPanel.height = gapPanel.bottom - gapPanel.top;
   const minDistance = Math.min(...points.map((point) => point.distanceKm));
   const maxDistance = Math.max(...points.map((point) => point.distanceKm));
@@ -1916,20 +1916,16 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   ].join("");
 
   const legend = `
-    <g transform="translate(${padding.left}, 17)">
+    <g data-riegel-legend="expected" transform="translate(${padding.left}, 52)">
       <line x1="0" x2="22" y1="0" y2="0" stroke="${selectedSeries.color}" stroke-width="3"></line>
       <text class="axis-label" x="28" y="4">Expected ${selectedSeries.label}</text>
     </g>
-    <g transform="translate(${padding.left + 150}, 17)">
+    <g data-riegel-legend="current" transform="translate(${padding.left + 162}, 52)">
       <line x1="0" x2="22" y1="0" y2="0" stroke="#17201a" stroke-width="3"></line>
       <text class="axis-label" x="28" y="4">Current ${selectedSeries.label}</text>
     </g>
-    <g transform="translate(${padding.left + 286}, 17)">
-      <rect x="0" y="-7" width="22" height="12" rx="2" fill="#6f786f" opacity="0.82"></rect>
-      <text class="axis-label" x="28" y="4">Gap bars</text>
-    </g>
   `;
-  const minDistanceLabelGap = 54;
+  const minDistanceLabelGap = 112;
   const visibleDistanceLabelPoints = [];
   let lastDistanceLabelX = -Infinity;
   for (let index = 0; index < points.length; index += 1) {
@@ -1951,9 +1947,9 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   }
   const distanceLabels = visibleDistanceLabelPoints.map((point) => {
     const labelX = x(point.distanceKm);
-    const labelY = height - 22;
+    const labelY = height - 42;
     return `
-      <text class="axis-label" x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-34 ${labelX.toFixed(1)} ${labelY})" data-riegel-distance-label="${escapeHtml(point.name)}">${escapeHtml(formatHeatmapDistanceLabel(point.name))}</text>
+      <text class="axis-label" data-riegel-distance-label="${escapeHtml(point.name)}" x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-34 ${labelX.toFixed(1)} ${labelY})">${escapeHtml(formatHeatmapDistanceLabel(point.name))}</text>
     `;
   }).join("");
 
@@ -2017,11 +2013,11 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   els.riegelExpectedPaceChart.innerHTML = `
     <svg viewBox="0 0 ${width} ${height}" style="height:${height}px" role="img" aria-label="${escapeHtml(`Riegel split pace and pace-gap bar chart by distance for ${selectedSeries.label}`)}" data-riegel-distance-scale="${escapeHtml(appState.riegelFiveKScale)}">
       ${grid}
-      <text class="axis-label" x="10" y="16">Pace (min/km)</text>
-      <text class="axis-label" x="10" y="${gapPanel.top - 10}">Pace Gap (sec/km)</text>
+      <text class="axis-label" data-riegel-axis-label="pace" x="${padding.left}" y="22">Pace (min/km)</text>
+      <text class="axis-label" data-riegel-axis-label="gap" x="${padding.left}" y="${gapPanel.top - 32}">Pace Gap (sec/km)</text>
       <text class="axis-label" x="${width - padding.right}" y="${gapPanel.top + 14}" text-anchor="end" style="fill:#24724f">Current faster</text>
       <text class="axis-label" x="${width - padding.right}" y="${gapPanel.bottom - 6}" text-anchor="end" style="fill:#b24b3f">Current slower</text>
-      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Distance (km)</text>
+      <text class="axis-label" data-riegel-axis-label="distance" x="${padding.left + chartWidth / 2}" y="${height - 8}" text-anchor="middle">Distance (km)</text>
       ${legend}
       ${distanceLabels}
       <g data-riegel-panel="pace">
