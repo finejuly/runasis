@@ -28,6 +28,45 @@ function loadAppContext() {
   return context;
 }
 
+function freezeAppDate(app, isoDate) {
+  vm.runInContext(`
+    {
+      const RealDate = Date;
+      const fixed = ${JSON.stringify(isoDate)};
+      globalThis.Date = class extends RealDate {
+        constructor(...args) {
+          if (arguments.length === 0) return new RealDate(fixed);
+          return new RealDate(...args);
+        }
+
+        static now() {
+          return new RealDate(fixed).getTime();
+        }
+
+        static parse(value) {
+          return RealDate.parse(value);
+        }
+
+        static UTC(...args) {
+          return RealDate.UTC(...args);
+        }
+      };
+    }
+  `, app);
+}
+
+function runActivity(id, startDateLocal, values = {}) {
+  return {
+    id,
+    name: `Run ${id}`,
+    sport_type: "Run",
+    start_date_local: startDateLocal,
+    distance: 1000,
+    moving_time: 300,
+    ...values
+  };
+}
+
 function loadServerContext() {
   const code = fs
     .readFileSync(path.join(ROOT, "server.js"), "utf8")
@@ -101,6 +140,74 @@ test("formatPace carries rounded seconds into minutes", () => {
 
   assert.equal(app.formatPace(299.6), "5:00");
   assert.equal(app.formatPace(359.6), "6:00");
+});
+
+test("numeric dashboard ranges end yesterday when there is no run today", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-05-31T12:00:00");
+
+  const result = vm.runInContext(`
+    appState.rangeDays = "7";
+    appState.selectedKpiMetric = "distance";
+    els.rangeSelect = { selectedIndex: 0, options: [{ textContent: "Last 7 days" }] };
+    appState.activities = [
+      ${JSON.stringify(runActivity("yesterday", "2026-05-30T07:00:00"))},
+      ${JSON.stringify(runActivity("first-day", "2026-05-24T07:00:00"))},
+      ${JSON.stringify(runActivity("outside", "2026-05-23T07:00:00"))}
+    ];
+
+    const range = getDashboardDateRange(appState.activities);
+    const previousRange = getPreviousDashboardDateRange();
+    const analysis = buildCumulativeMetricAnalysis(appState.activities, DASHBOARD_METRICS.distance);
+    ({
+      start: localDateKey(range.start),
+      end: localDateKey(range.end),
+      filteredIds: getFilteredActivities().map((activity) => activity.id),
+      previousStart: localDateKey(previousRange.start),
+      previousEnd: localDateKey(previousRange.end),
+      cumulativeStart: localDateKey(analysis.tickDates[0]),
+      cumulativeEnd: localDateKey(analysis.tickDates.at(-1)),
+      cumulativePointCount: analysis.pointCount
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    start: "2026-05-24",
+    end: "2026-05-30",
+    filteredIds: ["yesterday", "first-day"],
+    previousStart: "2026-05-17",
+    previousEnd: "2026-05-23",
+    cumulativeStart: "2026-05-24",
+    cumulativeEnd: "2026-05-30",
+    cumulativePointCount: 7
+  });
+});
+
+test("numeric dashboard ranges include today when there is a run today", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-05-31T12:00:00");
+
+  const result = vm.runInContext(`
+    appState.rangeDays = "7";
+    appState.activities = [
+      ${JSON.stringify(runActivity("today", "2026-05-31T07:00:00"))},
+      ${JSON.stringify(runActivity("first-day", "2026-05-25T07:00:00"))},
+      ${JSON.stringify(runActivity("outside", "2026-05-24T07:00:00"))}
+    ];
+
+    const range = getDashboardDateRange(appState.activities);
+    ({
+      start: localDateKey(range.start),
+      end: localDateKey(range.end),
+      filteredIds: getFilteredActivities().map((activity) => activity.id)
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    start: "2026-05-25",
+    end: "2026-05-31",
+    filteredIds: ["today", "first-day"]
+  });
 });
 
 test("detailStatusFromStore separates fetched, failed, and pending run details", () => {
