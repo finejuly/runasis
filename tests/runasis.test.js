@@ -805,6 +805,8 @@ test("renderRiegelAnalysis draws selected expected pace over the current pace gr
   assert.match(result.chart, /data-riegel-panel="gap"/);
   assert.match(result.chart, />Expected Top 3</);
   assert.match(result.chart, />Current Top 3</);
+  assert.doesNotMatch(result.chart, />Gap bars</);
+  assert.doesNotMatch(result.chart, /data-riegel-legend="gap"/);
   assert.doesNotMatch(result.chart, /data-riegel-expected-pace-series="top1"/);
   assert.doesNotMatch(result.chart, /data-riegel-expected-pace-series="top10"/);
   assert.match(result.chart, />5K</);
@@ -819,8 +821,8 @@ test("renderRiegelAnalysis draws selected expected pace over the current pace gr
   assert.match(result.chart, /data-riegel-pace-gap-seconds="99"/);
   assert.match(result.chart, />\+0:10</);
   assert.match(result.chart, />-0:10</);
-  assert.match(result.chart, /y="302\.0"[\s\S]*height="48\.0"[\s\S]*data-riegel-gap-bar-distance="20K"/);
-  assert.match(result.chart, /y="254\.0"[\s\S]*height="48\.0"[\s\S]*data-riegel-gap-bar-distance="5K"/);
+  assert.match(result.chart, /y="338\.0"[\s\S]*height="48\.0"[\s\S]*data-riegel-gap-bar-distance="20K"/);
+  assert.match(result.chart, /y="290\.0"[\s\S]*height="48\.0"[\s\S]*data-riegel-gap-bar-distance="5K"/);
   assert.match(result.chart, />\+1:39\/km</);
   assert.match(result.chart, />-1:00\/km</);
   assert.match(result.chart, />match</);
@@ -885,6 +887,70 @@ test("renderRiegelAnalysis suppresses crowded expected gap text labels", () => {
   assert.equal(result.caption, "");
   assert.equal(gapLabelCount, 0);
   assert.ok(distanceLabelCount < 9);
+});
+
+test("renderRiegelAnalysis separates crowded expected pace chart labels", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const toggleClass = { toggle() {} };
+    const makeTop = (time) => Array.from({ length: 10 }, (_, index) => ({
+      movingTime: time + index * 5,
+      paceSecondsPerKm: 1
+    }));
+    els.riegelExponentInput = { disabled: false, value: "" };
+    els.riegelExponentModeButtons = [];
+    els.riegelFiveKScaleButtons = [{ dataset: { scale: "log" }, classList: toggleClass }];
+    els.riegelFiveKSeriesButtons = [{ dataset: { series: "top1" }, classList: toggleClass }];
+    els.riegelSummaryGrid = { innerHTML: "" };
+    els.riegelEquivalentChartTitle = { textContent: "" };
+    els.riegelExpectedPaceChartCaption = { textContent: "old caption" };
+    els.riegelExpectedPaceChart = { innerHTML: "" };
+    els.riegelFiveKChartCaption = { textContent: "" };
+    els.riegelFiveKChart = { innerHTML: "" };
+    els.riegelProjectionTable = { innerHTML: "" };
+    appState.riegelFiveKScale = "log";
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelSourceDistanceName = "5K";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1;
+    appState.personalBests = {
+      distances: [
+        { name: "400m", distanceKm: 0.4, top: makeTop(90) },
+        { name: "1/2 mile", distanceKm: 0.805, top: makeTop(190) },
+        { name: "1K", distanceKm: 1, top: makeTop(245) },
+        { name: "1 mile", distanceKm: 1.609, top: makeTop(430) },
+        { name: "2 mile", distanceKm: 3.219, top: makeTop(910) },
+        { name: "5K", distanceKm: 5, top: makeTop(1500) },
+        { name: "10K", distanceKm: 10, top: makeTop(3300) },
+        { name: "15K", distanceKm: 15, top: makeTop(5100) },
+        { name: "20K", distanceKm: 20, top: makeTop(7200) },
+        { name: "30K", distanceKm: 30, top: makeTop(11700) }
+      ]
+    };
+
+    renderRiegelAnalysis();
+    els.riegelExpectedPaceChart.innerHTML;
+  `, app);
+
+  const svgHeight = Number(result.match(/viewBox="0 0 980 (\d+)"/)?.[1] || 0);
+  const axisLabelY = Number(result.match(/data-riegel-axis-label="pace"[^>]*y="([\d.]+)"/)?.[1] || 0);
+  const gapAxisLabelY = Number(result.match(/data-riegel-axis-label="gap"[^>]*y="([\d.]+)"/)?.[1] || 0);
+  const legendY = Number(result.match(/data-riegel-legend="expected"[^>]*translate\(\d+, ([\d.]+)\)/)?.[1] || 0);
+  const xAxisLabelY = Number(result.match(/data-riegel-axis-label="distance"[^>]*y="([\d.]+)"/)?.[1] || 0);
+  const paceTickYs = [...result.matchAll(/<text class="axis-label" x="10" y="([\d.]+)">\d+:\d{2}<\/text>/g)]
+    .map((match) => Number(match[1]));
+  const gapTickYs = [...result.matchAll(/<text class="axis-label" x="10" y="([\d.]+)">(?:[+-]0:\d{2}|0)<\/text>/g)]
+    .map((match) => Number(match[1]));
+  const distanceLabelYs = [...result.matchAll(/data-riegel-distance-label="[^"]+"[^>]*y="([\d.]+)"/g)]
+    .map((match) => Number(match[1]));
+
+  assert.ok(svgHeight >= 480);
+  assert.ok(legendY - axisLabelY >= 24);
+  assert.ok(gapAxisLabelY - Math.max(...paceTickYs) >= 24);
+  assert.ok(Math.min(...gapTickYs) - gapAxisLabelY >= 24);
+  assert.ok(Math.min(...distanceLabelYs) <= xAxisLabelY - 28);
+  assert.ok(distanceLabelYs.length <= 6);
 });
 
 test("renderRiegelAnalysis shows placeholders for official best-effort distances without efforts", () => {

@@ -1,0 +1,372 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="480" viewBox="0 0 980 480" style="height:480px" role="img" aria-label="Riegel split pace and pace-gap bar chart by distance for Top 1" data-riegel-distance-scale="log">
+  <style>
+    .axis-label { fill: #5f6a61; font-size: 15px; font-weight: 650; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  </style>
+  <rect width="980" height="480" fill="#ffffff"/>
+      
+        <line x1="92.0" x2="92.0" y1="84" y2="226" stroke="#e5e9e3"></line>
+        <line x1="92.0" x2="92.0" y1="290" y2="386" stroke="#e5e9e3"></line>
+      
+        <line x1="273.7" x2="273.7" y1="84" y2="226" stroke="#e5e9e3"></line>
+        <line x1="273.7" x2="273.7" y1="290" y2="386" stroke="#e5e9e3"></line>
+      
+        <line x1="411.1" x2="411.1" y1="84" y2="226" stroke="#e5e9e3"></line>
+        <line x1="411.1" x2="411.1" y1="290" y2="386" stroke="#e5e9e3"></line>
+      
+        <line x1="592.8" x2="592.8" y1="84" y2="226" stroke="#e5e9e3"></line>
+        <line x1="592.8" x2="592.8" y1="290" y2="386" stroke="#e5e9e3"></line>
+      
+        <line x1="730.2" x2="730.2" y1="84" y2="226" stroke="#e5e9e3"></line>
+        <line x1="730.2" x2="730.2" y1="290" y2="386" stroke="#e5e9e3"></line>
+      
+        <line x1="867.6" x2="867.6" y1="84" y2="226" stroke="#e5e9e3"></line>
+        <line x1="867.6" x2="867.6" y1="290" y2="386" stroke="#e5e9e3"></line>
+      
+        <line x1="948.0" x2="948.0" y1="84" y2="226" stroke="#e5e9e3"></line>
+        <line x1="948.0" x2="948.0" y1="290" y2="386" stroke="#e5e9e3"></line>
+      
+        <line x1="92" x2="948" y1="84.0" y2="84.0" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="10" y="88">3:00</text>
+      
+        <line x1="92" x2="948" y1="119.5" y2="119.5" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="10" y="123.5">4:00</text>
+      
+        <line x1="92" x2="948" y1="155.0" y2="155.0" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="10" y="159">5:00</text>
+      
+        <line x1="92" x2="948" y1="190.5" y2="190.5" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="10" y="194.5">6:00</text>
+      
+        <line x1="92" x2="948" y1="226.0" y2="226.0" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="10" y="230">7:00</text>
+      
+        <line x1="92" x2="948" y1="290.0" y2="290.0" stroke="#d9dfd7" stroke-width="1"></line>
+        <text class="axis-label" x="10" y="294">-0:10</text>
+      
+        <line x1="92" x2="948" y1="314.0" y2="314.0" stroke="#d9dfd7" stroke-width="1"></line>
+        <text class="axis-label" x="10" y="318">-0:05</text>
+      
+        <line x1="92" x2="948" y1="338.0" y2="338.0" stroke="#17201a" stroke-width="1.6"></line>
+        <text class="axis-label" x="10" y="342">0</text>
+      
+        <line x1="92" x2="948" y1="362.0" y2="362.0" stroke="#d9dfd7" stroke-width="1"></line>
+        <text class="axis-label" x="10" y="366">+0:05</text>
+      
+        <line x1="92" x2="948" y1="386.0" y2="386.0" stroke="#d9dfd7" stroke-width="1"></line>
+        <text class="axis-label" x="10" y="390">+0:10</text>
+      
+      <text class="axis-label" data-riegel-axis-label="pace" x="92" y="22">Pace (min/km)</text>
+      <text class="axis-label" data-riegel-axis-label="gap" x="92" y="258">Pace Gap (sec/km)</text>
+      <text class="axis-label" x="948" y="304" text-anchor="end" style="fill:#24724f">Current faster</text>
+      <text class="axis-label" x="948" y="380" text-anchor="end" style="fill:#b24b3f">Current slower</text>
+      <text class="axis-label" data-riegel-axis-label="distance" x="520" y="472" text-anchor="middle">Distance (km)</text>
+      
+    <g data-riegel-legend="expected" transform="translate(92, 52)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#24724f" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Expected Top 1</text>
+    </g>
+    <g data-riegel-legend="current" transform="translate(254, 52)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#17201a" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Current Top 1</text>
+    </g>
+  
+      
+      <text class="axis-label" data-riegel-distance-label="400m" x="92.0" y="438" text-anchor="end" transform="rotate(-34 92.0 438)">400m</text>
+    
+      <text class="axis-label" data-riegel-distance-label="1/2 mile" x="230.7" y="438" text-anchor="end" transform="rotate(-34 230.7 438)">1/2mi</text>
+    
+      <text class="axis-label" data-riegel-distance-label="1 mile" x="368.0" y="438" text-anchor="end" transform="rotate(-34 368.0 438)">1mi</text>
+    
+      <text class="axis-label" data-riegel-distance-label="2 mile" x="505.5" y="438" text-anchor="end" transform="rotate(-34 505.5 438)">2mi</text>
+    
+      <text class="axis-label" data-riegel-distance-label="10K" x="730.2" y="438" text-anchor="end" transform="rotate(-34 730.2 438)">10K</text>
+    
+      <text class="axis-label" data-riegel-distance-label="30K" x="948.0" y="438" text-anchor="end" transform="rotate(-34 948.0 438)">30K</text>
+    
+      <g data-riegel-panel="pace">
+        
+      <line x1="92.0" x2="92.0" y1="107.8" y2="100.3" stroke="#24724f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 400m
+-0:13/km
+Expected 3:40/km
+Current 3:28/km
+0:05 slower than current Top 1"></line>
+    
+      <line x1="230.7" x2="230.7" y1="117.0" y2="121.6" stroke="#b24b3f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 1/2 mile
++0:08/km
+Expected 3:56/km
+Current 4:03/km
+0:06 faster than current Top 1"></line>
+    
+      <line x1="273.7" x2="273.7" y1="120.0" y2="124.2" stroke="#b24b3f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 1K
++0:07/km
+Expected 4:01/km
+Current 4:08/km
+0:07 faster than current Top 1"></line>
+    
+      <line x1="368.0" x2="368.0" y1="126.8" y2="131.2" stroke="#b24b3f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 1 mile
++0:07/km
+Expected 4:12/km
+Current 4:20/km
+0:12 faster than current Top 1"></line>
+    
+      <line x1="505.5" x2="505.5" y1="137.3" y2="134.5" stroke="#24724f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 2 mile
+-0:05/km
+Expected 4:30/km
+Current 4:25/km
+0:15 slower than current Top 1"></line>
+    
+      <line x1="592.8" x2="592.8" y1="144.3" y2="146.4" stroke="#b24b3f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 5K
++0:04/km
+Expected 4:42/km
+Current 4:45/km
+0:18 faster than current Top 1"></line>
+    
+      <line x1="730.2" x2="730.2" y1="156.0" y2="153.5" stroke="#24724f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 10K
+-0:04/km
+Expected 5:02/km
+Current 4:57/km
+0:42 slower than current Top 1"></line>
+    
+      <line x1="810.6" x2="810.6" y1="163.2" y2="162.8" stroke="#24724f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 15K
+-0:01/km
+Expected 5:14/km
+Current 5:13/km
+0:09 slower than current Top 1"></line>
+    
+      <line x1="824.5" x2="824.5" y1="164.5" y2="164.8" stroke="#b24b3f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 10 mile
++0:01/km
+Expected 5:16/km
+Current 5:17/km
+0:10 faster than current Top 1"></line>
+    
+      <line x1="867.6" x2="867.6" y1="168.5" y2="167.8" stroke="#24724f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 20K
+-0:01/km
+Expected 5:23/km
+Current 5:22/km
+0:23 slower than current Top 1"></line>
+    
+      <line x1="878.2" x2="878.2" y1="169.5" y2="168.5" stroke="#24724f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 Half-Marathon
+-0:02/km
+Expected 5:24/km
+Current 5:23/km
+0:34 slower than current Top 1"></line>
+    
+      <line x1="948.0" x2="948.0" y1="176.2" y2="211.7" stroke="#b24b3f" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="Gap Top 1 30K
++1:00/km
+Expected 5:36/km
+Current 6:36/km
+30:02 faster than current Top 1"></line>
+    
+        <path d="M 92.0 107.8 L 230.7 117.0 L 273.7 120.0 L 368.0 126.8 L 505.5 137.3 L 592.8 144.3 L 730.2 156.0 L 810.6 163.2 L 824.5 164.5 L 867.6 168.5 L 878.2 169.5 L 948.0 176.2" fill="none" stroke="#24724f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="M 92.0 100.3 L 230.7 121.6 L 273.7 124.2 L 368.0 131.2 L 505.5 134.5 L 592.8 146.4 L 730.2 153.5 L 810.6 162.8 L 824.5 164.8 L 867.6 167.8 L 878.2 168.5 L 948.0 211.7" fill="none" stroke="#17201a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        
+      <circle cx="92.0" cy="107.8" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="400m" data-tooltip="Expected Top 1 400m
+1:28
+3:40/km
+0:05 slower than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="230.7" cy="117.0" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="1/2 mile" data-tooltip="Expected Top 1 1/2 mile
+3:10
+3:56/km
+0:06 faster than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="273.7" cy="120.0" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="1K" data-tooltip="Expected Top 1 1K
+4:01
+4:01/km
+0:07 faster than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="368.0" cy="126.8" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="1 mile" data-tooltip="Expected Top 1 1 mile
+6:46
+4:12/km
+0:12 faster than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="505.5" cy="137.3" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="2 mile" data-tooltip="Expected Top 1 2 mile
+14:29
+4:30/km
+0:15 slower than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="592.8" cy="144.3" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="5K" data-tooltip="Expected Top 1 5K
+23:29
+4:42/km
+0:18 faster than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="730.2" cy="156.0" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="10K" data-tooltip="Expected Top 1 10K
+50:16
+5:02/km
+0:42 slower than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="810.6" cy="163.2" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="15K" data-tooltip="Expected Top 1 15K
+1:18:27
+5:14/km
+0:09 slower than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="824.5" cy="164.5" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="10 mile" data-tooltip="Expected Top 1 10 mile
+1:24:44
+5:16/km
+0:10 faster than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="867.6" cy="168.5" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="20K" data-tooltip="Expected Top 1 20K
+1:47:35
+5:23/km
+0:23 slower than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="878.2" cy="169.5" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="Half-Marathon" data-tooltip="Expected Top 1 Half-Marathon
+1:54:05
+5:24/km
+0:34 slower than current Top 1
+Median of 12 predictions"></circle>
+    
+      <circle cx="948.0" cy="176.2" r="4.6" fill="#24724f" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="top1" data-riegel-expected-pace-distance="30K" data-tooltip="Expected Top 1 30K
+2:47:54
+5:36/km
+30:02 faster than current Top 1
+Median of 12 predictions"></circle>
+    
+        
+      <circle cx="92.0" cy="100.3" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="400m" data-tooltip="Current Top 1 400m
+1:23
+3:28/km"></circle>
+    
+      <circle cx="230.7" cy="121.6" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="1/2 mile" data-tooltip="Current Top 1 1/2 mile
+3:16
+4:03/km"></circle>
+    
+      <circle cx="273.7" cy="124.2" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="1K" data-tooltip="Current Top 1 1K
+4:08
+4:08/km"></circle>
+    
+      <circle cx="368.0" cy="131.2" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="1 mile" data-tooltip="Current Top 1 1 mile
+6:58
+4:20/km"></circle>
+    
+      <circle cx="505.5" cy="134.5" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="2 mile" data-tooltip="Current Top 1 2 mile
+14:14
+4:25/km"></circle>
+    
+      <circle cx="592.8" cy="146.4" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="5K" data-tooltip="Current Top 1 5K
+23:47
+4:45/km"></circle>
+    
+      <circle cx="730.2" cy="153.5" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="10K" data-tooltip="Current Top 1 10K
+49:34
+4:57/km"></circle>
+    
+      <circle cx="810.6" cy="162.8" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="15K" data-tooltip="Current Top 1 15K
+1:18:18
+5:13/km"></circle>
+    
+      <circle cx="824.5" cy="164.8" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="10 mile" data-tooltip="Current Top 1 10 mile
+1:24:54
+5:17/km"></circle>
+    
+      <circle cx="867.6" cy="167.8" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="20K" data-tooltip="Current Top 1 20K
+1:47:12
+5:22/km"></circle>
+    
+      <circle cx="878.2" cy="168.5" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="Half-Marathon" data-tooltip="Current Top 1 Half-Marathon
+1:53:31
+5:23/km"></circle>
+    
+      <circle cx="948.0" cy="211.7" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="30K" data-tooltip="Current Top 1 30K
+3:17:56
+6:36/km"></circle>
+    
+      </g>
+      <g data-riegel-panel="gap">
+        
+      <rect x="88.5" y="290.0" width="7.0" height="48.0" rx="2" fill="#24724f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="400m" data-riegel-pace-gap-seconds="-13" data-tooltip="Gap Top 1 400m
+-0:13/km
+Expected 3:40/km
+Current 3:28/km
+0:05 slower than current Top 1"></rect>
+      
+    
+      <rect x="227.2" y="338.0" width="7.0" height="36.6" rx="2" fill="#b24b3f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="1/2 mile" data-riegel-pace-gap-seconds="8" data-tooltip="Gap Top 1 1/2 mile
++0:08/km
+Expected 3:56/km
+Current 4:03/km
+0:06 faster than current Top 1"></rect>
+      
+    
+      <rect x="270.2" y="338.0" width="7.0" height="34.1" rx="2" fill="#b24b3f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="1K" data-riegel-pace-gap-seconds="7" data-tooltip="Gap Top 1 1K
++0:07/km
+Expected 4:01/km
+Current 4:08/km
+0:07 faster than current Top 1"></rect>
+      
+    
+      <rect x="364.5" y="338.0" width="7.0" height="35.7" rx="2" fill="#b24b3f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="1 mile" data-riegel-pace-gap-seconds="7" data-tooltip="Gap Top 1 1 mile
++0:07/km
+Expected 4:12/km
+Current 4:20/km
+0:12 faster than current Top 1"></rect>
+      
+    
+      <rect x="502.0" y="315.3" width="7.0" height="22.7" rx="2" fill="#24724f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="2 mile" data-riegel-pace-gap-seconds="-5" data-tooltip="Gap Top 1 2 mile
+-0:05/km
+Expected 4:30/km
+Current 4:25/km
+0:15 slower than current Top 1"></rect>
+      
+    
+      <rect x="589.3" y="338.0" width="7.0" height="16.8" rx="2" fill="#b24b3f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="5K" data-riegel-pace-gap-seconds="4" data-tooltip="Gap Top 1 5K
++0:04/km
+Expected 4:42/km
+Current 4:45/km
+0:18 faster than current Top 1"></rect>
+      
+    
+      <rect x="726.7" y="317.7" width="7.0" height="20.3" rx="2" fill="#24724f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="10K" data-riegel-pace-gap-seconds="-4" data-tooltip="Gap Top 1 10K
+-0:04/km
+Expected 5:02/km
+Current 4:57/km
+0:42 slower than current Top 1"></rect>
+      
+    
+      <rect x="807.1" y="335.0" width="7.0" height="3.0" rx="2" fill="#24724f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="15K" data-riegel-pace-gap-seconds="-1" data-tooltip="Gap Top 1 15K
+-0:01/km
+Expected 5:14/km
+Current 5:13/km
+0:09 slower than current Top 1"></rect>
+      
+    
+      <rect x="821.0" y="338.0" width="7.0" height="3.0" rx="2" fill="#b24b3f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="10 mile" data-riegel-pace-gap-seconds="1" data-tooltip="Gap Top 1 10 mile
++0:01/km
+Expected 5:16/km
+Current 5:17/km
+0:10 faster than current Top 1"></rect>
+      
+    
+      <rect x="864.1" y="332.4" width="7.0" height="5.6" rx="2" fill="#24724f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="20K" data-riegel-pace-gap-seconds="-1" data-tooltip="Gap Top 1 20K
+-0:01/km
+Expected 5:23/km
+Current 5:22/km
+0:23 slower than current Top 1"></rect>
+      
+    
+      <rect x="874.7" y="330.3" width="7.0" height="7.7" rx="2" fill="#24724f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="Half-Marathon" data-riegel-pace-gap-seconds="-2" data-tooltip="Gap Top 1 Half-Marathon
+-0:02/km
+Expected 5:24/km
+Current 5:23/km
+0:34 slower than current Top 1"></rect>
+      
+    
+      <rect x="944.5" y="338.0" width="7.0" height="48.0" rx="2" fill="#b24b3f" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-distance="30K" data-riegel-pace-gap-seconds="60" data-tooltip="Gap Top 1 30K
++1:00/km
+Expected 5:36/km
+Current 6:36/km
+30:02 faster than current Top 1"></rect>
+      
+    
+      </g>
+    </svg>

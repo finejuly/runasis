@@ -1,8 +1,22 @@
+<p align="center">
+  <img src="assets/runasis-strava-icon-512.png" alt="Runasis logo" width="96">
+</p>
+
 # Runasis
 
 Runasis is an unofficial running dashboard for Strava. It brings your running history into a local app, then turns it into clear summaries, personal-best charts, and race-time projections.
 
 It is built for runners who want to understand their own training history without uploading their data to another service. Your Strava API credentials, tokens, and activity data are saved only on your own machine and are not sent to any external server by Runasis.
+
+## Example Screens
+
+<table>
+  <tr>
+    <td><img src="assets/screenshots/weekly-distance.jpg" alt="Weekly distance chart" width="260"></td>
+    <td><img src="assets/screenshots/personal-best-trend.jpg" alt="Personal best trend chart" width="260"></td>
+    <td><img src="assets/screenshots/riegel-expected-pace.svg" alt="Riegel expected pace chart" width="260"></td>
+  </tr>
+</table>
 
 ## What You Can See
 
