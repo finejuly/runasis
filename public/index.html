@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Runasis</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Runasis</h1>
+      </div>
+      <div class="topbar-actions">
+        <span class="status-pill" id="connectionStatus">Checking</span>
+        <button class="button primary" id="connectButton" type="button">Connect Strava</button>
+        <button class="button" id="syncButton" type="button">Sync</button>
+        <button class="button" id="detailSyncButton" type="button">Best Efforts</button>
+        <button class="button danger" id="clearButton" type="button">Clear Data</button>
+        <a class="topbar-icon-link repository-link hidden" id="repositoryLink" target="_blank" rel="noreferrer" aria-label="View repository" title="View repository">
+          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5A10.6 10.6 0 0 0 8 3.5C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"></path>
+            <path d="M9 18c-4.51 2-5-2-7-2"></path>
+          </svg>
+        </a>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="summary-band" aria-label="Summary">
+        <div class="athlete-card">
+          <div class="avatar" id="athleteAvatar" aria-hidden="true">R</div>
+          <div>
+            <p class="muted" id="athleteMeta">No Strava account connected</p>
+            <h2 id="athleteName">My running log</h2>
+          </div>
+        </div>
+        <div class="sync-meta">
+          <span id="lastSync">No sync yet</span>
+          <span id="activityCount">0 activities · 0 runs</span>
+          <span id="detailSync">Best efforts 0/0</span>
+        </div>
+      </section>
+
+      <section class="setup-alert hidden" id="setupAlert" aria-live="polite">
+        <div class="setup-copy">
+          <strong>Strava app setup required</strong>
+          <span>Save the Client ID and Client Secret from your Strava app.</span>
+        </div>
+        <form class="setup-form" id="setupForm" autocomplete="off">
+          <label class="setup-field">
+            <span>Client ID</span>
+            <input id="stravaClientIdInput" type="text" inputmode="numeric" autocomplete="off" required>
+          </label>
+          <label class="setup-field">
+            <span>Client Secret</span>
+            <input id="stravaClientSecretInput" type="password" autocomplete="off" required>
+          </label>
+          <button class="button primary" id="stravaConfigSaveButton" type="submit">Save Settings</button>
+        </form>
+      </section>
+
+      <section class="controls-band" aria-label="Views">
+        <div class="view-tabs" role="group" aria-label="Views">
+          <button class="view-tab active" type="button" data-view="dashboard">Dashboard</button>
+          <button class="view-tab" type="button" data-view="pb">Personal Bests</button>
+          <button class="view-tab" type="button" data-view="analysis">Analysis</button>
+        </div>
+        <div class="field analysis-rank-control hidden" id="analysisRankControl">
+          <span>Bests</span>
+          <div class="scale-toggle series-toggle" role="group" aria-label="Personal best rank">
+            <button class="scale-option riegel-series-option active" type="button" data-series="top1">Top 1</button>
+            <button class="scale-option riegel-series-option" type="button" data-series="top3">Top 3</button>
+            <button class="scale-option riegel-series-option" type="button" data-series="top10">Top 10</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="dashboardView">
+        <div class="kpi-summary-heading">
+          <div>
+            <h2>Key Metrics</h2>
+            <span id="kpiRangeCaption">No range</span>
+          </div>
+          <label class="field dashboard-range-field">
+            <span>Range</span>
+            <select id="rangeSelect">
+              <option value="all">All</option>
+              <option value="365">Last year</option>
+              <option value="180">Last 6 months</option>
+              <option value="90">Last 90 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="7">Last 7 days</option>
+            </select>
+          </label>
+        </div>
+        <section class="kpi-grid" id="dashboardKpiGrid" aria-label="Key metrics">
+          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="distance" role="button" tabindex="0" aria-pressed="true" aria-label="Show distance chart">
+            <span>Distance</span>
+            <strong id="kpiDistance">0 km</strong>
+            <small id="kpiDistanceSub">Based on saved runs</small>
+          </article>
+          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="activities" role="button" tabindex="0" aria-pressed="false" aria-label="Show activity chart">
+            <span>Activities</span>
+            <strong id="kpiActivities">0</strong>
+            <small id="kpiActivitiesSub">Filtered</small>
+          </article>
+          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="time" role="button" tabindex="0" aria-pressed="false" aria-label="Show time chart">
+            <span>Time</span>
+            <strong id="kpiTime">0 h</strong>
+            <small id="kpiTimeSub">moving time</small>
+          </article>
+          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="elevation" role="button" tabindex="0" aria-pressed="false" aria-label="Show elevation gain chart">
+            <span>Elevation Gain</span>
+            <strong id="kpiElevation">0 m</strong>
+            <small id="kpiElevationSub">Total climb</small>
+          </article>
+        </section>
+
+        <article class="chart-panel cumulative-distance-panel">
+          <div class="panel-title">
+            <h2 id="cumulativeMetricTitle">Cumulative Distance</h2>
+            <span id="cumulativeDistanceCaption">No data</span>
+          </div>
+          <div class="chart-box cumulative-distance-chart" id="cumulativeDistanceChart" aria-label="Cumulative distance by date chart"></div>
+        </article>
+
+        <section class="chart-grid summary-chart-grid">
+          <article class="chart-panel">
+            <div class="panel-title">
+              <h2 id="primaryDistanceTitle">Weekly Distance</h2>
+              <span id="monthlyCaption">No data</span>
+            </div>
+            <div class="chart-box" id="monthlyChart" aria-label="Weekly activity chart"></div>
+          </article>
+          <article class="chart-panel">
+            <div class="panel-title">
+              <h2>Distance Distribution</h2>
+              <span id="distanceDistributionCaption">No data</span>
+            </div>
+            <div class="chart-box" id="distanceDistributionChart" aria-label="Activity distance distribution for selected range chart"></div>
+          </article>
+        </section>
+
+        <section class="records-grid">
+          <article class="records-panel">
+            <div class="panel-title">
+              <h2>Longest Runs</h2>
+              <span id="longRunCaption">By distance</span>
+            </div>
+            <ol class="ranking-list" id="longRunList"></ol>
+          </article>
+          <article class="records-panel table-panel">
+            <div class="panel-title">
+              <h2>Recent Activities</h2>
+              <span id="recentCaption">Newest first</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Distance</th>
+                    <th>Pace</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody id="activityTable"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </div>
+
+      <section class="analysis-view hidden" id="pbView" aria-label="Personal bests">
+        <article class="chart-panel personal-best-chart-panel">
+          <div class="panel-title">
+            <h2>Pace Curve by Distance</h2>
+            <div class="panel-actions">
+              <span id="personalBestChartCaption"></span>
+              <div class="scale-toggle" role="group" aria-label="X-axis scale">
+                <button class="scale-option pb-scale-option active" type="button" data-scale="linear">Linear</button>
+                <button class="scale-option pb-scale-option" type="button" data-scale="log">Log</button>
+              </div>
+            </div>
+          </div>
+          <div class="chart-box personal-best-chart" id="personalBestChart" aria-label="Personal best pace by distance chart"></div>
+        </article>
+        <article class="chart-panel personal-best-chart-panel">
+          <div class="panel-title">
+            <h2>Personal Best Timing by Distance</h2>
+            <span id="personalBestRecencyChartCaption">D-day</span>
+          </div>
+          <div class="chart-box personal-best-chart" id="personalBestRecencyChart" aria-label="Personal best timing by distance chart"></div>
+        </article>
+        <article class="chart-panel personal-best-chart-panel">
+          <div class="panel-title">
+            <h2>Personal Best Trend</h2>
+            <div class="panel-actions">
+              <span id="personalBestTrendCaption"></span>
+              <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Personal best trend display count">
+                <button class="scale-option pb-trend-limit-option" type="button" data-limit="5">Top 5</button>
+                <button class="scale-option pb-trend-limit-option" type="button" data-limit="10">Top 10</button>
+                <button class="scale-option pb-trend-limit-option active" type="button" data-limit="20">Top 20</button>
+              </div>
+              <label class="select-field personal-best-trend-field">
+                <span>Distance</span>
+                <select id="personalBestTrendDistanceSelect" aria-label="Personal best trend distance"></select>
+              </label>
+            </div>
+          </div>
+          <div class="chart-box personal-best-chart" id="personalBestTrendChart" aria-label="Personal best trend by distance chart"></div>
+        </article>
+        <div class="personal-best-grid" id="personalBestGrid"></div>
+      </section>
+
+      <section class="analysis-view hidden" id="analysisView" aria-label="Running analysis">
+        <div class="analysis-heading">
+          <div class="panel-title">
+            <div class="title-with-help">
+              <h2>Riegel Analysis</h2>
+              <button class="help-button" id="riegelInfoButton" type="button" aria-label="About Riegel Analysis" aria-haspopup="dialog">?</button>
+            </div>
+            <div class="panel-actions">
+              <div class="scale-toggle exponent-mode-toggle" role="group" aria-label="Riegel exponent mode">
+                <button class="scale-option riegel-exponent-mode-option" type="button" data-mode="default">Default</button>
+                <button class="scale-option riegel-exponent-mode-option active" type="button" data-mode="median">Median</button>
+                <button class="scale-option riegel-exponent-mode-option" type="button" data-mode="custom">Custom</button>
+              </div>
+              <label class="number-field riegel-exponent-field">
+                <span>Exponent</span>
+                <input id="riegelExponentInput" type="number" min="0.001" step="0.001" inputmode="decimal" value="1.060" aria-label="Riegel exponent">
+              </label>
+            </div>
+          </div>
+        </div>
+        <section class="kpi-grid analysis-kpi-grid" aria-label="Riegel summary" id="riegelSummaryGrid"></section>
+        <article class="chart-panel personal-best-chart-panel">
+          <div class="panel-title">
+            <h2>Expected vs Current by Distance</h2>
+            <div class="panel-actions">
+              <span id="riegelExpectedPaceChartCaption"></span>
+              <div class="scale-toggle" role="group" aria-label="Expected vs current x-axis scale">
+                <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
+                <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
+              </div>
+            </div>
+          </div>
+          <div class="chart-box personal-best-chart expected-gap-chart" id="riegelExpectedPaceChart" aria-label="Expected records compared with current records chart"></div>
+        </article>
+        <article class="chart-panel personal-best-chart-panel">
+          <div class="panel-title">
+            <div class="title-with-help">
+              <h2 id="riegelEquivalentChartTitle">Baseline Prediction</h2>
+              <button class="help-button" id="riegelEquivalentInfoButton" type="button" aria-label="About baseline prediction" aria-haspopup="dialog">?</button>
+            </div>
+            <div class="panel-actions">
+              <span id="riegelFiveKChartCaption"></span>
+              <div class="scale-toggle" role="group" aria-label="X-axis scale">
+                <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
+                <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
+              </div>
+            </div>
+          </div>
+          <div class="chart-box personal-best-chart" id="riegelFiveKChart" aria-label="Baseline prediction by predictor distance chart"></div>
+        </article>
+        <section class="analysis-grid">
+          <article class="records-panel analysis-panel analysis-panel--full-row">
+            <div class="panel-title">
+              <div class="title-with-help">
+                <h2>Riegel Projection</h2>
+                <button class="help-button" id="riegelProjectionInfoButton" type="button" aria-label="About Riegel Projection" aria-haspopup="dialog">?</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Distance</th>
+                    <th>Selected Best</th>
+                    <th>Projection</th>
+                    <th>Diff</th>
+                    <th>Pace</th>
+                  </tr>
+                </thead>
+                <tbody id="riegelProjectionTable"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+      </section>
+    </main>
+
+    <div class="modal-backdrop hidden" id="clearConfirmDialog" role="dialog" aria-modal="true" aria-labelledby="clearConfirmTitle" aria-describedby="clearConfirmMessage">
+      <div class="confirm-dialog">
+        <h2 id="clearConfirmTitle">Clear saved data?</h2>
+        <p id="clearConfirmMessage">This deletes locally saved Strava tokens and activity data. You will need to reconnect Strava and sync again to view them.</p>
+        <div class="confirm-actions">
+          <button class="button ghost" id="clearConfirmCancelButton" type="button">Cancel</button>
+          <button class="button danger confirm-danger" id="clearConfirmDeleteButton" type="button">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="riegelInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelInfoTitle">
+      <div class="confirm-dialog info-dialog">
+        <div class="info-dialog-header">
+          <h2 id="riegelInfoTitle">Riegel Analysis</h2>
+          <button class="button ghost" id="riegelInfoCloseButton" type="button">Close</button>
+        </div>
+        <p>Riegel analysis estimates equivalent race times from a selected baseline personal best using a power-law model.</p>
+        <p><span class="formula-text">T2 = T1 x (D2 / D1)^exponent</span></p>
+        <p>The commonly used Riegel race-prediction formula uses an exponent of 1.060. Many recreational runners slow down more over longer distances than that baseline predicts.</p>
+        <p>A higher exponent can reflect short-distance strength, less developed long-distance preparation, pacing, terrain, or limited data. Treat it as a comparison tool rather than a diagnosis.</p>
+        <p>Use this page in two ways:</p>
+        <ol class="info-list">
+          <li>Find distances where your current best is weaker than the projection from your own estimated exponent.</li>
+          <li>Track whether long-distance training lowers your exponent, especially when preparing for the marathon or longer distances.</li>
+        </ol>
+        <p>A lower exponent means you hold pace better as distance increases. Default uses 1.060, Median estimates the exponent from your best efforts, and Custom lets you set it manually.</p>
+        <p class="info-reference">
+          Learn more:
+          <a href="https://en.wikipedia.org/wiki/Peter_Riegel" target="_blank" rel="noopener noreferrer">Peter Riegel on Wikipedia</a>
+        </p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="riegelEquivalentInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelEquivalentInfoTitle">
+      <div class="confirm-dialog info-dialog">
+        <div class="info-dialog-header">
+          <h2 id="riegelEquivalentInfoTitle">Baseline Prediction</h2>
+          <button class="button ghost" id="riegelEquivalentInfoCloseButton" type="button">Close</button>
+        </div>
+        <p>This chart estimates the selected baseline distance from each personal best using the current Riegel exponent.</p>
+        <p>For example, with 5K selected, each bar converts that distance's best effort into a predicted 5K time. This makes short and long-distance performances easier to compare on one target distance.</p>
+      </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="riegelProjectionInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelProjectionInfoTitle">
+      <div class="confirm-dialog info-dialog">
+        <div class="info-dialog-header">
+          <h2 id="riegelProjectionInfoTitle">Riegel Projection</h2>
+          <button class="button ghost" id="riegelProjectionInfoCloseButton" type="button">Close</button>
+        </div>
+        <p>This table estimates each target distance from the selected baseline best using the current Riegel exponent.</p>
+        <p>For example, with 5K selected, it projects what your 10K, half-marathon, or marathon could look like from that 5K result. The diff column compares the projection with your saved best at the same distance.</p>
+      </div>
+    </div>
+
+    <div class="chart-tooltip" id="chartTooltip" role="tooltip"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

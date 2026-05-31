@@ -1,0 +1,15 @@
+{
+  "name": "runasis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local Strava running log importer and analytics dashboard.",
+  "license": "Beerware",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

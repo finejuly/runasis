@@ -1,0 +1,11 @@
+.DS_Store
+.env*
+!.env.example
+.superpowers/
+data/*.json
+data/**/*.json
+data/strava/
+data/strava-store.json
+node_modules/
+Runasis.app/
+.build/
