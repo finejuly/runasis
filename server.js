@@ -483,6 +483,16 @@ function activityDataPath(directory, id) {
   return path.join(directory, `${safeId}.json`);
 }
 
+function normalizeActivityId(value) {
+  const id = String(value ?? "").trim();
+  if (!/^[0-9A-Za-z_-]+$/.test(id)) {
+    const error = new Error("Activity id is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+  return id;
+}
+
 async function writeActivityDetail(id, detail) {
   await writeJsonAtomic(activityDataPath(DETAILS_DIR, id), detail);
 }
@@ -1139,6 +1149,49 @@ async function syncActivityDetails(options = {}) {
   return { summary, status: statusFromStore(store) };
 }
 
+async function refreshActivityDetail(activityId) {
+  const id = normalizeActivityId(activityId);
+  let store = await readStore();
+  const activity = (store.activities || []).find((item) => String(item.id) === id);
+  if (!activity) {
+    const error = new Error("Activity is not in the saved activity list.");
+    error.statusCode = 404;
+    throw error;
+  }
+  if (!isRun(activity)) {
+    const error = new Error("Only saved runs can refresh best-effort details.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const tokenResult = await ensureAccessToken(store);
+  store = tokenResult.store;
+
+  const syncedAt = new Date().toISOString();
+  const detail = await fetchDetailedActivity(tokenResult.accessToken, id);
+  const sanitized = sanitizeActivityDetails(detail, syncedAt);
+  await writeActivityDetail(id, sanitized);
+
+  const detailsById = new Map(store.detailsById || []);
+  detailsById.set(id, sanitized);
+  const merged = mergeActivities(store.activities, [sanitized]);
+  const summary = {
+    activityId: id,
+    refreshed: 1,
+    syncedAt
+  };
+
+  store = await writeStore({
+    ...store,
+    activities: merged.activities,
+    detailsById,
+    lastDetailSyncAt: syncedAt,
+    lastDetailSyncSummary: summary
+  });
+
+  return { summary, status: statusFromStore(store) };
+}
+
 function normalizeEpoch(value) {
   if (!value) return null;
   if (typeof value === "number" && Number.isFinite(value)) return Math.floor(value);
@@ -1252,6 +1305,12 @@ async function handleApi(req, res, url) {
   if (url.pathname === "/api/activity-details/sync" && req.method === "POST") {
     const body = await parseJsonBody(req);
     const result = await syncActivityDetails(body);
+    return sendJson(res, 200, result);
+  }
+
+  if (url.pathname === "/api/activity-details/refresh" && req.method === "POST") {
+    const body = await parseJsonBody(req);
+    const result = await refreshActivityDetail(body.activityId);
     return sendJson(res, 200, result);
   }
 
