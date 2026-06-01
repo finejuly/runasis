@@ -118,6 +118,8 @@ const RIEGEL_TARGETS = [
   { name: "50K", distanceKm: 50 }
 ];
 const EXPECTED_SUMMARY_TARGET_NAMES = ["Half-Marathon", "Marathon"];
+const RIEGEL_EXPECTED_PACE_CHART_MAX_PROJECTED_DISTANCE_KM =
+  RIEGEL_TARGETS.find((target) => target.name === "Marathon")?.distanceKm || 42.195;
 const MIN_RIEGEL_EXPONENT_DISTANCE_KM = 0.4;
 
 const els = {};
@@ -212,6 +214,7 @@ function cacheElements() {
     "riegelExpectedPaceChartCaption",
     "riegelFiveKChart",
     "riegelFiveKChartCaption",
+    "riegelProjectionTitle",
     "riegelProjectionTable",
     "chartTooltip",
     "toast"
@@ -1730,6 +1733,7 @@ function renderRiegelAnalysis() {
     if (els.riegelExpectedPaceChartCaption) els.riegelExpectedPaceChartCaption.textContent = "";
     if (els.riegelExpectedPaceChart) renderEmpty(els.riegelExpectedPaceChart, "No expected pace data");
     els.riegelEquivalentChartTitle.textContent = "Baseline Prediction";
+    if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = "Riegel Projection";
     renderEmpty(els.riegelFiveKChart, "No baseline prediction data");
     els.riegelProjectionTable.innerHTML = `<tr><td colspan="5">No best effort data available for analysis</td></tr>`;
     return;
@@ -1738,6 +1742,7 @@ function renderRiegelAnalysis() {
   updateRiegelExponentControls(analysis.riegelExponent);
   appState.activeRiegelSourceDistanceName = analysis.source.name;
   els.riegelEquivalentChartTitle.textContent = `${analysis.source.name} Prediction`;
+  if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = `Riegel Projection · ${analysis.source.name}`;
   const expectedTargetCards = (analysis.expectedTargetRecords || []).map((target) => {
     const predictedTime = Number.isFinite(target.predictedTime) ? formatClockDuration(target.predictedTime) : "-";
     const predictedPace = Number.isFinite(target.predictedPaceSecondsPerKm)
@@ -2084,40 +2089,64 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   if (!els.riegelExpectedPaceChart || !els.riegelExpectedPaceChartCaption) return;
 
   const series = (expectedSeries || [])
-    .map((item) => ({
-      ...item,
-      points: (item.points || [])
-        .map((row) => ({
-          name: row.name,
-          distanceKm: Number(row.distanceKm || 0),
-          predictedTime: Number(row.predictedTime || 0),
-          paceSecondsPerKm: Number(row.predictedPaceSecondsPerKm || 0),
-          actualTime: Number(row.actualTime || 0),
-          actualPaceSecondsPerKm: Number(row.actualTime || 0) / Number(row.distanceKm || 0),
-          deltaSeconds: Number.isFinite(row.deltaSeconds) ? row.deltaSeconds : null,
-          gapSeconds: Number.isFinite(row.deltaSeconds) ? -row.deltaSeconds : null,
-          paceGapSecondsPerKm: Number.isFinite(row.deltaSeconds) && Number(row.distanceKm || 0) > 0
-            ? -row.deltaSeconds / Number(row.distanceKm || 0)
-            : null,
-          sourceCount: Number(row.sourceCount || 0)
-        }))
-        .filter((point) => (
-          point.name &&
-          Number.isFinite(point.distanceKm) &&
-          point.distanceKm > 0 &&
-          Number.isFinite(point.predictedTime) &&
-          point.predictedTime > 0 &&
-          Number.isFinite(point.paceSecondsPerKm) &&
-          point.paceSecondsPerKm > 0 &&
-          Number.isFinite(point.actualTime) &&
-          point.actualTime > 0 &&
-          Number.isFinite(point.actualPaceSecondsPerKm) &&
-          point.actualPaceSecondsPerKm > 0 &&
-          Number.isFinite(point.gapSeconds) &&
-          Number.isFinite(point.paceGapSecondsPerKm)
-        ))
-        .sort((a, b) => a.distanceKm - b.distanceKm || a.name.localeCompare(b.name))
-    }))
+    .map((item) => {
+      const mappedPoints = (item.points || [])
+        .map((row) => {
+          const distanceKm = Number(row.distanceKm || 0);
+          const actualTime = Number(row.actualTime || 0);
+          const hasCurrent = (
+            Number.isFinite(actualTime) &&
+            actualTime > 0 &&
+            Number.isFinite(distanceKm) &&
+            distanceKm > 0
+          );
+          const deltaSeconds = Number.isFinite(row.deltaSeconds) ? row.deltaSeconds : null;
+          return {
+            name: row.name,
+            distanceKm,
+            predictedTime: Number(row.predictedTime || 0),
+            paceSecondsPerKm: Number(row.predictedPaceSecondsPerKm || 0),
+            actualTime: hasCurrent ? actualTime : null,
+            actualPaceSecondsPerKm: hasCurrent ? actualTime / distanceKm : null,
+            deltaSeconds,
+            gapSeconds: hasCurrent && Number.isFinite(deltaSeconds) ? -deltaSeconds : null,
+            paceGapSecondsPerKm: hasCurrent && Number.isFinite(deltaSeconds)
+              ? -deltaSeconds / distanceKm
+              : null,
+            hasCurrent,
+            sourceCount: Number(row.sourceCount || 0)
+          };
+        });
+      const maxCurrentDistanceKm = Math.max(
+        0,
+        ...mappedPoints
+          .filter((point) => point.hasCurrent)
+          .map((point) => point.distanceKm)
+      );
+      const points = mappedPoints
+        .filter((point) => {
+          const hasExpectedPace = (
+            point.name &&
+            Number.isFinite(point.distanceKm) &&
+            point.distanceKm > 0 &&
+            Number.isFinite(point.predictedTime) &&
+            point.predictedTime > 0 &&
+            Number.isFinite(point.paceSecondsPerKm) &&
+            point.paceSecondsPerKm > 0
+          );
+          if (!hasExpectedPace) return false;
+          const extendsCurrentRange = (
+            point.distanceKm > maxCurrentDistanceKm &&
+            point.distanceKm <= RIEGEL_EXPECTED_PACE_CHART_MAX_PROJECTED_DISTANCE_KM
+          );
+          return point.hasCurrent || extendsCurrentRange;
+        })
+        .sort((a, b) => a.distanceKm - b.distanceKm || a.name.localeCompare(b.name));
+      return {
+        ...item,
+        points
+      };
+    })
     .filter((item) => item.points.length);
 
   if (!series.length) {
@@ -2141,6 +2170,16 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   }
 
   els.riegelExpectedPaceChartCaption.textContent = "";
+  const currentPoints = points.filter((point) => (
+    point.hasCurrent &&
+    Number.isFinite(point.actualPaceSecondsPerKm) &&
+    point.actualPaceSecondsPerKm > 0
+  ));
+  const comparisonPoints = points.filter((point) => (
+    point.hasCurrent &&
+    Number.isFinite(point.gapSeconds) &&
+    Number.isFinite(point.paceGapSecondsPerKm)
+  ));
 
   const width = 980;
   const height = 480;
@@ -2157,13 +2196,14 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   const xMin = useLogScale ? minDistance : 0;
   const logMin = useLogScale ? Math.log(xMin) : 0;
   const logSpread = useLogScale ? Math.max(Math.log(xMax) - logMin, 0.0001) : 1;
-  const paceDomain = buildPaceAxisDomain(points.flatMap((point) => [
-    point.paceSecondsPerKm,
-    point.actualPaceSecondsPerKm
-  ]));
+  const paceDomain = buildPaceAxisDomain(points.flatMap((point) => (
+    point.hasCurrent
+      ? [point.paceSecondsPerKm, point.actualPaceSecondsPerKm]
+      : [point.paceSecondsPerKm]
+  )));
   const maxGap = 10;
   const gapSpread = maxGap * 2;
-  const showGapLabels = points.length <= 6;
+  const showGapLabels = comparisonPoints.length <= 6;
 
   const x = (distanceKm) => {
     if (!useLogScale) return padding.left + (distanceKm / xMax) * chartWidth;
@@ -2211,7 +2251,7 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
       <text class="axis-label" x="28" y="4">Current ${selectedSeries.label}</text>
     </g>
   `;
-  const minDistanceLabelGap = 112;
+  const minDistanceLabelGap = points.length > 10 ? 132 : 112;
   const visibleDistanceLabelPoints = [];
   let lastDistanceLabelX = -Infinity;
   for (let index = 0; index < points.length; index += 1) {
@@ -2242,7 +2282,7 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   const expectedPath = points
     .map((point, index) => `${index ? "L" : "M"} ${x(point.distanceKm).toFixed(1)} ${yPace(point.paceSecondsPerKm).toFixed(1)}`)
     .join(" ");
-  const currentPath = points
+  const currentPath = currentPoints
     .map((point, index) => `${index ? "L" : "M"} ${x(point.distanceKm).toFixed(1)} ${yPace(point.actualPaceSecondsPerKm).toFixed(1)}`)
     .join(" ");
   const pointXPositions = points.map((point) => x(point.distanceKm)).sort((a, b) => a - b);
@@ -2251,7 +2291,7 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
     : 34;
   const gapBarWidth = Math.max(7, Math.min(24, minPointGap * 0.46));
   const zeroGapY = yGap(0);
-  const paceConnectors = points.map((point) => {
+  const paceConnectors = comparisonPoints.map((point) => {
     const pointX = x(point.distanceKm);
     const expectedY = yPace(point.paceSecondsPerKm);
     const currentY = yPace(point.actualPaceSecondsPerKm);
@@ -2262,7 +2302,7 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
       <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${expectedY.toFixed(1)}" y2="${currentY.toFixed(1)}" stroke="${gapColor}" stroke-width="1.8" stroke-dasharray="4 4" opacity="0.48" data-tooltip="${escapeHtml(tooltip)}"></line>
     `;
   }).join("");
-  const gapBars = points.map((point) => {
+  const gapBars = comparisonPoints.map((point) => {
     const pointX = x(point.distanceKm);
     const gapY = yGap(point.paceGapSecondsPerKm);
     const gapLabel = formatPaceGapLabel(point.paceGapSecondsPerKm);
@@ -2289,7 +2329,7 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
       <circle cx="${x(point.distanceKm).toFixed(1)}" cy="${yPace(point.paceSecondsPerKm).toFixed(1)}" r="4.6" fill="${selectedSeries.color}" stroke="#ffffff" stroke-width="1.8" data-riegel-expected-pace-series="${escapeHtml(selectedSeries.key)}" data-riegel-expected-pace-distance="${escapeHtml(point.name)}" data-tooltip="${escapeHtml(tooltip)}"></circle>
     `;
   }).join("");
-  const currentDots = points.map((point) => {
+  const currentDots = currentPoints.map((point) => {
     const tooltip = `Current ${selectedSeries.label} ${point.name}\n${formatClockDuration(point.actualTime)}\n${formatPaceWithUnit(point.actualPaceSecondsPerKm)}`;
     return `
       <circle cx="${x(point.distanceKm).toFixed(1)}" cy="${yPace(point.actualPaceSecondsPerKm).toFixed(1)}" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-riegel-current-pace-distance="${escapeHtml(point.name)}" data-tooltip="${escapeHtml(tooltip)}"></circle>
@@ -2309,7 +2349,7 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
       <g data-riegel-panel="pace">
         ${paceConnectors}
         <path d="${expectedPath}" fill="none" stroke="${selectedSeries.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
-        <path d="${currentPath}" fill="none" stroke="#17201a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        ${currentPath ? `<path d="${currentPath}" fill="none" stroke="#17201a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
         ${expectedDots}
         ${currentDots}
       </g>
