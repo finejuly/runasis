@@ -425,6 +425,68 @@ test("failed activity details remain pending for retry", () => {
   });
 });
 
+test("activity detail refresh endpoint refetches one saved run even when cached", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockStore = {
+      activities: [{
+        id: 123,
+        name: "Old Run",
+        sport_type: "Run",
+        distance: 4900,
+        moving_time: 1510,
+        start_date: "2026-05-01T00:00:00Z"
+      }],
+      detailsById: new Map([["123", {
+        id: 123,
+        name: "Old Run",
+        sport_type: "Run",
+        best_efforts: [{ id: "old-effort", name: "5K", distance: 5000, moving_time: 1500 }],
+        details_fetched_at: "2026-05-01T00:00:00.000Z"
+      }]])
+    };
+    mockFetchCalls = [];
+    readStore = async () => mockStore;
+    ensureAccessToken = async (store) => ({ store, accessToken: "access-token" });
+    fetchDetailedActivity = async (accessToken, id) => {
+      mockFetchCalls.push({ accessToken, id });
+      return {
+        id: 123,
+        name: "Fixed Run",
+        sport_type: "Run",
+        distance: 5000,
+        moving_time: 1490,
+        start_date: "2026-05-01T00:00:00Z",
+        best_efforts: [{ id: "new-effort", name: "5K", distance: 5000, moving_time: 1490 }]
+      };
+    };
+    writeActivityDetail = async (id, detail) => { mockWrittenDetail = { id, detail }; };
+    writeStore = async (store) => { mockWrittenStore = store; return store; };
+  `, server);
+
+  const response = await callApi(server, "/api/activity-details/refresh", "POST", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ activityId: 123 })
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = JSON.parse(response.body);
+  const result = vm.runInContext(`({
+    fetchCalls: mockFetchCalls,
+    writtenDetail: mockWrittenDetail,
+    writtenActivities: mockWrittenStore.activities
+  })`, server);
+
+  assert.equal(body.summary.refreshed, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.fetchCalls)), [{ accessToken: "access-token", id: "123" }]);
+  assert.equal(result.writtenDetail.id, "123");
+  assert.equal(result.writtenDetail.detail.name, "Fixed Run");
+  assert.equal(result.writtenDetail.detail.best_efforts[0].id, "new-effort");
+  assert.equal(result.writtenActivities[0].name, "Fixed Run");
+  assert.equal(result.writtenActivities[0].moving_time, 1490);
+});
+
 test("topbar omits eyebrow copy", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
 
@@ -593,6 +655,41 @@ test("renderPersonalBestChart keeps the panel caption empty", () => {
   assert.equal(result.caption, "");
   assert.doesNotMatch(result.chart, /Linear distance axis|Log distance axis/);
   assert.doesNotMatch(html, /Top 1 · Top 3 · Top 10 · Median/);
+});
+
+test("renderPersonalBests adds refresh buttons for source activities", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.personalBestGrid = { innerHTML: "" };
+    appState.expandedPersonalBestDistances = new Set();
+    appState.refreshingActivityId = null;
+    appState.personalBests = {
+      detailActivityCount: 1,
+      effortCount: 1,
+      distances: [{
+        name: "5K",
+        count: 1,
+        top: [{
+          activityId: 123,
+          activityName: "Fixed Run",
+          startDate: "2026-05-01T00:00:00Z",
+          movingTime: 1490,
+          paceSecondsPerKm: 298
+        }]
+      }]
+    };
+
+    renderPersonalBests();
+    els.personalBestGrid.innerHTML;
+  `, app);
+
+  assert.match(result, /data-refresh-activity-id="123"/);
+  assert.match(result, /aria-label="Refresh Fixed Run"/);
+  assert.match(result, /title="Refresh Activity"/);
+  assert.match(result, /class="refresh-icon"/);
+  assert.match(result, /aria-hidden="true"/);
+  assert.doesNotMatch(result, />Refresh Activity</);
 });
 
 test("renderRiegelAnalysis leaves redundant secondary analysis text out of the summary and chart caption", () => {
