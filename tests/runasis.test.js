@@ -425,6 +425,77 @@ test("failed activity details remain pending for retry", () => {
   });
 });
 
+test("activities API includes per-activity detail status metadata", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    readStore = async () => ({
+      token: null,
+      activities: [
+        { id: 1, name: "Fetched Run", sport_type: "Run", start_date: "2026-05-04T00:00:00Z" },
+        { id: 2, name: "Failed Run", sport_type: "Run", start_date: "2026-05-03T00:00:00Z" },
+        { id: 3, name: "Missing Run", sport_type: "Run", start_date: "2026-05-02T00:00:00Z" },
+        { id: 4, name: "Ride", sport_type: "Ride", start_date: "2026-05-01T00:00:00Z" }
+      ],
+      detailsById: new Map([
+        ["1", {
+          id: 1,
+          sport_type: "Run",
+          best_efforts: [{ id: "a" }, { id: "b" }],
+          details_fetched_at: "2026-05-05T00:00:00.000Z"
+        }],
+        ["2", sanitizeActivityDetailError(
+          { id: 2, sport_type: "Run" },
+          new Error("Not Found"),
+          "2026-05-06T00:00:00.000Z"
+        )]
+      ])
+    });
+  `, server);
+
+  const response = await callApi(server, "/api/activities");
+  const body = JSON.parse(response.body);
+  const statuses = Object.fromEntries(body.activities.map((activity) => [String(activity.id), {
+    status: activity.detail_status,
+    bestEffortCount: activity.best_effort_count,
+    fetchedAt: activity.details_fetched_at || null,
+    failedAt: activity.details_fetch_failed_at || null,
+    error: activity.details_fetch_error?.message || null
+  }]));
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(statuses, {
+    "1": {
+      status: "fetched",
+      bestEffortCount: 2,
+      fetchedAt: "2026-05-05T00:00:00.000Z",
+      failedAt: null,
+      error: null
+    },
+    "2": {
+      status: "failed",
+      bestEffortCount: 0,
+      fetchedAt: null,
+      failedAt: "2026-05-06T00:00:00.000Z",
+      error: "Not Found"
+    },
+    "3": {
+      status: "missing",
+      bestEffortCount: 0,
+      fetchedAt: null,
+      failedAt: null,
+      error: null
+    },
+    "4": {
+      status: "not_applicable",
+      bestEffortCount: 0,
+      fetchedAt: null,
+      failedAt: null,
+      error: null
+    }
+  });
+});
+
 test("activity detail refresh endpoint refetches one saved run even when cached", async () => {
   const server = loadServerContext();
 
@@ -784,7 +855,14 @@ test("Riegel baseline is selected from chart bars instead of a dropdown", () => 
     els.syncButton = fakeElement();
     els.detailSyncButton = fakeElement();
     els.clearButton = fakeElement();
+    els.openActivityListButton = fakeElement();
+    els.backActivityListButton = fakeElement();
     els.rangeSelect = fakeElement();
+    els.allActivitySearchInput = fakeElement();
+    els.allActivityRunOnlyInput = fakeElement();
+    els.allActivityDetailStatusSelect = fakeElement();
+    els.allActivityTable = fakeElement();
+    els.activityListView = fakeElement();
     els.personalBestTrendDistanceSelect = fakeElement();
     els.personalBestGrid = fakeElement();
     els.riegelExponentInput = fakeElement();
@@ -792,12 +870,94 @@ test("Riegel baseline is selected from chart bars instead of a dropdown", () => 
     els.viewTabs = [];
     els.personalBestScaleButtons = [];
     els.personalBestTrendLimitButtons = [];
+    els.allActivitySortButtons = [];
     els.riegelFiveKScaleButtons = [];
     els.riegelFiveKSeriesButtons = [];
     els.riegelExponentModeButtons = [];
 
     bindEvents();
   `, app));
+});
+
+test("all activities is a dashboard drill-down, not a peer top-level tab", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  const topTabs = html.match(/<div class="view-tabs"[\s\S]*?<\/div>/)?.[0] || "";
+  const recentPanel = html.match(/<h2>Recent Activities<\/h2>[\s\S]*?<tbody id="activityTable">/)?.[0] || "";
+
+  assert.doesNotMatch(topTabs, /data-view="activities"/);
+  assert.doesNotMatch(topTabs, />Activities</);
+  assert.match(recentPanel, /id="openActivityListButton"/);
+  assert.match(html, /id="activityListView"/);
+  assert.match(html, /id="backActivityListButton"/);
+});
+
+test("renderAllActivities filters, sorts, and keeps refresh actions on run rows", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.allActivityCountCaption = { textContent: "" };
+    els.allActivitySearchInput = { value: "" };
+    els.allActivityRunOnlyInput = { checked: false };
+    els.allActivityDetailStatusSelect = { value: "all" };
+    els.allActivityTable = { innerHTML: "" };
+    els.allActivitySortButtons = [];
+    appState.activities = [
+      {
+        id: 1,
+        name: "Easy Run",
+        sport_type: "Run",
+        start_date_local: "2026-05-01T07:00:00",
+        distance: 5000,
+        moving_time: 1800,
+        total_elevation_gain: 20,
+        average_heartrate: 140,
+        detail_status: "fetched",
+        best_effort_count: 3,
+        details_fetched_at: "2026-05-01T08:00:00.000Z"
+      },
+      {
+        id: 2,
+        name: "Fast Run",
+        sport_type: "Run",
+        start_date_local: "2026-05-02T07:00:00",
+        distance: 5000,
+        moving_time: 1500,
+        total_elevation_gain: 10,
+        average_heartrate: 150,
+        detail_status: "missing",
+        best_effort_count: 0
+      },
+      {
+        id: 3,
+        name: "Commute",
+        sport_type: "Ride",
+        start_date_local: "2026-05-03T07:00:00",
+        distance: 10000,
+        moving_time: 2000,
+        detail_status: "not_applicable",
+        best_effort_count: 0
+      }
+    ];
+    appState.allActivitySearch = "run";
+    appState.allActivityRunOnly = true;
+    appState.allActivityDetailStatus = "all";
+    appState.allActivitySort = { key: "pace", direction: "asc" };
+
+    renderAllActivities();
+    ({
+      caption: els.allActivityCountCaption.textContent,
+      table: els.allActivityTable.innerHTML
+    });
+  `, app);
+
+  assert.equal(result.caption, "2 shown · 3 saved");
+  assert.match(result.table, /Fast Run[\s\S]*Easy Run/);
+  assert.doesNotMatch(result.table, /Commute/);
+  assert.match(result.table, /data-refresh-activity-id="2"/);
+  assert.match(result.table, /data-refresh-activity-id="1"/);
+  assert.match(result.table, />Missing</);
+  assert.match(result.table, />Fetched/);
 });
 
 test("Riegel reference link uses a readable source in a new window", () => {
