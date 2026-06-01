@@ -837,8 +837,44 @@ test("Riegel projection panel spans the full analysis grid row", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
 
-  assert.match(html, /<article class="records-panel analysis-panel analysis-panel--full-row">[\s\S]*<h2>Riegel Projection<\/h2>/);
+  assert.match(html, /<article class="records-panel analysis-panel analysis-panel--full-row">[\s\S]*<h2 id="riegelProjectionTitle">Riegel Projection<\/h2>/);
   assert.match(css, /\.analysis-panel--full-row\s*{\s*grid-column:\s*1\s*\/\s*-1;\s*}/);
+});
+
+test("renderRiegelAnalysis labels the projection table with the selected baseline distance", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const toggleClass = { toggle() {} };
+    els.riegelProjectionTitle = { textContent: "old title" };
+    els.riegelExponentInput = { disabled: false, value: "" };
+    els.riegelExponentModeButtons = [];
+    els.riegelFiveKScaleButtons = [{ dataset: { scale: "linear" }, classList: toggleClass }];
+    els.riegelFiveKSeriesButtons = [{ dataset: { series: "top1" }, classList: toggleClass }];
+    els.riegelSummaryGrid = { innerHTML: "" };
+    els.riegelEquivalentChartTitle = { textContent: "" };
+    els.riegelExpectedPaceChartCaption = { textContent: "" };
+    els.riegelExpectedPaceChart = { innerHTML: "" };
+    els.riegelFiveKChartCaption = { textContent: "" };
+    els.riegelFiveKChart = { innerHTML: "" };
+    els.riegelProjectionTable = { innerHTML: "" };
+    appState.riegelFiveKScale = "linear";
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelSourceDistanceName = "10K";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1;
+    appState.personalBests = {
+      distances: [
+        { name: "5K", distanceKm: 5, top: [{ movingTime: 1500, paceSecondsPerKm: 300 }] },
+        { name: "10K", distanceKm: 10, top: [{ movingTime: 3150, paceSecondsPerKm: 315 }] }
+      ]
+    };
+
+    renderRiegelAnalysis();
+    els.riegelProjectionTitle.textContent;
+  `, app);
+
+  assert.equal(result, "Riegel Projection · 10K");
 });
 
 test("Riegel baseline is selected from chart bars instead of a dropdown", () => {
@@ -1197,6 +1233,51 @@ test("renderRiegelAnalysis draws selected expected pace over the current pace gr
   assert.match(result.chart, />Pace Gap \(sec\/km\)</);
   assert.match(result.chart, /text-anchor="end"[^>]*>Current faster</);
   assert.match(result.chart, /text-anchor="end"[^>]*>Current slower</);
+});
+
+test("renderRiegelAnalysis keeps expected pace through marathon without a current record", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const toggleClass = { toggle() {} };
+    const makeTop = (time) => Array.from({ length: 10 }, (_, index) => ({
+      movingTime: time + index * 5,
+      paceSecondsPerKm: 1
+    }));
+    els.riegelExponentInput = { disabled: false, value: "" };
+    els.riegelExponentModeButtons = [];
+    els.riegelFiveKScaleButtons = [{ dataset: { scale: "linear" }, classList: toggleClass }];
+    els.riegelFiveKSeriesButtons = [{ dataset: { series: "top1" }, classList: toggleClass }];
+    els.riegelSummaryGrid = { innerHTML: "" };
+    els.riegelEquivalentChartTitle = { textContent: "" };
+    els.riegelExpectedPaceChartCaption = { textContent: "old caption" };
+    els.riegelExpectedPaceChart = { innerHTML: "" };
+    els.riegelFiveKChartCaption = { textContent: "" };
+    els.riegelFiveKChart = { innerHTML: "" };
+    els.riegelProjectionTable = { innerHTML: "" };
+    appState.riegelFiveKScale = "linear";
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelSourceDistanceName = "5K";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1;
+    appState.personalBests = {
+      distances: [
+        { name: "5K", distanceKm: 5, top: makeTop(1500) },
+        { name: "10K", distanceKm: 10, top: makeTop(3300) },
+        { name: "20K", distanceKm: 20, top: makeTop(7200) },
+        { name: "30K", distanceKm: 30, top: makeTop(11700) }
+      ]
+    };
+
+    renderRiegelAnalysis();
+    els.riegelExpectedPaceChart.innerHTML;
+  `, app);
+
+  assert.match(result, /data-riegel-expected-pace-distance="Marathon"/);
+  assert.match(result, /data-riegel-distance-label="Marathon"/);
+  assert.doesNotMatch(result, /data-riegel-current-pace-distance="Marathon"/);
+  assert.doesNotMatch(result, /data-riegel-gap-bar-distance="Marathon"/);
+  assert.doesNotMatch(result, /data-riegel-expected-pace-distance="50K"/);
 });
 
 test("renderRiegelAnalysis suppresses crowded expected gap text labels", () => {
