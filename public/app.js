@@ -88,6 +88,11 @@ const appState = {
   riegelSourceDistanceName: "5K",
   rangeDays: "all",
   selectedKpiMetric: DEFAULT_DASHBOARD_METRIC_KEY,
+  activityListOpen: false,
+  allActivitySearch: "",
+  allActivityRunOnly: false,
+  allActivityDetailStatus: "all",
+  allActivitySort: { key: "date", direction: "desc" },
   csrfToken: "",
   loading: false,
   syncing: false,
@@ -158,9 +163,17 @@ function cacheElements() {
     "activityCount",
     "detailSync",
     "dashboardView",
+    "activityListView",
     "pbView",
     "analysisView",
     "analysisRankControl",
+    "openActivityListButton",
+    "backActivityListButton",
+    "allActivityCountCaption",
+    "allActivitySearchInput",
+    "allActivityRunOnlyInput",
+    "allActivityDetailStatusSelect",
+    "allActivityTable",
     "rangeSelect",
     "kpiRangeCaption",
     "kpiDistance",
@@ -207,6 +220,7 @@ function cacheElements() {
   }
   els.viewTabs = Array.from(document.querySelectorAll(".view-tab"));
   els.kpiCards = Array.from(document.querySelectorAll(".dashboard-kpi-card"));
+  els.allActivitySortButtons = Array.from(document.querySelectorAll("[data-activity-sort]"));
   els.personalBestScaleButtons = Array.from(document.querySelectorAll(".pb-scale-option"));
   els.personalBestTrendLimitButtons = Array.from(document.querySelectorAll(".pb-trend-limit-option"));
   els.riegelFiveKScaleButtons = Array.from(document.querySelectorAll(".riegel-scale-option"));
@@ -268,6 +282,42 @@ function bindEvents() {
     await syncActivityDetails();
   });
 
+  els.openActivityListButton.addEventListener("click", () => {
+    appState.currentView = "dashboard";
+    appState.activityListOpen = true;
+    setActiveViewTab("dashboard");
+    render();
+  });
+
+  els.backActivityListButton.addEventListener("click", () => {
+    appState.activityListOpen = false;
+    render();
+  });
+
+  els.allActivitySearchInput.addEventListener("input", () => {
+    appState.allActivitySearch = els.allActivitySearchInput.value;
+    renderAllActivities();
+  });
+
+  els.allActivityRunOnlyInput.addEventListener("change", () => {
+    appState.allActivityRunOnly = els.allActivityRunOnlyInput.checked;
+    renderAllActivities();
+  });
+
+  els.allActivityDetailStatusSelect.addEventListener("change", () => {
+    appState.allActivityDetailStatus = els.allActivityDetailStatusSelect.value || "all";
+    renderAllActivities();
+  });
+
+  for (const button of els.allActivitySortButtons) {
+    button.addEventListener("click", () => {
+      toggleAllActivitySort(button.dataset.activitySort);
+      renderAllActivities();
+    });
+  }
+
+  els.allActivityTable.addEventListener("click", handleAllActivityAction);
+
   els.clearButton.addEventListener("click", async () => {
     const confirmed = await confirmClearData();
     if (!confirmed) return;
@@ -297,7 +347,8 @@ function bindEvents() {
   for (const tab of els.viewTabs) {
     tab.addEventListener("click", () => {
       appState.currentView = tab.dataset.view;
-      for (const item of els.viewTabs) item.classList.toggle("active", item === tab);
+      appState.activityListOpen = false;
+      setActiveViewTab(appState.currentView);
       render();
     });
   }
@@ -718,6 +769,10 @@ function render() {
     renderRiegelAnalysis();
     return;
   }
+  if (appState.activityListOpen) {
+    renderAllActivities();
+    return;
+  }
 
   const activities = getFilteredActivities();
   const metrics = calculateMetrics(activities);
@@ -869,8 +924,16 @@ function getSelectedDashboardMetric() {
   return DASHBOARD_METRICS[appState.selectedKpiMetric] || DASHBOARD_METRICS[DEFAULT_DASHBOARD_METRIC_KEY];
 }
 
+function setActiveViewTab(view) {
+  for (const item of els.viewTabs || []) {
+    item.classList.toggle("active", item.dataset.view === view);
+  }
+}
+
 function renderView() {
-  els.dashboardView.classList.toggle("hidden", appState.currentView !== "dashboard");
+  const showActivityList = appState.currentView === "dashboard" && appState.activityListOpen;
+  els.dashboardView.classList.toggle("hidden", appState.currentView !== "dashboard" || showActivityList);
+  els.activityListView.classList.toggle("hidden", !showActivityList);
   els.pbView.classList.toggle("hidden", appState.currentView !== "pb");
   els.analysisView.classList.toggle("hidden", appState.currentView !== "analysis");
   els.analysisRankControl.classList.toggle("hidden", appState.currentView !== "analysis");
@@ -1365,6 +1428,184 @@ function renderTable(activities) {
       <td>${formatDuration(activity.moving_time || 0)}</td>
     </tr>
   `).join("");
+}
+
+function renderAllActivities() {
+  if (els.allActivitySearchInput && document.activeElement !== els.allActivitySearchInput) {
+    els.allActivitySearchInput.value = appState.allActivitySearch || "";
+  }
+  if (els.allActivityRunOnlyInput) {
+    els.allActivityRunOnlyInput.checked = Boolean(appState.allActivityRunOnly);
+  }
+  if (els.allActivityDetailStatusSelect) {
+    els.allActivityDetailStatusSelect.value = appState.allActivityDetailStatus || "all";
+  }
+
+  updateAllActivitySortButtons();
+  const rows = getVisibleAllActivities();
+  els.allActivityCountCaption.textContent = `${formatInteger(rows.length)} shown · ${formatInteger(appState.activities.length)} saved`;
+  if (!rows.length) {
+    els.allActivityTable.innerHTML = `<tr><td colspan="10">No matching activities</td></tr>`;
+    return;
+  }
+
+  els.allActivityTable.innerHTML = rows.map((activity) => {
+    const activityId = String(activity.id || "").trim();
+    const canRefresh = activityId && isRun(activity);
+    const isRefreshing = activityId && activityId === appState.refreshingActivityId;
+    const activityName = activity.name || "Untitled";
+    const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
+    const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
+    const action = canRefresh
+      ? `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`
+      : "";
+    return `
+      <tr>
+        <td>${formatDate(activity.start_date_local || activity.start_date)}</td>
+        <td class="activity-name">${escapeHtml(activityName)}</td>
+        <td>${escapeHtml(formatSport(activity))}</td>
+        <td>${formatNumber(Number(activity.distance || 0) / 1000, 2)} km</td>
+        <td>${formatPaceForActivity(activity)}</td>
+        <td>${formatDuration(activity.moving_time || 0)}</td>
+        <td>${formatElevationCell(activity.total_elevation_gain)}</td>
+        <td>${formatHeartRateCell(activity.average_heartrate)}</td>
+        <td>${renderActivityDetailStatus(activity)}</td>
+        <td>${action}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+function getVisibleAllActivities() {
+  const query = String(appState.allActivitySearch || "").trim().toLowerCase();
+  const detailStatus = appState.allActivityDetailStatus || "all";
+  return [...appState.activities]
+    .filter((activity) => {
+      if (appState.allActivityRunOnly && !isRun(activity)) return false;
+      if (detailStatus !== "all" && activity.detail_status !== detailStatus) return false;
+      if (!query) return true;
+      return [
+        activity.id,
+        activity.name,
+        activity.type,
+        activity.sport_type,
+        activity.start_date_local,
+        activity.start_date
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+    })
+    .sort(compareAllActivities);
+}
+
+function compareAllActivities(a, b) {
+  const sort = appState.allActivitySort || { key: "date", direction: "desc" };
+  const aValue = getAllActivitySortValue(a, sort.key);
+  const bValue = getAllActivitySortValue(b, sort.key);
+  const aMissing = isMissingSortValue(aValue);
+  const bMissing = isMissingSortValue(bValue);
+  if (aMissing || bMissing) {
+    if (aMissing && bMissing) return compareAllActivityDatesDesc(a, b);
+    return aMissing ? 1 : -1;
+  }
+
+  let comparison = typeof aValue === "string" || typeof bValue === "string"
+    ? String(aValue).localeCompare(String(bValue))
+    : Number(aValue) - Number(bValue);
+  if (!comparison) return compareAllActivityDatesDesc(a, b);
+  return sort.direction === "desc" ? -comparison : comparison;
+}
+
+function getAllActivitySortValue(activity, key) {
+  if (key === "name") return activity.name || "";
+  if (key === "sport") return formatSport(activity);
+  if (key === "distance") return Number(activity.distance);
+  if (key === "pace") {
+    const distanceKm = Number(activity.distance || 0) / 1000;
+    const movingTime = Number(activity.moving_time || 0);
+    return distanceKm && movingTime ? movingTime / distanceKm : null;
+  }
+  if (key === "moving_time") return Number(activity.moving_time);
+  if (key === "elevation") return Number(activity.total_elevation_gain);
+  if (key === "avg_hr") return Number(activity.average_heartrate);
+  if (key === "detail_status") return detailStatusSortRank(activity.detail_status);
+  return new Date(activity.start_date_local || activity.start_date || 0).getTime();
+}
+
+function isMissingSortValue(value) {
+  if (value === null || value === undefined || value === "") return true;
+  if (typeof value === "number" && !Number.isFinite(value)) return true;
+  return false;
+}
+
+function compareAllActivityDatesDesc(a, b) {
+  return new Date(b.start_date_local || b.start_date || 0) - new Date(a.start_date_local || a.start_date || 0);
+}
+
+function detailStatusSortRank(status) {
+  return {
+    failed: 0,
+    missing: 1,
+    fetched: 2,
+    not_applicable: 3
+  }[status] ?? 4;
+}
+
+function toggleAllActivitySort(key) {
+  if (!key) return;
+  const current = appState.allActivitySort || { key: "date", direction: "desc" };
+  if (current.key === key) {
+    appState.allActivitySort = {
+      key,
+      direction: current.direction === "asc" ? "desc" : "asc"
+    };
+    return;
+  }
+  appState.allActivitySort = {
+    key,
+    direction: key === "date" ? "desc" : "asc"
+  };
+}
+
+function updateAllActivitySortButtons() {
+  const sort = appState.allActivitySort || { key: "date", direction: "desc" };
+  for (const button of els.allActivitySortButtons || []) {
+    const label = button.dataset.sortLabel || button.textContent.replace(/[ ▲▼]$/, "");
+    button.dataset.sortLabel = label;
+    const active = button.dataset.activitySort === sort.key;
+    button.classList.toggle("active", active);
+    button.textContent = active ? `${label} ${sort.direction === "asc" ? "▲" : "▼"}` : label;
+    button.setAttribute("aria-sort", active ? sort.direction : "none");
+  }
+}
+
+function renderActivityDetailStatus(activity) {
+  const status = activity.detail_status || "missing";
+  const label = formatActivityDetailStatus(status, activity.best_effort_count);
+  const detail = activity.details_fetch_error?.message || activity.details_fetched_at || activity.details_fetch_failed_at || "";
+  return `<span class="detail-status detail-status--${escapeHtml(status)}" title="${escapeHtml(detail)}">${escapeHtml(label)}</span>`;
+}
+
+function formatActivityDetailStatus(status, bestEffortCount = 0) {
+  if (status === "fetched") return `Fetched${bestEffortCount ? ` · ${formatInteger(bestEffortCount)}` : ""}`;
+  if (status === "failed") return "Failed";
+  if (status === "not_applicable") return "-";
+  return "Missing";
+}
+
+function formatElevationCell(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${formatInteger(Math.round(number))} m` : "-";
+}
+
+function formatHeartRateCell(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${formatInteger(Math.round(number))}` : "-";
+}
+
+function handleAllActivityAction(event) {
+  if (!(event.target instanceof Element)) return;
+  const refreshButton = event.target.closest("[data-refresh-activity-id]");
+  if (!refreshButton || !els.allActivityTable.contains(refreshButton)) return;
+  refreshActivityDetail(refreshButton.dataset.refreshActivityId);
 }
 
 function renderPersonalBests() {
@@ -3044,6 +3285,7 @@ function setActivityRefreshing(activityId) {
   appState.refreshingActivityId = activityId ? String(activityId) : null;
   updateActionButtons();
   if (appState.currentView === "pb") renderPersonalBests();
+  if (appState.currentView === "dashboard" && appState.activityListOpen) renderAllActivities();
 }
 
 function setConfigSaving(configSaving) {

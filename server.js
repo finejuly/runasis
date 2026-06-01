@@ -672,6 +672,28 @@ function detailStatusFromStore(store) {
   };
 }
 
+function activityListItemFromStore(activity, detailsById = new Map()) {
+  const detail = detailsById.get(String(activity.id));
+  const status = detailStatusForActivity(activity, detail);
+  const bestEffortCount = Array.isArray(detail?.best_efforts) ? detail.best_efforts.length : 0;
+
+  return compactObject({
+    ...sanitizeActivity(activity),
+    detail_status: status,
+    best_effort_count: bestEffortCount,
+    details_fetched_at: detail?.details_fetched_at || null,
+    details_fetch_failed_at: detail?.details_fetch_failed_at || null,
+    details_fetch_error: detail?.details_fetch_error || null
+  });
+}
+
+function detailStatusForActivity(activity, detail) {
+  if (!isRun(activity)) return "not_applicable";
+  if (isFailedActivityDetail(detail)) return "failed";
+  if (isSuccessfulActivityDetail(detail)) return "fetched";
+  return "missing";
+}
+
 function isSuccessfulActivityDetail(detail) {
   return Boolean(detail && !isFailedActivityDetail(detail));
 }
@@ -1276,8 +1298,9 @@ async function handleApi(req, res, url) {
 
   if (url.pathname === "/api/activities" && req.method === "GET") {
     const store = await readStore();
+    const detailsById = store.detailsById || new Map();
     return sendJson(res, 200, {
-      activities: store.activities,
+      activities: store.activities.map((activity) => activityListItemFromStore(activity, detailsById)),
       status: statusFromStore(store)
     });
   }
