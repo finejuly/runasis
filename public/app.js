@@ -92,6 +92,7 @@ const appState = {
   loading: false,
   syncing: false,
   detailSyncing: false,
+  refreshingActivityId: null,
   configSaving: false
 };
 
@@ -629,6 +630,30 @@ async function syncActivityDetails() {
     toast(error.message || "Could not fetch best efforts.");
   } finally {
     setDetailSyncing(false);
+  }
+}
+
+async function refreshActivityDetail(activityId) {
+  if (!appState.status?.connected) {
+    toast("Strava connection is required.");
+    return;
+  }
+
+  const id = String(activityId || "").trim();
+  if (!id) return;
+
+  setActivityRefreshing(id);
+  try {
+    await fetchJson("/api/activity-details/refresh", {
+      method: "POST",
+      body: JSON.stringify({ activityId: id })
+    });
+    await loadData();
+    toast("Activity refreshed.");
+  } catch (error) {
+    toast(error.message || "Could not refresh activity.");
+  } finally {
+    setActivityRefreshing(null);
   }
 }
 
@@ -1361,15 +1386,26 @@ function renderPersonalBests() {
     const isExpanded = appState.expandedPersonalBestDistances.has(distance.name);
     const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
     const visibleEfforts = topEfforts.slice(0, visibleLimit);
-    const rows = visibleEfforts.length ? visibleEfforts.map((effort, index) => `
-      <tr>
-        <td>${index + 1}</td>
-        <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
-        <td class="activity-name">${escapeHtml(effort.activityName || "Untitled")}</td>
-        <td>${formatClockDuration(effort.movingTime)}</td>
-        <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
-      </tr>
-    `).join("") : `<tr><td colspan="5">No best efforts</td></tr>`;
+    const rows = visibleEfforts.length ? visibleEfforts.map((effort, index) => {
+      const activityId = String(effort.activityId || "").trim();
+      const activityName = effort.activityName || "Untitled";
+      const isRefreshing = activityId && activityId === appState.refreshingActivityId;
+      const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
+      const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
+      const refreshButton = activityId
+        ? `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`
+        : "";
+      return `
+        <tr>
+          <td>${index + 1}</td>
+          <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
+          <td class="activity-name">${escapeHtml(activityName)}</td>
+          <td>${formatClockDuration(effort.movingTime)}</td>
+          <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
+          <td>${refreshButton}</td>
+        </tr>
+      `;
+    }).join("") : `<tr><td colspan="6">No best efforts</td></tr>`;
     const hasMore = topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT;
     const toggleLabel = isExpanded ? "Show Less" : "Show More";
     const toggleMeta = isExpanded
@@ -1399,6 +1435,7 @@ function renderPersonalBests() {
                 <th>Activity</th>
                 <th>Best Time</th>
                 <th>Pace</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>
@@ -1410,8 +1447,25 @@ function renderPersonalBests() {
   }).join("");
 }
 
+function renderRefreshIcon() {
+  return `
+    <svg class="refresh-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M20 11a8 8 0 0 0-14.2-5"></path>
+      <path d="M5 3v5h5"></path>
+      <path d="M4 13a8 8 0 0 0 14.2 5"></path>
+      <path d="M19 21v-5h-5"></path>
+    </svg>
+  `;
+}
+
 function handlePersonalBestToggle(event) {
   if (!(event.target instanceof Element)) return;
+  const refreshButton = event.target.closest("[data-refresh-activity-id]");
+  if (refreshButton && els.personalBestGrid.contains(refreshButton)) {
+    refreshActivityDetail(refreshButton.dataset.refreshActivityId);
+    return;
+  }
+
   const button = event.target.closest("[data-personal-best-toggle]");
   if (!button || !els.personalBestGrid.contains(button)) return;
 
@@ -2986,6 +3040,12 @@ function setDetailSyncing(syncing) {
   updateActionButtons();
 }
 
+function setActivityRefreshing(activityId) {
+  appState.refreshingActivityId = activityId ? String(activityId) : null;
+  updateActionButtons();
+  if (appState.currentView === "pb") renderPersonalBests();
+}
+
 function setConfigSaving(configSaving) {
   appState.configSaving = configSaving;
   updateActionButtons();
@@ -2994,7 +3054,7 @@ function setConfigSaving(configSaving) {
 function updateActionButtons() {
   const status = appState.status || {};
   const pendingDetails = status.activityDetails?.pendingRunCount || 0;
-  const busy = appState.loading || appState.syncing || appState.detailSyncing || appState.configSaving;
+  const busy = appState.loading || appState.syncing || appState.detailSyncing || appState.configSaving || Boolean(appState.refreshingActivityId);
 
   els.connectButton.disabled = busy || status.configured === false;
   els.syncButton.disabled = busy || !status.connected;
