@@ -153,7 +153,10 @@
           <article class="records-panel table-panel">
             <div class="panel-title">
               <h2>Recent Activities</h2>
-              <span id="recentCaption">Newest first</span>
+              <div class="panel-actions">
+                <span id="recentCaption">Newest first</span>
+                <button class="button ghost panel-compact-button" id="openActivityListButton" type="button">View All</button>
+              </div>
             </div>
             <div class="table-wrap">
               <table>
@@ -173,6 +176,58 @@
           </article>
         </section>
       </div>
+
+      <section class="analysis-view hidden" id="activityListView" aria-label="All activities">
+        <div class="analysis-heading activity-list-heading">
+          <div class="panel-title">
+            <div>
+              <h2>All Activities</h2>
+              <span id="allActivityCountCaption">No activities</span>
+            </div>
+            <button class="button ghost panel-compact-button" id="backActivityListButton" type="button">Back</button>
+          </div>
+        </div>
+        <article class="records-panel table-panel activity-list-panel">
+          <div class="activity-list-controls" aria-label="Activity list controls">
+            <label class="setup-field activity-search-field">
+              <span>Search</span>
+              <input id="allActivitySearchInput" type="search" autocomplete="off" placeholder="Name, sport, or id">
+            </label>
+            <label class="field checkbox-field">
+              <input id="allActivityRunOnlyInput" type="checkbox">
+              <span>Runs only</span>
+            </label>
+            <label class="select-field">
+              <span>Detail</span>
+              <select id="allActivityDetailStatusSelect" aria-label="Detail status">
+                <option value="all">All</option>
+                <option value="fetched">Fetched</option>
+                <option value="missing">Missing</option>
+                <option value="failed">Failed</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap all-activity-table-wrap">
+            <table class="all-activity-table">
+              <thead>
+                <tr>
+                  <th><button class="table-sort" type="button" data-activity-sort="date">Date</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="name">Name</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="sport">Sport</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="distance">Distance</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="pace">Pace</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="moving_time">Time</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="elevation">Elev.</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="avg_hr">Avg HR</button></th>
+                  <th><button class="table-sort" type="button" data-activity-sort="detail_status">Detail</button></th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="allActivityTable"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
 
       <section class="analysis-view hidden" id="pbView" aria-label="Personal bests">
         <article class="chart-panel personal-best-chart-panel">

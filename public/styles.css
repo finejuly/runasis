@@ -336,6 +336,15 @@ input[type="number"]:disabled {
   color: var(--muted);
 }
 
+input[type="search"] {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--text);
+  padding: 0 10px;
+}
+
 .button,
 .status-pill {
   min-height: 40px;
@@ -793,6 +802,85 @@ table {
 
 .personal-best-table table {
   min-width: 620px;
+}
+
+.all-activity-table {
+  min-width: 1080px;
+}
+
+.activity-list-heading {
+  margin-bottom: 16px;
+}
+
+.activity-list-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.activity-list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.activity-search-field {
+  flex: 1 1 240px;
+}
+
+.checkbox-field {
+  align-items: center;
+  gap: 7px;
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
+}
+
+.panel-compact-button {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: var(--font-label);
+}
+
+.table-sort {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  text-transform: inherit;
+}
+
+.table-sort.active {
+  color: var(--green-dark);
+}
+
+.detail-status {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  white-space: nowrap;
+  font-weight: 760;
+}
+
+.detail-status--fetched {
+  color: var(--green-dark);
+}
+
+.detail-status--missing {
+  color: var(--orange);
+}
+
+.detail-status--failed {
+  color: var(--red);
+}
+
+.detail-status--not_applicable {
+  color: var(--muted);
 }
 
 .personal-best-more-row {
