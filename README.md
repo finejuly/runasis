@@ -22,7 +22,7 @@ It is built for runners who want to understand their own training history withou
 
 - Training totals and recent volume by date range
 - Cumulative progress, weekly trends, and distance distribution
-- Longest runs and recent activities
+- Longest runs, recent activities, and a searchable activity list
 - Personal bests and trend charts from Strava best-effort data
 - Riegel race projections for comparing 5K, 10K, half-marathon, marathon, and other distances
 
@@ -68,22 +68,19 @@ If port `3000` is already in use, Runasis automatically tries the next available
 4. Start Runasis.
 5. Enter your Strava Client ID and Client Secret, then click `Save Settings`.
 6. Click `Connect Strava` and approve the connection.
-7. Click `Sync` to import your activity list.
-8. Click `Best Efforts` to fetch the detailed run data used for personal bests and race projections.
+7. Click `Sync` to import your activity list and fetch any missing best-effort details.
 
-Large histories can take a while to sync. `Best Efforts` runs in batches, so click it again if Runasis says more records remain.
+Large histories can take a while to sync. Best-effort details are fetched in batches, so click `Sync` again if Runasis says more records remain.
 
 ## Using Runasis
 
 ### Dashboard
 
-The dashboard is the main training overview. Use the range selector and metric cards to switch between distance, activity count, moving time, elevation gain, and time windows.
+The dashboard is the main training overview. Use the range selector and metric cards to switch between distance, activity count, moving time, elevation gain, and time windows. The `Recent Activities` panel also links to a searchable activity list.
 
 ### Personal Bests
 
-The `Personal Bests` tab compares your best efforts across distances, including pace curves, dates, trends, and ranked efforts.
-
-This page depends on detailed Strava activity data, so run `Best Efforts` after your first sync.
+The `Personal Bests` tab compares your best efforts across distances, including pace curves, dates, trends, and ranked efforts. If you edit an activity later in Strava, refresh that activity from its row in Runasis.
 
 ### Analysis
 

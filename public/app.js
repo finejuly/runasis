@@ -138,7 +138,6 @@ function cacheElements() {
     "connectionStatus",
     "connectButton",
     "syncButton",
-    "detailSyncButton",
     "clearButton",
     "repositoryLink",
     "clearConfirmDialog",
@@ -279,10 +278,6 @@ function bindEvents() {
 
   els.syncButton.addEventListener("click", async () => {
     await syncActivities();
-  });
-
-  els.detailSyncButton.addEventListener("click", async () => {
-    await syncActivityDetails();
   });
 
   els.openActivityListButton.addEventListener("click", () => {
@@ -652,12 +647,24 @@ async function syncActivities() {
   setSyncing(true);
   try {
     const result = await fetchJson("/api/sync", { method: "POST", body: "{}" });
+    const pendingDetails = Number(result.status?.activityDetails?.pendingRunCount || 0);
+    let detailResult = null;
+    if (pendingDetails > 0) {
+      setDetailSyncing(true);
+      try {
+        detailResult = await fetchJson("/api/activity-details/sync", { method: "POST", body: "{}" });
+      } finally {
+        setDetailSyncing(false);
+      }
+    }
     await loadData();
     const summary = result.summary;
-    toast(`Sync complete: ${summary.inserted} new, ${summary.updated} updated`);
+    const detailMessage = detailResult ? ` ${formatActivityDetailSyncMessage(detailResult.summary)}` : "";
+    toast(`Sync complete: ${summary.inserted} new, ${summary.updated} updated.${detailMessage}`.trim());
   } catch (error) {
     toast(error.message || "Sync failed.");
   } finally {
+    setDetailSyncing(false);
     setSyncing(false);
   }
 }
@@ -673,18 +680,23 @@ async function syncActivityDetails() {
     const result = await fetchJson("/api/activity-details/sync", { method: "POST", body: "{}" });
     await loadData();
     const summary = result.summary;
-    if (!summary.fetched && !summary.remaining) {
-      const failed = Number(summary.failed || 0) + Number(summary.skippedFailed || 0);
-      toast(failed ? `No new best efforts to fetch. ${formatInteger(failed)} failures saved` : "All best efforts have already been fetched.");
-    } else {
-      const stopped = summary.stoppedReason === "rate_limited" ? ", rate limit reached" : "";
-      toast(`Best efforts: ${summary.fetched} new, ${summary.failed} failed, ${summary.remaining} remaining${stopped}`);
-    }
+    toast(formatActivityDetailSyncMessage(summary));
   } catch (error) {
     toast(error.message || "Could not fetch best efforts.");
   } finally {
     setDetailSyncing(false);
   }
+}
+
+function formatActivityDetailSyncMessage(summary = {}) {
+  if (!summary.fetched && !summary.remaining) {
+    const failed = Number(summary.failed || 0) + Number(summary.skippedFailed || 0);
+    return failed
+      ? `No new best efforts to fetch. ${formatInteger(failed)} failures saved`
+      : "All best efforts have already been fetched.";
+  }
+  const stopped = summary.stoppedReason === "rate_limited" ? ", rate limit reached" : "";
+  return `Best efforts: ${summary.fetched} new, ${summary.failed} failed, ${summary.remaining} remaining${stopped}`;
 }
 
 async function refreshActivityDetail(activityId) {
@@ -3335,16 +3347,13 @@ function setConfigSaving(configSaving) {
 
 function updateActionButtons() {
   const status = appState.status || {};
-  const pendingDetails = status.activityDetails?.pendingRunCount || 0;
   const busy = appState.loading || appState.syncing || appState.detailSyncing || appState.configSaving || Boolean(appState.refreshingActivityId);
 
   els.connectButton.disabled = busy || status.configured === false;
   els.syncButton.disabled = busy || !status.connected;
-  els.detailSyncButton.disabled = busy || !status.connected || pendingDetails <= 0;
   els.clearButton.disabled = busy;
   els.stravaConfigSaveButton.disabled = busy;
-  els.syncButton.textContent = appState.syncing ? "Syncing" : "Sync";
-  els.detailSyncButton.textContent = appState.detailSyncing ? "Fetching Best Efforts" : "Best Efforts";
+  els.syncButton.textContent = appState.syncing || appState.detailSyncing ? "Syncing" : "Sync";
   els.stravaConfigSaveButton.textContent = appState.configSaving ? "Saving" : "Save Settings";
 }
 
