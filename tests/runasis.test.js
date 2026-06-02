@@ -626,6 +626,126 @@ test("configureRepositoryLink shows the repository link only when a URL is confi
   assert.equal(result.visibleDisabled, undefined);
 });
 
+test("topbar exposes one Strava sync action", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const topbarActions = html.match(/<div class="topbar-actions">[\s\S]*?<\/div>/)?.[0] || "";
+
+  assert.match(topbarActions, /id="syncButton"/);
+  assert.doesNotMatch(topbarActions, /id="detailSyncButton"/);
+  assert.doesNotMatch(topbarActions, />Best Efforts</);
+});
+
+test("syncActivities fetches pending best efforts after activity sync", async () => {
+  const app = loadAppContext();
+
+  const result = await vm.runInContext(`
+    (async () => {
+      const calls = [];
+      const button = () => ({ disabled: false, textContent: "" });
+      els.connectButton = button();
+      els.syncButton = button();
+      els.clearButton = button();
+      els.stravaConfigSaveButton = button();
+      appState.status = {
+        configured: true,
+        connected: true,
+        activityDetails: { pendingRunCount: 0 }
+      };
+      fetchJson = async (url, options = {}) => {
+        calls.push({ url, method: options.method || "GET" });
+        if (url === "/api/sync") {
+          return {
+            summary: { inserted: 1, updated: 2 },
+            status: { activityDetails: { pendingRunCount: 3 } }
+          };
+        }
+        if (url === "/api/activity-details/sync") {
+          return {
+            summary: {
+              fetched: 3,
+              failed: 0,
+              remaining: 0,
+              skippedFailed: 0,
+              stoppedReason: null
+            }
+          };
+        }
+        throw new Error("Unexpected URL " + url);
+      };
+      loadData = async () => {
+        calls.push({ url: "loadData" });
+      };
+      toast = (message) => {
+        calls.push({ url: "toast", message });
+      };
+
+      await syncActivities();
+      return {
+        callUrls: calls.map((call) => call.url).join("|"),
+        detailMethod: calls[1].method,
+        toastMessage: calls.at(-1).message,
+        syncing: appState.syncing,
+        detailSyncing: appState.detailSyncing,
+        syncText: els.syncButton.textContent
+      };
+    })()
+  `, app);
+
+  assert.equal(result.callUrls, "/api/sync|/api/activity-details/sync|loadData|toast");
+  assert.equal(result.detailMethod, "POST");
+  assert.match(result.toastMessage, /Sync complete: 1 new, 2 updated/);
+  assert.match(result.toastMessage, /Best efforts: 3 new, 0 failed, 0 remaining/);
+  assert.equal(result.syncing, false);
+  assert.equal(result.detailSyncing, false);
+  assert.equal(result.syncText, "Sync");
+});
+
+test("syncActivities skips best-effort fetch when no run details are pending", async () => {
+  const app = loadAppContext();
+
+  const result = await vm.runInContext(`
+    (async () => {
+      const calls = [];
+      const button = () => ({ disabled: false, textContent: "" });
+      els.connectButton = button();
+      els.syncButton = button();
+      els.clearButton = button();
+      els.stravaConfigSaveButton = button();
+      appState.status = {
+        configured: true,
+        connected: true,
+        activityDetails: { pendingRunCount: 0 }
+      };
+      fetchJson = async (url, options = {}) => {
+        calls.push({ url, method: options.method || "GET" });
+        if (url === "/api/sync") {
+          return {
+            summary: { inserted: 0, updated: 1 },
+            status: { activityDetails: { pendingRunCount: 0 } }
+          };
+        }
+        throw new Error("Unexpected URL " + url);
+      };
+      loadData = async () => {
+        calls.push({ url: "loadData" });
+      };
+      toast = (message) => {
+        calls.push({ url: "toast", message });
+      };
+
+      await syncActivities();
+      return {
+        callUrls: calls.map((call) => call.url).join("|"),
+        toastMessage: calls.at(-1).message
+      };
+    })()
+  `, app);
+
+  assert.equal(result.callUrls, "/api/sync|loadData|toast");
+  assert.match(result.toastMessage, /Sync complete: 0 new, 1 updated/);
+  assert.doesNotMatch(result.toastMessage, /Best efforts:/);
+});
+
 test("clear data is disabled while background work is running", () => {
   const app = loadAppContext();
 
@@ -635,7 +755,6 @@ test("clear data is disabled while background work is running", () => {
     }
     els.connectButton = button();
     els.syncButton = button();
-    els.detailSyncButton = button();
     els.clearButton = button();
     els.stravaConfigSaveButton = button();
     appState.status = {
@@ -889,7 +1008,6 @@ test("Riegel baseline is selected from chart bars instead of a dropdown", () => 
     els.setupForm = fakeElement();
     els.connectButton = fakeElement();
     els.syncButton = fakeElement();
-    els.detailSyncButton = fakeElement();
     els.clearButton = fakeElement();
     els.openActivityListButton = fakeElement();
     els.backActivityListButton = fakeElement();
