@@ -17,6 +17,7 @@ const SYNC_STATE_PATH = path.join(STRAVA_DATA_DIR, "sync-state.json");
 const ACTIVITIES_DIR = path.join(STRAVA_DATA_DIR, "activities");
 const ACTIVITIES_INDEX_PATH = path.join(ACTIVITIES_DIR, "index.json");
 const DETAILS_DIR = path.join(ACTIVITIES_DIR, "details");
+const RAW_DETAILS_DIR = path.join(ACTIVITIES_DIR, "raw-details");
 const DERIVED_DIR = path.join(STRAVA_DATA_DIR, "derived");
 
 loadEnvFile();
@@ -231,6 +232,7 @@ function emptyStore() {
     scopes: [],
     activities: [],
     detailsById: new Map(),
+    rawDetailIds: new Set(),
     lastSyncAt: null,
     lastSyncSummary: null,
     lastDetailSyncAt: null,
@@ -243,14 +245,15 @@ function emptyStore() {
 async function readStore() {
   await ensureStoreMigrated();
 
-  const [auth, syncState, activityIndex, detailsById] = await Promise.all([
+  const [auth, syncState, activityIndex, detailsById, rawDetailIds] = await Promise.all([
     readJson(AUTH_PATH, emptyAuthStore()),
     readJson(SYNC_STATE_PATH, emptySyncState()),
     readJson(ACTIVITIES_INDEX_PATH, emptyActivityIndex()),
-    readActivityDataMap(DETAILS_DIR)
+    readActivityDataMap(DETAILS_DIR),
+    listActivityDataIds(RAW_DETAILS_DIR)
   ]);
 
-  return buildStore({ auth, syncState, activityIndex, detailsById });
+  return buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds });
 }
 
 async function writeStore(store) {
@@ -291,7 +294,8 @@ async function writeStore(store) {
     auth,
     syncState,
     activityIndex,
-    detailsById: store.detailsById || new Map()
+    detailsById: store.detailsById || new Map(),
+    rawDetailIds: store.rawDetailIds || new Set()
   });
 }
 
@@ -327,7 +331,7 @@ function emptyActivityIndex() {
   };
 }
 
-function buildStore({ auth, syncState, activityIndex, detailsById }) {
+function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds }) {
   return {
     schemaVersion: 2,
     athlete: auth.athlete || null,
@@ -335,6 +339,7 @@ function buildStore({ auth, syncState, activityIndex, detailsById }) {
     scopes: auth.scopes || [],
     activities: Array.isArray(activityIndex.activities) ? activityIndex.activities : [],
     detailsById: detailsById || new Map(),
+    rawDetailIds: rawDetailIds || new Set(),
     lastSyncAt: syncState.lastSyncAt || null,
     lastSyncSummary: syncState.lastSyncSummary || null,
     lastDetailSyncAt: syncState.lastDetailSyncAt || null,
@@ -408,7 +413,7 @@ function hasDetailedActivityData(activity) {
 }
 
 async function ensureDataDirs() {
-  const directories = [DATA_DIR, STRAVA_DATA_DIR, ACTIVITIES_DIR, DETAILS_DIR, DERIVED_DIR];
+  const directories = [DATA_DIR, STRAVA_DATA_DIR, ACTIVITIES_DIR, DETAILS_DIR, RAW_DETAILS_DIR, DERIVED_DIR];
   await Promise.all(directories.map(async (directory) => {
     await fs.mkdir(directory, { recursive: true, mode: PRIVATE_DIR_MODE });
     await fs.chmod(directory, PRIVATE_DIR_MODE).catch(() => {});
@@ -495,6 +500,10 @@ function normalizeActivityId(value) {
 
 async function writeActivityDetail(id, detail) {
   await writeJsonAtomic(activityDataPath(DETAILS_DIR, id), detail);
+}
+
+async function writeRawActivityDetail(id, detail) {
+  await writeJsonAtomic(activityDataPath(RAW_DETAILS_DIR, id), detail);
 }
 
 async function clearStore() {
@@ -655,6 +664,16 @@ function statusFromStore(store) {
 function detailStatusFromStore(store) {
   const runs = store.activities.filter(isRun);
   const detailsById = store.detailsById || new Map();
+  const rawDetailIds = typeof store.rawDetailIds?.has === "function" ? store.rawDetailIds : null;
+  const rawRunCount = rawDetailIds
+    ? runs.filter((activity) => rawDetailIds.has(String(activity.id))).length
+    : null;
+  const pendingRunCount = rawDetailIds
+    ? runs.filter((activity) => {
+      const id = String(activity.id);
+      return !isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id);
+    }).length
+    : null;
   const records = runs
     .map((activity) => detailsById.get(String(activity.id)))
     .filter(Boolean);
@@ -662,14 +681,16 @@ function detailStatusFromStore(store) {
   const failed = records.filter(isFailedActivityDetail);
   const bestEffortActivities = fetched.filter((activity) => Array.isArray(activity.best_efforts) && activity.best_efforts.length > 0);
   const bestEffortCount = fetched.reduce((total, activity) => total + (Array.isArray(activity.best_efforts) ? activity.best_efforts.length : 0), 0);
-  return {
+  return compactObject({
     runCount: runs.length,
     fetchedRunCount: fetched.length,
     failedRunCount: failed.length,
-    pendingRunCount: runs.length - fetched.length,
+    pendingRunCount: rawDetailIds ? pendingRunCount : runs.length - fetched.length,
     bestEffortActivityCount: bestEffortActivities.length,
-    bestEffortCount
-  };
+    bestEffortCount,
+    rawRunCount: rawDetailIds ? rawRunCount : undefined,
+    pendingRawRunCount: rawDetailIds ? runs.length - rawRunCount : undefined
+  });
 }
 
 function activityListItemFromStore(activity, detailsById = new Map()) {
@@ -1110,24 +1131,35 @@ async function syncActivityDetails(options = {}) {
   const requestedLimit = normalizePositiveInteger(options.limit);
   const limit = requestedLimit ? Math.min(requestedLimit, MAX_DETAIL_SYNC_ACTIVITIES) : MAX_DETAIL_SYNC_ACTIVITIES;
   const detailsById = new Map(store.detailsById || []);
+  const rawDetailIds = new Set(store.rawDetailIds || []);
   const pendingRuns = store.activities
-    .filter((activity) => isRun(activity) && !isSuccessfulActivityDetail(detailsById.get(String(activity.id))))
+    .filter((activity) => {
+      const id = String(activity.id);
+      return isRun(activity) && (!isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id));
+    })
     .sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
   const selected = pendingRuns.slice(0, limit);
   const syncedAt = new Date().toISOString();
   const errors = [];
   let fetched = 0;
+  let rawBackfilled = 0;
   let attempted = 0;
   let stoppedReason = null;
 
   for (const activity of selected) {
     attempted += 1;
+    const id = String(activity.id);
+    const alreadyHadDetail = isSuccessfulActivityDetail(detailsById.get(id));
+    const alreadyHadRaw = rawDetailIds.has(id);
     try {
       const detail = await fetchDetailedActivity(tokenResult.accessToken, activity.id);
+      await writeRawActivityDetail(activity.id, detail);
+      rawDetailIds.add(id);
       const sanitized = sanitizeActivityDetails(detail, syncedAt);
       await writeActivityDetail(activity.id, sanitized);
-      detailsById.set(String(activity.id), sanitized);
-      fetched += 1;
+      detailsById.set(id, sanitized);
+      if (alreadyHadDetail && !alreadyHadRaw) rawBackfilled += 1;
+      else fetched += 1;
     } catch (error) {
       if (error.statusCode === 429) {
         stoppedReason = "rate_limited";
@@ -1136,7 +1168,7 @@ async function syncActivityDetails(options = {}) {
 
       const failure = sanitizeActivityDetailError(activity, error, syncedAt);
       await writeActivityDetail(activity.id, failure);
-      detailsById.set(String(activity.id), failure);
+      detailsById.set(id, failure);
 
       errors.push({
         id: activity.id,
@@ -1146,13 +1178,22 @@ async function syncActivityDetails(options = {}) {
     }
   }
 
-  const remaining = store.activities.filter((activity) => isRun(activity) && !isSuccessfulActivityDetail(detailsById.get(String(activity.id)))).length;
+  const remaining = store.activities.filter((activity) => {
+    const id = String(activity.id);
+    return isRun(activity) && (!isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id));
+  }).length;
   const summary = {
     requested: selected.length,
     attempted,
     fetched,
+    rawBackfilled,
     failed: errors.length,
-    skippedAlreadyFetched: store.activities.filter((activity) => isRun(activity) && isSuccessfulActivityDetail((store.detailsById || new Map()).get(String(activity.id)))).length,
+    skippedAlreadyFetched: store.activities.filter((activity) => {
+      const id = String(activity.id);
+      return isRun(activity)
+        && isSuccessfulActivityDetail((store.detailsById || new Map()).get(id))
+        && rawDetailIds.has(id);
+    }).length,
     skippedFailed: store.activities.filter((activity) => isRun(activity) && isFailedActivityDetail((store.detailsById || new Map()).get(String(activity.id)))).length,
     remaining,
     limit,
@@ -1164,6 +1205,7 @@ async function syncActivityDetails(options = {}) {
   store = await writeStore({
     ...store,
     detailsById,
+    rawDetailIds,
     lastDetailSyncAt: syncedAt,
     lastDetailSyncSummary: summary
   });
@@ -1191,11 +1233,14 @@ async function refreshActivityDetail(activityId) {
 
   const syncedAt = new Date().toISOString();
   const detail = await fetchDetailedActivity(tokenResult.accessToken, id);
+  await writeRawActivityDetail(id, detail);
   const sanitized = sanitizeActivityDetails(detail, syncedAt);
   await writeActivityDetail(id, sanitized);
 
   const detailsById = new Map(store.detailsById || []);
+  const rawDetailIds = new Set(store.rawDetailIds || []);
   detailsById.set(id, sanitized);
+  rawDetailIds.add(id);
   const merged = mergeActivities(store.activities, [sanitized]);
   const summary = {
     activityId: id,
@@ -1207,6 +1252,7 @@ async function refreshActivityDetail(activityId) {
     ...store,
     activities: merged.activities,
     detailsById,
+    rawDetailIds,
     lastDetailSyncAt: syncedAt,
     lastDetailSyncSummary: summary
   });
