@@ -648,8 +648,9 @@ async function syncActivities() {
   try {
     const result = await fetchJson("/api/sync", { method: "POST", body: "{}" });
     const pendingDetails = Number(result.status?.activityDetails?.pendingRunCount || 0);
+    const pendingRawDetails = Number(result.status?.activityDetails?.pendingRawRunCount || 0);
     let detailResult = null;
-    if (pendingDetails > 0) {
+    if (pendingDetails > 0 || pendingRawDetails > 0) {
       setDetailSyncing(true);
       try {
         detailResult = await fetchJson("/api/activity-details/sync", { method: "POST", body: "{}" });
@@ -689,14 +690,17 @@ async function syncActivityDetails() {
 }
 
 function formatActivityDetailSyncMessage(summary = {}) {
+  const rawBackfilled = Number(summary.rawBackfilled || 0);
   if (!summary.fetched && !summary.remaining) {
     const failed = Number(summary.failed || 0) + Number(summary.skippedFailed || 0);
+    if (rawBackfilled) return `Raw details: ${formatInteger(rawBackfilled)} saved.`;
     return failed
       ? `No new best efforts to fetch. ${formatInteger(failed)} failures saved`
       : "All best efforts have already been fetched.";
   }
   const stopped = summary.stoppedReason === "rate_limited" ? ", rate limit reached" : "";
-  return `Best efforts: ${summary.fetched} new, ${summary.failed} failed, ${summary.remaining} remaining${stopped}`;
+  const rawMessage = rawBackfilled ? `, ${formatInteger(rawBackfilled)} raw saved` : "";
+  return `Best efforts: ${summary.fetched} new, ${summary.failed} failed, ${summary.remaining} remaining${rawMessage}${stopped}`;
 }
 
 async function refreshActivityDetail(activityId) {
@@ -1145,9 +1149,8 @@ function getMetricYTicks(yMax, metric) {
 }
 
 function getActivityLocalDay(activity) {
-  const date = new Date(activity.start_date_local || activity.start_date || 0);
-  if (Number.isNaN(date.getTime())) return null;
-  return startOfLocalDay(date);
+  const date = getLocalFirstDate(activity.start_date_local, activity.start_date);
+  return date ? startOfLocalDay(date) : null;
 }
 
 function addLocalDays(date, days) {
@@ -1542,7 +1545,7 @@ function getAllActivitySortValue(activity, key) {
   if (key === "elevation") return Number(activity.total_elevation_gain);
   if (key === "avg_hr") return Number(activity.average_heartrate);
   if (key === "detail_status") return detailStatusSortRank(activity.detail_status);
-  return new Date(activity.start_date_local || activity.start_date || 0).getTime();
+  return getActivityStartTime(activity);
 }
 
 function isMissingSortValue(value) {
@@ -1552,7 +1555,7 @@ function isMissingSortValue(value) {
 }
 
 function compareAllActivityDatesDesc(a, b) {
-  return new Date(b.start_date_local || b.start_date || 0) - new Date(a.start_date_local || a.start_date || 0);
+  return getActivityStartTime(b) - getActivityStartTime(a);
 }
 
 function detailStatusSortRank(status) {
@@ -2627,7 +2630,7 @@ function renderPersonalBestRecencyChart() {
     ...item,
     points: item.points
       .map((point) => {
-        const recordedAt = new Date(point.startDateLocal || point.startDate || 0).getTime();
+        const recordedAt = getLocalFirstTimestamp(point.startDateLocal, point.startDate);
         if (!Number.isFinite(recordedAt)) return null;
         return { ...point, recordedAt };
       })
@@ -2839,7 +2842,7 @@ function getPersonalBestTrendDistances() {
       const trendEfforts = (distance.top || [])
         .slice(0, PERSONAL_BEST_TREND_LIMIT)
         .map((effort, index) => {
-          const recordedAt = new Date(effort.startDateLocal || effort.startDate || 0).getTime();
+          const recordedAt = getLocalFirstTimestamp(effort.startDateLocal, effort.startDate);
           if (!Number.isFinite(recordedAt) || !Number.isFinite(effort.paceSecondsPerKm)) return null;
           return { ...effort, rank: index + 1, recordedAt };
         })
@@ -2962,7 +2965,7 @@ function buildPersonalBestRecencySeries(boundary) {
           .map((effort, index) => ({
             ...effort,
             rank: index + 1,
-            recordedAt: new Date(effort.startDateLocal || effort.startDate || 0).getTime()
+            recordedAt: getLocalFirstTimestamp(effort.startDateLocal, effort.startDate)
           }))
           .filter((effort) => Number.isFinite(effort.recordedAt))
           .sort((a, b) => boundary === "oldest" ? a.recordedAt - b.recordedAt : b.recordedAt - a.recordedAt)[0];
@@ -3256,8 +3259,8 @@ function formatClockDuration(seconds) {
 
 function formatDate(value) {
   if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
+  const date = parseLocalDateTimeString(value) || parseDateValue(value);
+  if (!date) return "-";
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "2-digit",
@@ -3274,6 +3277,60 @@ function formatShortDate(value) {
 
 function startOfLocalDay(value) {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function getActivityStartTime(activity) {
+  return getLocalFirstTimestamp(activity.start_date_local, activity.start_date);
+}
+
+function getLocalFirstTimestamp(localValue, fallbackValue) {
+  const date = getLocalFirstDate(localValue, fallbackValue);
+  return date ? date.getTime() : NaN;
+}
+
+function getLocalFirstDate(localValue, fallbackValue) {
+  return parseLocalDateTimeString(localValue) || parseDateValue(fallbackValue) || parseDateValue(localValue);
+}
+
+function parseLocalDateTimeString(value) {
+  if (typeof value !== "string") return null;
+
+  const match = value.trim().match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s](\d{2})(?::(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?(?:Z|[+-]\d{2}:?\d{2})?$)/
+  );
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hours = Number(match[4] || 0);
+  const minutes = Number(match[5] || 0);
+  const seconds = Number(match[6] || 0);
+  const milliseconds = match[7] ? Number(match[7].padEnd(3, "0")) : 0;
+  if (
+    month < 1 || month > 12 ||
+    hours > 23 ||
+    minutes > 59 ||
+    seconds > 59
+  ) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day, hours, minutes, seconds, milliseconds);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function parseDateValue(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function formatDateTime(value) {

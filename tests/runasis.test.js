@@ -210,6 +210,42 @@ test("numeric dashboard ranges include today when there is a run today", () => {
   });
 });
 
+test("Strava local timestamp strings keep their calendar date", () => {
+  const previousTimezone = process.env.TZ;
+  process.env.TZ = "America/Los_Angeles";
+
+  try {
+    const app = loadAppContext();
+    freezeAppDate(app, "2026-06-03T12:00:00");
+
+    const result = vm.runInContext(`
+      appState.rangeDays = "7";
+      appState.activities = [
+        ${JSON.stringify(runActivity("local-day", "2026-06-02T06:00:00Z"))}
+      ];
+
+      const activity = appState.activities[0];
+      const range = getDashboardDateRange(appState.activities);
+      ({
+        activityDay: localDateKey(getActivityLocalDay(activity)),
+        formattedDate: formatDate(activity.start_date_local),
+        rangeEnd: localDateKey(range.end),
+        filteredIds: getFilteredActivities().map((item) => item.id)
+      });
+    `, app);
+
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+      activityDay: "2026-06-02",
+      formattedDate: "06/02/2026",
+      rangeEnd: "2026-06-02",
+      filteredIds: ["local-day"]
+    });
+  } finally {
+    if (previousTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTimezone;
+  }
+});
+
 test("detailStatusFromStore separates fetched, failed, and pending run details", () => {
   const server = loadServerContext();
   const store = {
@@ -231,6 +267,32 @@ test("detailStatusFromStore separates fetched, failed, and pending run details",
     pendingRunCount: 2,
     bestEffortActivityCount: 1,
     bestEffortCount: 1
+  });
+});
+
+test("detailStatusFromStore treats missing raw payloads as pending when raw ids are tracked", () => {
+  const server = loadServerContext();
+  const store = {
+    activities: [
+      { id: 1, sport_type: "Run" },
+      { id: 2, sport_type: "Run" }
+    ],
+    detailsById: new Map([
+      ["1", { id: 1, best_efforts: [{ id: "effort-1" }] }],
+      ["2", { id: 2, best_efforts: [{ id: "effort-2" }] }]
+    ]),
+    rawDetailIds: new Set(["2"])
+  };
+
+  assert.deepEqual(JSON.parse(JSON.stringify(server.detailStatusFromStore(store))), {
+    runCount: 2,
+    fetchedRunCount: 2,
+    failedRunCount: 0,
+    pendingRunCount: 1,
+    bestEffortActivityCount: 2,
+    bestEffortCount: 2,
+    rawRunCount: 1,
+    pendingRawRunCount: 1
   });
 });
 
@@ -403,6 +465,133 @@ test("activity detail sanitizing drops route-heavy fields but keeps best efforts
   assert.equal(sanitized.splits_metric, undefined);
 });
 
+test("syncActivityDetails stores raw detailed activity before sanitized detail", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockStore = {
+      activities: [{
+        id: 123,
+        name: "Morning Run",
+        sport_type: "Run",
+        distance: 5000,
+        start_date: "2026-05-01T00:00:00Z"
+      }],
+      detailsById: new Map()
+    };
+    mockWrites = [];
+    readStore = async () => mockStore;
+    ensureAccessToken = async (store) => ({ store, accessToken: "access-token" });
+    fetchDetailedActivity = async () => ({
+      id: 123,
+      name: "Morning Run",
+      sport_type: "Run",
+      distance: 5000,
+      start_date: "2026-05-01T00:00:00Z",
+      start_latlng: [37, -122],
+      map: { summary_polyline: "encoded" },
+      segment_efforts: [{ id: 10 }],
+      splits_metric: [{ distance: 1000 }],
+      best_efforts: [{
+        id: 99,
+        name: "5K",
+        distance: 5000,
+        moving_time: 1500,
+        hidden_location: "keep me raw"
+      }]
+    });
+    writeRawActivityDetail = async (id, detail) => {
+      mockWrites.push({ kind: "raw", id, detail });
+    };
+    writeActivityDetail = async (id, detail) => {
+      mockWrites.push({ kind: "sanitized", id, detail });
+    };
+    writeStore = async (store) => {
+      mockWrittenStore = store;
+      return store;
+    };
+  `, server);
+
+  await vm.runInContext("syncActivityDetails({ limit: 1 })", server);
+
+  const result = vm.runInContext(`({
+    writes: mockWrites,
+    summary: mockWrittenStore.lastDetailSyncSummary
+  })`, server);
+  const writes = JSON.parse(JSON.stringify(result.writes));
+
+  assert.deepEqual(writes.map((write) => ({ kind: write.kind, id: write.id })), [
+    { kind: "raw", id: 123 },
+    { kind: "sanitized", id: 123 }
+  ]);
+  assert.equal(writes[0].detail.map.summary_polyline, "encoded");
+  assert.equal(writes[0].detail.best_efforts[0].hidden_location, "keep me raw");
+  assert.equal(writes[1].detail.map, undefined);
+  assert.equal(writes[1].detail.best_efforts[0].hidden_location, undefined);
+  assert.equal(result.summary.fetched, 1);
+});
+
+test("syncActivityDetails backfills raw payloads for already sanitized details", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockStore = {
+      activities: [{
+        id: 123,
+        name: "Morning Run",
+        sport_type: "Run",
+        distance: 5000,
+        start_date: "2026-05-01T00:00:00Z"
+      }],
+      detailsById: new Map([["123", {
+        id: 123,
+        name: "Morning Run",
+        sport_type: "Run",
+        best_efforts: [{ id: 99, name: "5K", distance: 5000, moving_time: 1500 }]
+      }]]),
+      rawDetailIds: new Set()
+    };
+    mockWrites = [];
+    readStore = async () => mockStore;
+    ensureAccessToken = async (store) => ({ store, accessToken: "access-token" });
+    fetchDetailedActivity = async () => ({
+      id: 123,
+      name: "Morning Run",
+      sport_type: "Run",
+      distance: 5000,
+      start_date: "2026-05-01T00:00:00Z",
+      map: { summary_polyline: "encoded" },
+      best_efforts: [{ id: 99, name: "5K", distance: 5000, moving_time: 1500 }]
+    });
+    writeRawActivityDetail = async (id, detail) => {
+      mockWrites.push({ kind: "raw", id, detail });
+    };
+    writeActivityDetail = async (id, detail) => {
+      mockWrites.push({ kind: "sanitized", id, detail });
+    };
+    writeStore = async (store) => {
+      mockWrittenStore = store;
+      return store;
+    };
+  `, server);
+
+  await vm.runInContext("syncActivityDetails({ limit: 1 })", server);
+
+  const result = vm.runInContext(`({
+    writes: mockWrites,
+    rawIds: Array.from(mockWrittenStore.rawDetailIds),
+    summary: mockWrittenStore.lastDetailSyncSummary
+  })`, server);
+  const writes = JSON.parse(JSON.stringify(result.writes));
+
+  assert.deepEqual(writes.map((write) => write.kind), ["raw", "sanitized"]);
+  assert.equal(writes[0].detail.map.summary_polyline, "encoded");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rawIds)), ["123"]);
+  assert.equal(result.summary.fetched, 0);
+  assert.equal(result.summary.rawBackfilled, 1);
+  assert.equal(result.summary.remaining, 0);
+});
+
 test("failed activity details remain pending for retry", () => {
   const server = loadServerContext();
   const store = {
@@ -532,6 +721,7 @@ test("activity detail refresh endpoint refetches one saved run even when cached"
         best_efforts: [{ id: "new-effort", name: "5K", distance: 5000, moving_time: 1490 }]
       };
     };
+    writeRawActivityDetail = async (id, detail) => { mockWrittenRawDetail = { id, detail }; };
     writeActivityDetail = async (id, detail) => { mockWrittenDetail = { id, detail }; };
     writeStore = async (store) => { mockWrittenStore = store; return store; };
   `, server);
@@ -545,12 +735,15 @@ test("activity detail refresh endpoint refetches one saved run even when cached"
   const body = JSON.parse(response.body);
   const result = vm.runInContext(`({
     fetchCalls: mockFetchCalls,
+    writtenRawDetail: mockWrittenRawDetail,
     writtenDetail: mockWrittenDetail,
     writtenActivities: mockWrittenStore.activities
   })`, server);
 
   assert.equal(body.summary.refreshed, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(result.fetchCalls)), [{ accessToken: "access-token", id: "123" }]);
+  assert.equal(result.writtenRawDetail.id, "123");
+  assert.equal(result.writtenRawDetail.detail.best_efforts[0].id, "new-effort");
   assert.equal(result.writtenDetail.id, "123");
   assert.equal(result.writtenDetail.detail.name, "Fixed Run");
   assert.equal(result.writtenDetail.detail.best_efforts[0].id, "new-effort");
@@ -744,6 +937,65 @@ test("syncActivities skips best-effort fetch when no run details are pending", a
   assert.equal(result.callUrls, "/api/sync|loadData|toast");
   assert.match(result.toastMessage, /Sync complete: 0 new, 1 updated/);
   assert.doesNotMatch(result.toastMessage, /Best efforts:/);
+});
+
+test("syncActivities fetches raw details when raw backfill is pending", async () => {
+  const app = loadAppContext();
+
+  const result = await vm.runInContext(`
+    (async () => {
+      const calls = [];
+      const button = () => ({ disabled: false, textContent: "" });
+      els.connectButton = button();
+      els.syncButton = button();
+      els.clearButton = button();
+      els.stravaConfigSaveButton = button();
+      appState.status = {
+        configured: true,
+        connected: true,
+        activityDetails: { pendingRunCount: 0, pendingRawRunCount: 0 }
+      };
+      fetchJson = async (url, options = {}) => {
+        calls.push({ url, method: options.method || "GET" });
+        if (url === "/api/sync") {
+          return {
+            summary: { inserted: 0, updated: 1 },
+            status: { activityDetails: { pendingRunCount: 0, pendingRawRunCount: 2 } }
+          };
+        }
+        if (url === "/api/activity-details/sync") {
+          return {
+            summary: {
+              fetched: 0,
+              rawBackfilled: 2,
+              failed: 0,
+              remaining: 0,
+              skippedFailed: 0,
+              stoppedReason: null
+            }
+          };
+        }
+        throw new Error("Unexpected URL " + url);
+      };
+      loadData = async () => {
+        calls.push({ url: "loadData" });
+      };
+      toast = (message) => {
+        calls.push({ url: "toast", message });
+      };
+
+      await syncActivities();
+      return {
+        callUrls: calls.map((call) => call.url).join("|"),
+        detailMethod: calls[1].method,
+        toastMessage: calls.at(-1).message
+      };
+    })()
+  `, app);
+
+  assert.equal(result.callUrls, "/api/sync|/api/activity-details/sync|loadData|toast");
+  assert.equal(result.detailMethod, "POST");
+  assert.match(result.toastMessage, /Raw details: 2 saved/);
 });
 
 test("clear data is disabled while background work is running", () => {
