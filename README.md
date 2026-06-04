@@ -72,6 +72,8 @@ If port `3000` is already in use, Runasis automatically tries the next available
 
 Large histories can take a while to sync. Best-effort details are fetched in batches, so click `Sync` again if Runasis says more records remain.
 
+Raw detailed activity payloads are saved locally under `data/strava/activities/raw-details/` before Runasis writes the smaller detail records used by the UI.
+
 ## Using Runasis
 
 ### Dashboard
