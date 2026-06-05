@@ -567,7 +567,7 @@ input[type="search"] {
 }
 
 .personal-best-tabs {
-  grid-template-columns: repeat(2, minmax(110px, 1fr));
+  grid-template-columns: repeat(3, minmax(92px, 1fr));
 }
 
 .time-best-heading {
@@ -690,6 +690,12 @@ input[type="search"] {
   border: 1px solid var(--line);
   background: var(--surface-soft);
   min-height: 34px;
+}
+
+.scale-toggle.personal-best-tabs {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .series-toggle {
@@ -829,10 +835,37 @@ table {
 
 .personal-best-table table {
   min-width: 620px;
+  table-layout: fixed;
 }
 
 .time-best-table table {
-  min-width: 760px;
+  min-width: 620px;
+}
+
+.pace-best-table table {
+  min-width: 720px;
+}
+
+.record-rank-column {
+  width: 44px;
+}
+
+.record-actions-column {
+  width: 56px;
+}
+
+.record-date-column {
+  width: 112px;
+}
+
+.record-time-column,
+.record-distance-column,
+.record-pace-column {
+  width: 96px;
+}
+
+.record-activity-column {
+  width: auto;
 }
 
 .all-activity-table {
@@ -953,14 +986,30 @@ table {
 }
 
 .record-exclusion-button {
-  min-height: 28px;
-  padding: 5px 9px;
-  font-size: var(--font-label);
-  white-space: nowrap;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--muted);
 }
 
 .record-exclusion-button.is-excluded {
   color: var(--green-dark);
+}
+
+.record-exclusion-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.record-actions {
+  text-align: center;
 }
 
 .record-row-excluded {
@@ -985,6 +1034,13 @@ td {
   text-align: left;
   border-bottom: 1px solid var(--line);
   font-size: var(--font-table);
+}
+
+.personal-best-table th,
+.personal-best-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 th {

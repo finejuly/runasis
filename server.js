@@ -34,7 +34,7 @@ const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
-const PERSONAL_BESTS_CACHE_VERSION = 5;
+const PERSONAL_BESTS_CACHE_VERSION = 6;
 const EXCLUDED_RECORDS_VERSION = 1;
 const ACTIVITY_STREAM_KEYS = [
   "time",
@@ -59,6 +59,11 @@ const TIME_BEST_TARGETS = [
   { name: "2 hours", durationSeconds: 2 * 60 * 60 },
   { name: "3 hours", durationSeconds: 3 * 60 * 60 },
   { name: "4 hours", durationSeconds: 4 * 60 * 60 }
+];
+const PACE_BEST_TARGETS = [
+  { name: "5:00/km", paceSecondsPerKm: 5 * 60 },
+  { name: "5:30/km", paceSecondsPerKm: 5 * 60 + 30 },
+  { name: "6:00/km", paceSecondsPerKm: 6 * 60 }
 ];
 const PERSONAL_BEST_DISTANCE_TARGETS = [
   { name: "400m", distance: 400 },
@@ -801,6 +806,7 @@ function buildPersonalBestsCacheFingerprint(store) {
     cacheVersion: PERSONAL_BESTS_CACHE_VERSION,
     personalBestDistanceTargets: PERSONAL_BEST_DISTANCE_TARGETS,
     timeBestTargets: TIME_BEST_TARGETS,
+    paceBestTargets: PACE_BEST_TARGETS,
     updatedAt: store.updatedAt || null,
     lastSyncAt: store.lastSyncAt || null,
     lastDetailSyncAt: store.lastDetailSyncAt || null,
@@ -831,7 +837,8 @@ function isFreshPersonalBestsCache(payload, sourceFingerprint) {
     payload.cache?.version === PERSONAL_BESTS_CACHE_VERSION &&
     payload.cache?.sourceFingerprint === sourceFingerprint &&
     Array.isArray(payload.distances) &&
-    Array.isArray(payload.durations)
+    Array.isArray(payload.durations) &&
+    Array.isArray(payload.paces)
   );
 }
 
@@ -911,6 +918,7 @@ function applyRecordExclusions(payload, excludedRecords, options = {}) {
   const includeExcluded = Boolean(options.includeExcluded);
   const distances = filterRecordGroups(payload.distances || [], excludedKeys, includeExcluded, summarizeMedianPersonalBestEffort);
   const durations = filterRecordGroups(payload.durations || [], excludedKeys, includeExcluded, summarizeMedianTimeBestEffort);
+  const paces = filterRecordGroups(payload.paces || [], excludedKeys, includeExcluded, summarizeMedianPaceBestEffort);
 
   return {
     ...payload,
@@ -923,7 +931,11 @@ function applyRecordExclusions(payload, excludedRecords, options = {}) {
     durationActivityCount: countUniqueRecordActivities(durations),
     durationEffortCount: countGroupRecords(durations),
     durationCount: durations.length,
-    durations
+    durations,
+    paceActivityCount: countUniqueRecordActivities(paces),
+    paceEffortCount: countGroupRecords(paces),
+    paceCount: paces.length,
+    paces
   };
 }
 
@@ -969,6 +981,7 @@ function countUniqueRecordActivities(groups) {
 async function computePersonalBestsFromStore(store, sourceFingerprint) {
   const distanceBests = await distanceBestsFromStore(store);
   const timeBests = await timeBestsFromStore(store);
+  const paceBests = await paceBestsFromStore(store);
   const generatedAt = new Date().toISOString();
   const payload = {
     generatedAt,
@@ -984,7 +997,11 @@ async function computePersonalBestsFromStore(store, sourceFingerprint) {
     durationActivityCount: timeBests.activityCount,
     durationEffortCount: timeBests.effortCount,
     durationCount: timeBests.durations.length,
-    durations: timeBests.durations
+    durations: timeBests.durations,
+    paceActivityCount: paceBests.activityCount,
+    paceEffortCount: paceBests.effortCount,
+    paceCount: paceBests.paces.length,
+    paces: paceBests.paces
   };
 
   await writeJsonAtomic(PERSONAL_BESTS_CACHE_PATH, payload);
@@ -1162,6 +1179,77 @@ function timeBestEffortsForActivity(activity, streams) {
     .filter(Boolean);
 }
 
+async function paceBestsFromStore(store) {
+  const groups = new Map(PACE_BEST_TARGETS.map((target) => [target.name, []]));
+  const activityById = activityMapFromStore(store);
+  let activityCount = 0;
+  let effortCount = 0;
+
+  for (const rawId of rawStreamIdsFromStore(store)) {
+    const id = String(rawId);
+    const activity = activityById.get(id);
+    if (!activity || !isRun(activity)) continue;
+
+    const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
+    const efforts = paceBestEffortsForActivity(activity, streams);
+    if (!efforts.length) continue;
+
+    activityCount += 1;
+    for (const effort of efforts) {
+      const group = groups.get(effort.name);
+      if (!group) continue;
+      effortCount += 1;
+      group.push(effort);
+    }
+  }
+
+  const paces = PACE_BEST_TARGETS
+    .map((target) => {
+      const sorted = (groups.get(target.name) || []).sort(comparePaceBestEfforts);
+      const medianEffort = summarizeMedianPaceBestEffort(sorted);
+      return {
+        name: target.name,
+        paceSecondsPerKm: target.paceSecondsPerKm,
+        count: sorted.length,
+        median: medianEffort,
+        top: sorted
+      };
+    })
+    .filter((pace) => pace.count > 0);
+
+  return { activityCount, effortCount, paces };
+}
+
+function paceBestEffortsForActivity(activity, streams) {
+  const series = buildTimeDistanceSeries(streams);
+  if (!series) return [];
+
+  return PACE_BEST_TARGETS
+    .map((target) => {
+      const best = findLongestDurationForPace(series, target.paceSecondsPerKm);
+      if (!best || best.duration <= 0 || best.distance <= 0) return null;
+      const distanceKm = best.distance / 1000;
+      return {
+        activityId: activity.id,
+        activityName: activity.name || "Untitled",
+        startDate: addSecondsToDateString(activity.start_date, best.startOffset),
+        startDateLocal: addSecondsToDateString(activity.start_date_local || activity.start_date, best.startOffset),
+        name: target.name,
+        targetPaceSecondsPerKm: target.paceSecondsPerKm,
+        durationSeconds: best.duration,
+        movingTime: best.duration,
+        distance: best.distance,
+        distanceKm: round(distanceKm, 3),
+        paceSecondsPerKm: distanceKm ? best.duration / distanceKm : null,
+        startOffset: Math.round(best.startOffset),
+        endOffset: Math.round(best.endOffset),
+        recordKey: buildRecordKey("pace", target.name, activity.id, best.startOffset, best.endOffset),
+        recordType: "pace"
+      };
+    })
+    .filter(Boolean);
+}
+
 function buildTimeDistanceSeries(streams) {
   const times = streams?.time?.data;
   const distances = streams?.distance?.data;
@@ -1180,6 +1268,94 @@ function buildTimeDistanceSeries(streams) {
   }
 
   return series.length >= 2 ? series : null;
+}
+
+function findLongestDurationForPace(series, paceSecondsPerKm) {
+  const targetPace = Number(paceSecondsPerKm);
+  if (!Number.isFinite(targetPace) || targetPace <= 0) return null;
+  const speedMetersPerSecond = 1000 / targetPace;
+  const scored = (series || [])
+    .map((point) => ({
+      time: Number(point.time),
+      distance: Number(point.distance),
+      score: Number(point.distance) - speedMetersPerSecond * Number(point.time)
+    }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.distance) && Number.isFinite(point.score));
+  if (scored.length < 2) return null;
+
+  const sortedScores = Array.from(new Set(scored.map((point) => point.score))).sort((a, b) => a - b);
+  const tree = createMinFenwickTree(sortedScores.length);
+  let best = null;
+
+  for (let index = 0; index < scored.length; index += 1) {
+    const point = scored[index];
+    const maxRank = upperBound(sortedScores, point.score);
+    const startIndex = tree.query(maxRank);
+    if (startIndex !== null && startIndex < index) {
+      const start = scored[startIndex];
+      const duration = point.time - start.time;
+      const distance = point.distance - start.distance;
+      if (duration > 0 && distance > 0 && distance >= speedMetersPerSecond * duration) {
+        if (!best ||
+          duration > best.duration ||
+          (duration === best.duration && distance > best.distance) ||
+          (duration === best.duration && distance === best.distance && start.time < best.startOffset)
+        ) {
+          best = {
+            duration,
+            distance,
+            startOffset: start.time,
+            endOffset: point.time
+          };
+        }
+      }
+    }
+
+    const rank = lowerBound(sortedScores, point.score) + 1;
+    tree.update(rank, index);
+  }
+
+  return best;
+}
+
+function createMinFenwickTree(size) {
+  const values = Array(size + 1).fill(Infinity);
+  return {
+    update(index, value) {
+      for (let cursor = index; cursor <= size; cursor += cursor & -cursor) {
+        values[cursor] = Math.min(values[cursor], value);
+      }
+    },
+    query(index) {
+      let best = Infinity;
+      for (let cursor = Math.min(index, size); cursor > 0; cursor -= cursor & -cursor) {
+        best = Math.min(best, values[cursor]);
+      }
+      return Number.isFinite(best) ? best : null;
+    }
+  };
+}
+
+function lowerBound(values, target) {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (values[middle] < target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function upperBound(values, target) {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (values[middle] <= target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
 }
 
 function findBestDistanceForDuration(series, durationSeconds) {
@@ -1325,6 +1501,13 @@ function compareTimeBestEfforts(a, b) {
     new Date(a.startDate || 0) - new Date(b.startDate || 0);
 }
 
+function comparePaceBestEfforts(a, b) {
+  return b.durationSeconds - a.durationSeconds ||
+    b.distance - a.distance ||
+    a.paceSecondsPerKm - b.paceSecondsPerKm ||
+    new Date(a.startDate || 0) - new Date(b.startDate || 0);
+}
+
 function summarizeMedianTimeBestEffort(efforts) {
   if (!efforts.length) return null;
   const durationSeconds = Number(efforts[0]?.durationSeconds || 0);
@@ -1337,6 +1520,27 @@ function summarizeMedianTimeBestEffort(efforts) {
   return {
     count: efforts.length,
     durationSeconds,
+    distance,
+    distanceKm: round(distanceKm, 3),
+    paceSecondsPerKm
+  };
+}
+
+function summarizeMedianPaceBestEffort(efforts) {
+  if (!efforts.length) return null;
+  const targetPaceSecondsPerKm = Number(efforts[0]?.targetPaceSecondsPerKm || efforts[0]?.paceSecondsPerKm || 0);
+  const durationSeconds = medianNumber(efforts.map((effort) => effort.durationSeconds));
+  const distance = medianNumber(efforts.map((effort) => effort.distance));
+  const distanceKm = Number.isFinite(distance) ? distance / 1000 : null;
+  const paceSecondsPerKm = distanceKm && Number.isFinite(durationSeconds)
+    ? durationSeconds / distanceKm
+    : medianNumber(efforts.map((effort) => effort.paceSecondsPerKm));
+  if (!Number.isFinite(durationSeconds) || !Number.isFinite(distance) || !Number.isFinite(paceSecondsPerKm)) return null;
+  return {
+    count: efforts.length,
+    targetPaceSecondsPerKm,
+    durationSeconds,
+    movingTime: durationSeconds,
     distance,
     distanceKm: round(distanceKm, 3),
     paceSecondsPerKm

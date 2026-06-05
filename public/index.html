@@ -232,6 +232,7 @@
         <div class="personal-best-tabs scale-toggle" role="group" aria-label="Personal best type">
           <button class="scale-option personal-best-tab-option active" type="button" data-personal-best-tab="distance">Distance</button>
           <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="time">Time</button>
+          <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="pace">Pace</button>
         </div>
 
         <div class="personal-best-subview" id="personalBestDistanceView">
@@ -330,6 +331,49 @@
             <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
           </div>
           <div class="personal-best-grid" id="personalBestDurationGrid"></div>
+        </div>
+
+        <div class="personal-best-subview hidden" id="paceView" aria-label="Pace bests">
+          <article class="chart-panel personal-best-chart-panel">
+            <div class="panel-title">
+              <h2>Duration by Pace</h2>
+              <span id="paceBestDurationChartCaption"></span>
+            </div>
+            <div class="chart-box personal-best-chart" id="paceBestDurationChart" aria-label="Pace best duration by target pace chart"></div>
+          </article>
+          <article class="chart-panel personal-best-chart-panel">
+            <div class="panel-title">
+              <h2>Pace Best Timing</h2>
+              <span id="paceBestRecencyChartCaption">D-day</span>
+            </div>
+            <div class="chart-box personal-best-chart" id="paceBestRecencyChart" aria-label="Pace best timing by target pace chart"></div>
+          </article>
+          <article class="chart-panel personal-best-chart-panel">
+            <div class="panel-title">
+              <h2>Pace Best Trend</h2>
+              <div class="panel-actions">
+                <span id="paceBestTrendCaption"></span>
+                <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Pace best trend display count">
+                  <button class="scale-option pace-trend-limit-option" type="button" data-limit="5">Top 5</button>
+                  <button class="scale-option pace-trend-limit-option" type="button" data-limit="10">Top 10</button>
+                  <button class="scale-option pace-trend-limit-option active" type="button" data-limit="20">Top 20</button>
+                </div>
+                <label class="select-field personal-best-trend-field">
+                  <span>Pace</span>
+                  <select id="paceBestTrendTargetSelect" aria-label="Pace best trend target pace"></select>
+                </label>
+              </div>
+            </div>
+            <div class="chart-box personal-best-chart" id="paceBestTrendChart" aria-label="Pace best trend by target pace chart"></div>
+          </article>
+          <div class="personal-best-section-heading time-best-heading">
+            <div>
+              <h2>Pace Bests</h2>
+              <span id="personalBestPaceCaption">No stream data</span>
+            </div>
+            <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+          </div>
+          <div class="personal-best-grid" id="personalBestPaceGrid"></div>
         </div>
       </section>
 
