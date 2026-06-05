@@ -978,6 +978,84 @@ test("personalBestsFromStore computes fixed-time distance bests from streams", a
   assert.equal(vm.runInContext("mockWrittenPersonalBests.cache.sourceFingerprint", server), sourceFingerprint);
 });
 
+test("personalBestsFromStore computes standard distance bests from streams", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockWrittenPersonalBests = null;
+    readJson = async (file, fallback) => {
+      const text = String(file);
+      if (text.endsWith("/raw-streams/1.json")) {
+        return {
+          time: { data: [0, 1000, 2000, 3000] },
+          distance: { data: [0, 5000, 10000, 15000] }
+        };
+      }
+      if (text.endsWith("/raw-streams/2.json")) {
+        return {
+          time: { data: [0, 900, 1800, 2700] },
+          distance: { data: [0, 5000, 10000, 15000] }
+        };
+      }
+      return fallback;
+    };
+    writeJsonAtomic = async (file, payload) => {
+      mockWrittenPersonalBests = payload;
+    };
+  `, server);
+
+  const result = await vm.runInContext(`
+    personalBestsFromStore({
+      activities: [
+        { id: 1, name: "Older Stream", sport_type: "Run", start_date: "2026-05-01T12:00:00Z" },
+        { id: 2, name: "Faster Stream", sport_type: "Run", start_date: "2026-05-02T12:00:00Z" }
+      ],
+      detailsById: new Map([
+        ["1", {
+          id: 1,
+          name: "Older Detail",
+          sport_type: "Run",
+          start_date: "2026-05-01T12:00:00Z",
+          best_efforts: [{ id: "slow-1", name: "5K", distance: 5000, moving_time: 1500 }]
+        }],
+        ["2", {
+          id: 2,
+          name: "Faster Detail",
+          sport_type: "Run",
+          start_date: "2026-05-02T12:00:00Z",
+          best_efforts: [{ id: "slow-2", name: "5K", distance: 5000, moving_time: 1500 }]
+        }]
+      ]),
+      rawStreamIds: new Set(["1", "2"])
+    })
+  `, server);
+
+  const distances = Object.fromEntries(result.distances.map((distance) => [distance.name, distance]));
+
+  assert.equal(result.detailActivityCount, 2);
+  assert.equal(result.distanceCount, 8);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.distances.map((distance) => distance.name))), [
+    "400m",
+    "1/2 mile",
+    "1K",
+    "1 mile",
+    "2 mile",
+    "5K",
+    "10K",
+    "15K"
+  ]);
+  assert.equal(result.effortCount, 16);
+  assert.equal(distances["1K"].top[0].activityId, 2);
+  assert.equal(Math.round(distances["1K"].top[0].movingTime), 180);
+  assert.equal(distances["5K"].top[0].activityId, 2);
+  assert.equal(Math.round(distances["5K"].top[0].movingTime), 900);
+  assert.equal(distances["10K"].top[0].activityId, 2);
+  assert.equal(Math.round(distances["10K"].top[0].movingTime), 1800);
+  assert.equal(distances["15K"].top[0].activityId, 2);
+  assert.equal(Math.round(distances["15K"].top[0].movingTime), 2700);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.distanceCount", server), 8);
+});
+
 test("personalBestsFromStore reuses a fresh derived cache without rereading streams", async () => {
   const server = loadServerContext();
 

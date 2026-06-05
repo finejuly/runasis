@@ -33,7 +33,7 @@ const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
-const PERSONAL_BESTS_CACHE_VERSION = 3;
+const PERSONAL_BESTS_CACHE_VERSION = 4;
 const ACTIVITY_STREAM_KEYS = [
   "time",
   "distance",
@@ -58,22 +58,23 @@ const TIME_BEST_TARGETS = [
   { name: "3 hours", durationSeconds: 3 * 60 * 60 },
   { name: "4 hours", durationSeconds: 4 * 60 * 60 }
 ];
-const PREFERRED_BEST_EFFORT_ORDER = [
-  "400m",
-  "1/2 mile",
-  "1K",
-  "1 mile",
-  "2 mile",
-  "5K",
-  "10K",
-  "15K",
-  "10 mile",
-  "20K",
-  "Half-Marathon",
-  "30K",
-  "Marathon",
-  "50K"
+const PERSONAL_BEST_DISTANCE_TARGETS = [
+  { name: "400m", distance: 400 },
+  { name: "1/2 mile", distance: 804.672 },
+  { name: "1K", distance: 1000 },
+  { name: "1 mile", distance: 1609.344 },
+  { name: "2 mile", distance: 3218.688 },
+  { name: "5K", distance: 5000 },
+  { name: "10K", distance: 10000 },
+  { name: "15K", distance: 15000 },
+  { name: "10 mile", distance: 16093.44 },
+  { name: "20K", distance: 20000 },
+  { name: "Half-Marathon", distance: 21097.5 },
+  { name: "30K", distance: 30000 },
+  { name: "Marathon", distance: 42195 },
+  { name: "50K", distance: 50000 }
 ];
+const PREFERRED_BEST_EFFORT_ORDER = PERSONAL_BEST_DISTANCE_TARGETS.map((target) => target.name);
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -789,27 +790,14 @@ function buildPersonalBestsCacheFingerprint(store) {
       startDateLocal: detail?.start_date_local || null,
       fetchedAt: detail?.details_fetched_at || null,
       failedAt: detail?.details_fetch_failed_at || null,
-      error: detail?.details_fetch_error || null,
-      bestEfforts: Array.isArray(detail?.best_efforts)
-        ? detail.best_efforts.map((effort) => ({
-          id: effort?.id ?? null,
-          name: effort?.name || null,
-          distance: Number(effort?.distance || 0),
-          movingTime: Number(effort?.moving_time || 0),
-          elapsedTime: Number(effort?.elapsed_time || 0),
-          startDate: effort?.start_date || null,
-          startDateLocal: effort?.start_date_local || null,
-          startIndex: effort?.start_index ?? null,
-          endIndex: effort?.end_index ?? null,
-          prRank: effort?.pr_rank ?? null
-        }))
-        : []
+      error: detail?.details_fetch_error || null
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
   const rawStreamIds = iterableToSortedStrings(store.rawStreamIds);
 
   return hashJson({
     cacheVersion: PERSONAL_BESTS_CACHE_VERSION,
+    personalBestDistanceTargets: PERSONAL_BEST_DISTANCE_TARGETS,
     timeBestTargets: TIME_BEST_TARGETS,
     updatedAt: store.updatedAt || null,
     lastSyncAt: store.lastSyncAt || null,
@@ -854,56 +842,7 @@ async function personalBestsFromStore(store) {
 }
 
 async function computePersonalBestsFromStore(store, sourceFingerprint) {
-  const groups = new Map();
-  let effortCount = 0;
-  let detailActivityCount = 0;
-
-  for (const detail of (store.detailsById || new Map()).values()) {
-    if (!isRun(detail) || !Array.isArray(detail.best_efforts)) continue;
-    detailActivityCount += 1;
-
-    for (const effort of detail.best_efforts) {
-      const distance = Number(effort.distance || 0);
-      const movingTime = Number(effort.moving_time || 0);
-      if (!distance || !movingTime) continue;
-
-      const name = effort.name || `${round(distance / 1000, 3)}K`;
-      if (!groups.has(name)) groups.set(name, []);
-      effortCount += 1;
-      groups.get(name).push({
-        effortId: effort.id || null,
-        activityId: detail.id,
-        activityName: detail.name || "Untitled",
-        startDate: effort.start_date || detail.start_date || null,
-        startDateLocal: effort.start_date_local || detail.start_date_local || null,
-        name,
-        distance,
-        distanceKm: round(distance / 1000, 3),
-        movingTime,
-        elapsedTime: Number(effort.elapsed_time || movingTime),
-        paceSecondsPerKm: distance ? movingTime / (distance / 1000) : null,
-        startIndex: effort.start_index ?? null,
-        endIndex: effort.end_index ?? null,
-        prRank: effort.pr_rank ?? null
-      });
-    }
-  }
-
-  const distances = Array.from(groups.entries())
-    .map(([name, efforts]) => {
-      const sorted = efforts.sort(comparePersonalBestEfforts);
-      const medianEffort = summarizeMedianPersonalBestEffort(sorted);
-      return {
-        name,
-        distance: sorted[0]?.distance || null,
-        distanceKm: sorted[0]?.distanceKm || null,
-        count: efforts.length,
-        median: medianEffort,
-        top: sorted.slice(0, 20)
-      };
-    })
-    .sort(compareBestEffortGroups);
-
+  const distanceBests = await distanceBestsFromStore(store);
   const timeBests = await timeBestsFromStore(store);
   const generatedAt = new Date().toISOString();
   const payload = {
@@ -913,10 +852,10 @@ async function computePersonalBestsFromStore(store, sourceFingerprint) {
       sourceFingerprint,
       generatedAt
     },
-    detailActivityCount,
-    effortCount,
-    distanceCount: distances.length,
-    distances,
+    detailActivityCount: distanceBests.activityCount,
+    effortCount: distanceBests.effortCount,
+    distanceCount: distanceBests.distances.length,
+    distances: distanceBests.distances,
     durationActivityCount: timeBests.activityCount,
     durationEffortCount: timeBests.effortCount,
     durationCount: timeBests.durations.length,
@@ -927,8 +866,50 @@ async function computePersonalBestsFromStore(store, sourceFingerprint) {
   return payload;
 }
 
-async function timeBestsFromStore(store) {
-  const groups = new Map(TIME_BEST_TARGETS.map((target) => [target.name, []]));
+async function distanceBestsFromStore(store) {
+  const groups = new Map(PERSONAL_BEST_DISTANCE_TARGETS.map((target) => [target.name, []]));
+  const activityById = activityMapFromStore(store);
+  let activityCount = 0;
+  let effortCount = 0;
+
+  for (const rawId of rawStreamIdsFromStore(store)) {
+    const id = String(rawId);
+    const activity = activityById.get(id);
+    if (!activity || !isRun(activity)) continue;
+
+    const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
+    const efforts = distanceBestEffortsForActivity(activity, streams);
+    if (!efforts.length) continue;
+
+    activityCount += 1;
+    for (const effort of efforts) {
+      const group = groups.get(effort.name);
+      if (!group) continue;
+      effortCount += 1;
+      group.push(effort);
+    }
+  }
+
+  const distances = PERSONAL_BEST_DISTANCE_TARGETS
+    .map((target) => {
+      const sorted = (groups.get(target.name) || []).sort(comparePersonalBestEfforts);
+      const medianEffort = summarizeMedianPersonalBestEffort(sorted);
+      return {
+        name: target.name,
+        distance: target.distance,
+        distanceKm: round(target.distance / 1000, 3),
+        count: sorted.length,
+        median: medianEffort,
+        top: sorted.slice(0, 20)
+      };
+    })
+    .filter((distance) => distance.count > 0)
+    .sort(compareBestEffortGroups);
+
+  return { activityCount, effortCount, distances };
+}
+
+function activityMapFromStore(store) {
   const activityById = new Map();
   for (const activity of store.activities || []) {
     if (activity?.id) activityById.set(String(activity.id), activity);
@@ -936,14 +917,53 @@ async function timeBestsFromStore(store) {
   for (const detail of (store.detailsById || new Map()).values()) {
     if (detail?.id) activityById.set(String(detail.id), { ...activityById.get(String(detail.id)), ...detail });
   }
+  return activityById;
+}
 
-  const rawStreamIds = typeof store.rawStreamIds?.[Symbol.iterator] === "function"
+function rawStreamIdsFromStore(store) {
+  return typeof store.rawStreamIds?.[Symbol.iterator] === "function"
     ? Array.from(store.rawStreamIds)
     : [];
+}
+
+function distanceBestEffortsForActivity(activity, streams) {
+  const series = buildTimeDistanceSeries(streams);
+  if (!series) return [];
+
+  return PERSONAL_BEST_DISTANCE_TARGETS
+    .map((target) => {
+      const best = findBestTimeForDistance(series, target.distance);
+      if (!best || best.duration <= 0) return null;
+      const distanceKm = target.distance / 1000;
+      return {
+        effortId: null,
+        activityId: activity.id,
+        activityName: activity.name || "Untitled",
+        startDate: addSecondsToDateString(activity.start_date, best.startOffset),
+        startDateLocal: addSecondsToDateString(activity.start_date_local || activity.start_date, best.startOffset),
+        name: target.name,
+        distance: target.distance,
+        distanceKm: round(distanceKm, 3),
+        movingTime: best.duration,
+        elapsedTime: best.duration,
+        paceSecondsPerKm: distanceKm ? best.duration / distanceKm : null,
+        startOffset: Math.round(best.startOffset),
+        endOffset: Math.round(best.endOffset),
+        startIndex: null,
+        endIndex: null,
+        prRank: null
+      };
+    })
+    .filter(Boolean);
+}
+
+async function timeBestsFromStore(store) {
+  const groups = new Map(TIME_BEST_TARGETS.map((target) => [target.name, []]));
+  const activityById = activityMapFromStore(store);
   let activityCount = 0;
   let effortCount = 0;
 
-  for (const rawId of rawStreamIds) {
+  for (const rawId of rawStreamIdsFromStore(store)) {
     const id = String(rawId);
     const activity = activityById.get(id);
     if (!activity || !isRun(activity)) continue;
@@ -1062,6 +1082,61 @@ function findBestDistanceForDuration(series, durationSeconds) {
   return best;
 }
 
+function findBestTimeForDistance(series, distanceMeters) {
+  const targetDistance = Number(distanceMeters);
+  if (!Number.isFinite(targetDistance) || targetDistance <= 0) return null;
+
+  const distanceSeries = buildDistanceTimeSeries(series);
+  if (!distanceSeries) return null;
+
+  const firstDistance = distanceSeries[0].distance;
+  const lastDistance = distanceSeries.at(-1).distance;
+  if (lastDistance - firstDistance < targetDistance) return null;
+
+  const seen = new Set();
+  let best = null;
+  const considerStartDistance = (startDistance) => {
+    const roundedStart = Number(startDistance.toFixed(3));
+    if (seen.has(roundedStart)) return;
+    seen.add(roundedStart);
+
+    const endDistance = startDistance + targetDistance;
+    if (startDistance < firstDistance || endDistance > lastDistance) return;
+    const startTime = interpolateTimeAtDistance(distanceSeries, startDistance);
+    const endTime = interpolateTimeAtDistance(distanceSeries, endDistance);
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return;
+    const duration = endTime - startTime;
+    if (duration <= 0) return;
+    if (!best || duration < best.duration || (duration === best.duration && startTime < best.startOffset)) {
+      best = {
+        duration,
+        startOffset: startTime,
+        endOffset: endTime
+      };
+    }
+  };
+
+  for (const point of distanceSeries) {
+    considerStartDistance(point.distance);
+    considerStartDistance(point.distance - targetDistance);
+  }
+
+  return best;
+}
+
+function buildDistanceTimeSeries(series) {
+  const distanceSeries = [];
+  for (const point of series || []) {
+    const time = Number(point?.time);
+    const distance = Number(point?.distance);
+    if (!Number.isFinite(time) || !Number.isFinite(distance)) continue;
+    const previous = distanceSeries.at(-1);
+    if (previous && distance <= previous.distance) continue;
+    distanceSeries.push({ time, distance });
+  }
+  return distanceSeries.length >= 2 ? distanceSeries : null;
+}
+
 function interpolateDistanceAtTime(series, targetTime) {
   if (targetTime <= series[0].time) return series[0].distance;
   const last = series.at(-1);
@@ -1082,6 +1157,28 @@ function interpolateDistanceAtTime(series, targetTime) {
   if (span <= 0) return lower.distance;
   const ratio = (targetTime - lower.time) / span;
   return lower.distance + (upper.distance - lower.distance) * ratio;
+}
+
+function interpolateTimeAtDistance(series, targetDistance) {
+  if (targetDistance <= series[0].distance) return series[0].time;
+  const last = series.at(-1);
+  if (targetDistance >= last.distance) return last.time;
+
+  let low = 0;
+  let high = series.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (series[middle].distance < targetDistance) low = middle + 1;
+    else high = middle;
+  }
+
+  const upper = series[low];
+  if (upper.distance === targetDistance) return upper.time;
+  const lower = series[low - 1];
+  const span = upper.distance - lower.distance;
+  if (span <= 0) return lower.time;
+  const ratio = (targetDistance - lower.distance) / span;
+  return lower.time + (upper.time - lower.time) * ratio;
 }
 
 function compareTimeBestEfforts(a, b) {
