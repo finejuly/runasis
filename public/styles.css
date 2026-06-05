@@ -566,6 +566,10 @@ input[type="search"] {
   font-weight: 650;
 }
 
+.personal-best-tabs {
+  grid-template-columns: repeat(2, minmax(110px, 1fr));
+}
+
 .time-best-heading {
   margin-top: 0;
 }
