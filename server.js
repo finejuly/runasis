@@ -18,7 +18,9 @@ const ACTIVITIES_DIR = path.join(STRAVA_DATA_DIR, "activities");
 const ACTIVITIES_INDEX_PATH = path.join(ACTIVITIES_DIR, "index.json");
 const DETAILS_DIR = path.join(ACTIVITIES_DIR, "details");
 const RAW_DETAILS_DIR = path.join(ACTIVITIES_DIR, "raw-details");
+const RAW_STREAMS_DIR = path.join(ACTIVITIES_DIR, "raw-streams");
 const DERIVED_DIR = path.join(STRAVA_DATA_DIR, "derived");
+const PERSONAL_BESTS_CACHE_PATH = path.join(DERIVED_DIR, "personal-bests.json");
 
 loadEnvFile();
 
@@ -30,7 +32,32 @@ const HOST = resolveHost(process.env.HOST || "127.0.0.1");
 const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
-const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 80;
+const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
+const PERSONAL_BESTS_CACHE_VERSION = 3;
+const ACTIVITY_STREAM_KEYS = [
+  "time",
+  "distance",
+  "latlng",
+  "altitude",
+  "velocity_smooth",
+  "heartrate",
+  "cadence",
+  "watts",
+  "temp",
+  "moving",
+  "grade_smooth"
+];
+const TIME_BEST_TARGETS = [
+  { name: "5 min", durationSeconds: 5 * 60 },
+  { name: "10 min", durationSeconds: 10 * 60 },
+  { name: "20 min", durationSeconds: 20 * 60 },
+  { name: "30 min", durationSeconds: 30 * 60 },
+  { name: "1 hour", durationSeconds: 60 * 60 },
+  { name: "1 hour 30 min", durationSeconds: 90 * 60 },
+  { name: "2 hours", durationSeconds: 2 * 60 * 60 },
+  { name: "3 hours", durationSeconds: 3 * 60 * 60 },
+  { name: "4 hours", durationSeconds: 4 * 60 * 60 }
+];
 const PREFERRED_BEST_EFFORT_ORDER = [
   "400m",
   "1/2 mile",
@@ -233,6 +260,7 @@ function emptyStore() {
     activities: [],
     detailsById: new Map(),
     rawDetailIds: new Set(),
+    rawStreamIds: new Set(),
     lastSyncAt: null,
     lastSyncSummary: null,
     lastDetailSyncAt: null,
@@ -245,15 +273,16 @@ function emptyStore() {
 async function readStore() {
   await ensureStoreMigrated();
 
-  const [auth, syncState, activityIndex, detailsById, rawDetailIds] = await Promise.all([
+  const [auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds] = await Promise.all([
     readJson(AUTH_PATH, emptyAuthStore()),
     readJson(SYNC_STATE_PATH, emptySyncState()),
     readJson(ACTIVITIES_INDEX_PATH, emptyActivityIndex()),
     readActivityDataMap(DETAILS_DIR),
-    listActivityDataIds(RAW_DETAILS_DIR)
+    listActivityDataIds(RAW_DETAILS_DIR),
+    listActivityDataIds(RAW_STREAMS_DIR)
   ]);
 
-  return buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds });
+  return buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds });
 }
 
 async function writeStore(store) {
@@ -295,7 +324,8 @@ async function writeStore(store) {
     syncState,
     activityIndex,
     detailsById: store.detailsById || new Map(),
-    rawDetailIds: store.rawDetailIds || new Set()
+    rawDetailIds: store.rawDetailIds || new Set(),
+    rawStreamIds: store.rawStreamIds || new Set()
   });
 }
 
@@ -331,7 +361,7 @@ function emptyActivityIndex() {
   };
 }
 
-function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds }) {
+function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds }) {
   return {
     schemaVersion: 2,
     athlete: auth.athlete || null,
@@ -340,6 +370,7 @@ function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds 
     activities: Array.isArray(activityIndex.activities) ? activityIndex.activities : [],
     detailsById: detailsById || new Map(),
     rawDetailIds: rawDetailIds || new Set(),
+    rawStreamIds: rawStreamIds || new Set(),
     lastSyncAt: syncState.lastSyncAt || null,
     lastSyncSummary: syncState.lastSyncSummary || null,
     lastDetailSyncAt: syncState.lastDetailSyncAt || null,
@@ -413,7 +444,7 @@ function hasDetailedActivityData(activity) {
 }
 
 async function ensureDataDirs() {
-  const directories = [DATA_DIR, STRAVA_DATA_DIR, ACTIVITIES_DIR, DETAILS_DIR, RAW_DETAILS_DIR, DERIVED_DIR];
+  const directories = [DATA_DIR, STRAVA_DATA_DIR, ACTIVITIES_DIR, DETAILS_DIR, RAW_DETAILS_DIR, RAW_STREAMS_DIR, DERIVED_DIR];
   await Promise.all(directories.map(async (directory) => {
     await fs.mkdir(directory, { recursive: true, mode: PRIVATE_DIR_MODE });
     await fs.chmod(directory, PRIVATE_DIR_MODE).catch(() => {});
@@ -504,6 +535,10 @@ async function writeActivityDetail(id, detail) {
 
 async function writeRawActivityDetail(id, detail) {
   await writeJsonAtomic(activityDataPath(RAW_DETAILS_DIR, id), detail);
+}
+
+async function writeRawActivityStream(id, streams) {
+  await writeJsonAtomic(activityDataPath(RAW_STREAMS_DIR, id), streams);
 }
 
 async function clearStore() {
@@ -665,14 +700,21 @@ function detailStatusFromStore(store) {
   const runs = store.activities.filter(isRun);
   const detailsById = store.detailsById || new Map();
   const rawDetailIds = typeof store.rawDetailIds?.has === "function" ? store.rawDetailIds : null;
+  const rawStreamIds = typeof store.rawStreamIds?.has === "function" ? store.rawStreamIds : null;
   const rawRunCount = rawDetailIds
     ? runs.filter((activity) => rawDetailIds.has(String(activity.id))).length
+    : null;
+  const rawStreamRunCount = rawStreamIds
+    ? runs.filter((activity) => rawStreamIds.has(String(activity.id))).length
     : null;
   const pendingRunCount = rawDetailIds
     ? runs.filter((activity) => {
       const id = String(activity.id);
       return !isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id);
     }).length
+    : null;
+  const pendingRawStreamRunCount = rawStreamIds
+    ? runs.length - rawStreamRunCount
     : null;
   const records = runs
     .map((activity) => detailsById.get(String(activity.id)))
@@ -689,7 +731,9 @@ function detailStatusFromStore(store) {
     bestEffortActivityCount: bestEffortActivities.length,
     bestEffortCount,
     rawRunCount: rawDetailIds ? rawRunCount : undefined,
-    pendingRawRunCount: rawDetailIds ? runs.length - rawRunCount : undefined
+    pendingRawRunCount: rawDetailIds ? runs.length - rawRunCount : undefined,
+    rawStreamRunCount: rawStreamIds ? rawStreamRunCount : undefined,
+    pendingRawStreamRunCount: rawStreamIds ? pendingRawStreamRunCount : undefined
   });
 }
 
@@ -723,7 +767,93 @@ function isFailedActivityDetail(detail) {
   return Boolean(detail?.details_fetch_failed_at || detail?.details_fetch_error);
 }
 
+function buildPersonalBestsCacheFingerprint(store) {
+  const activities = (store.activities || [])
+    .map((activity) => ({
+      id: String(activity?.id || ""),
+      name: activity?.name || null,
+      sportType: activity?.sport_type || activity?.type || null,
+      startDate: activity?.start_date || null,
+      startDateLocal: activity?.start_date_local || null,
+      distance: Number(activity?.distance || 0),
+      movingTime: Number(activity?.moving_time || 0)
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const details = Array.from((store.detailsById || new Map()).entries())
+    .map(([id, detail]) => ({
+      id: String(id),
+      activityId: String(detail?.id || id),
+      name: detail?.name || null,
+      sportType: detail?.sport_type || detail?.type || null,
+      startDate: detail?.start_date || null,
+      startDateLocal: detail?.start_date_local || null,
+      fetchedAt: detail?.details_fetched_at || null,
+      failedAt: detail?.details_fetch_failed_at || null,
+      error: detail?.details_fetch_error || null,
+      bestEfforts: Array.isArray(detail?.best_efforts)
+        ? detail.best_efforts.map((effort) => ({
+          id: effort?.id ?? null,
+          name: effort?.name || null,
+          distance: Number(effort?.distance || 0),
+          movingTime: Number(effort?.moving_time || 0),
+          elapsedTime: Number(effort?.elapsed_time || 0),
+          startDate: effort?.start_date || null,
+          startDateLocal: effort?.start_date_local || null,
+          startIndex: effort?.start_index ?? null,
+          endIndex: effort?.end_index ?? null,
+          prRank: effort?.pr_rank ?? null
+        }))
+        : []
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const rawStreamIds = iterableToSortedStrings(store.rawStreamIds);
+
+  return hashJson({
+    cacheVersion: PERSONAL_BESTS_CACHE_VERSION,
+    timeBestTargets: TIME_BEST_TARGETS,
+    updatedAt: store.updatedAt || null,
+    lastSyncAt: store.lastSyncAt || null,
+    lastDetailSyncAt: store.lastDetailSyncAt || null,
+    activities,
+    details,
+    rawStreamIds
+  });
+}
+
+function iterableToSortedStrings(value) {
+  if (!value || typeof value[Symbol.iterator] !== "function") return [];
+  return Array.from(value).map(String).sort();
+}
+
+function hashJson(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+async function readPersonalBestsCache(sourceFingerprint) {
+  const payload = await readJson(PERSONAL_BESTS_CACHE_PATH, null);
+  if (!isFreshPersonalBestsCache(payload, sourceFingerprint)) return null;
+  return payload;
+}
+
+function isFreshPersonalBestsCache(payload, sourceFingerprint) {
+  return Boolean(
+    payload &&
+    payload.cache?.version === PERSONAL_BESTS_CACHE_VERSION &&
+    payload.cache?.sourceFingerprint === sourceFingerprint &&
+    Array.isArray(payload.distances) &&
+    Array.isArray(payload.durations)
+  );
+}
+
 async function personalBestsFromStore(store) {
+  const sourceFingerprint = buildPersonalBestsCacheFingerprint(store);
+  const cached = await readPersonalBestsCache(sourceFingerprint);
+  if (cached) return cached;
+
+  return computePersonalBestsFromStore(store, sourceFingerprint);
+}
+
+async function computePersonalBestsFromStore(store, sourceFingerprint) {
   const groups = new Map();
   let effortCount = 0;
   let detailActivityCount = 0;
@@ -774,16 +904,215 @@ async function personalBestsFromStore(store) {
     })
     .sort(compareBestEffortGroups);
 
+  const timeBests = await timeBestsFromStore(store);
+  const generatedAt = new Date().toISOString();
   const payload = {
-    generatedAt: new Date().toISOString(),
+    generatedAt,
+    cache: {
+      version: PERSONAL_BESTS_CACHE_VERSION,
+      sourceFingerprint,
+      generatedAt
+    },
     detailActivityCount,
     effortCount,
     distanceCount: distances.length,
-    distances
+    distances,
+    durationActivityCount: timeBests.activityCount,
+    durationEffortCount: timeBests.effortCount,
+    durationCount: timeBests.durations.length,
+    durations: timeBests.durations
   };
 
-  await writeJsonAtomic(path.join(DERIVED_DIR, "personal-bests.json"), payload);
+  await writeJsonAtomic(PERSONAL_BESTS_CACHE_PATH, payload);
   return payload;
+}
+
+async function timeBestsFromStore(store) {
+  const groups = new Map(TIME_BEST_TARGETS.map((target) => [target.name, []]));
+  const activityById = new Map();
+  for (const activity of store.activities || []) {
+    if (activity?.id) activityById.set(String(activity.id), activity);
+  }
+  for (const detail of (store.detailsById || new Map()).values()) {
+    if (detail?.id) activityById.set(String(detail.id), { ...activityById.get(String(detail.id)), ...detail });
+  }
+
+  const rawStreamIds = typeof store.rawStreamIds?.[Symbol.iterator] === "function"
+    ? Array.from(store.rawStreamIds)
+    : [];
+  let activityCount = 0;
+  let effortCount = 0;
+
+  for (const rawId of rawStreamIds) {
+    const id = String(rawId);
+    const activity = activityById.get(id);
+    if (!activity || !isRun(activity)) continue;
+
+    const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
+    const efforts = timeBestEffortsForActivity(activity, streams);
+    if (!efforts.length) continue;
+
+    activityCount += 1;
+    for (const effort of efforts) {
+      const group = groups.get(effort.name);
+      if (!group) continue;
+      effortCount += 1;
+      group.push(effort);
+    }
+  }
+
+  const durations = TIME_BEST_TARGETS
+    .map((target) => {
+      const sorted = (groups.get(target.name) || []).sort(compareTimeBestEfforts);
+      const medianEffort = summarizeMedianTimeBestEffort(sorted);
+      return {
+        name: target.name,
+        durationSeconds: target.durationSeconds,
+        count: sorted.length,
+        median: medianEffort,
+        top: sorted.slice(0, 20)
+      };
+    })
+    .filter((duration) => duration.count > 0);
+
+  return { activityCount, effortCount, durations };
+}
+
+function timeBestEffortsForActivity(activity, streams) {
+  const series = buildTimeDistanceSeries(streams);
+  if (!series) return [];
+
+  return TIME_BEST_TARGETS
+    .map((target) => {
+      const best = findBestDistanceForDuration(series, target.durationSeconds);
+      if (!best || best.distance <= 0) return null;
+      const distanceKm = best.distance / 1000;
+      return {
+        activityId: activity.id,
+        activityName: activity.name || "Untitled",
+        startDate: addSecondsToDateString(activity.start_date, best.startOffset),
+        startDateLocal: addSecondsToDateString(activity.start_date_local || activity.start_date, best.startOffset),
+        name: target.name,
+        durationSeconds: target.durationSeconds,
+        distance: best.distance,
+        distanceKm: round(distanceKm, 3),
+        paceSecondsPerKm: distanceKm ? target.durationSeconds / distanceKm : null,
+        startOffset: Math.round(best.startOffset),
+        endOffset: Math.round(best.endOffset)
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildTimeDistanceSeries(streams) {
+  const times = streams?.time?.data;
+  const distances = streams?.distance?.data;
+  if (!Array.isArray(times) || !Array.isArray(distances)) return null;
+
+  const length = Math.min(times.length, distances.length);
+  const series = [];
+  for (let index = 0; index < length; index += 1) {
+    const time = Number(times[index]);
+    const distance = Number(distances[index]);
+    if (!Number.isFinite(time) || !Number.isFinite(distance)) continue;
+    if (time < 0 || distance < 0) continue;
+    const previous = series.at(-1);
+    if (previous && time <= previous.time) continue;
+    series.push({ time, distance });
+  }
+
+  return series.length >= 2 ? series : null;
+}
+
+function findBestDistanceForDuration(series, durationSeconds) {
+  const targetDuration = Number(durationSeconds);
+  if (!Number.isFinite(targetDuration) || targetDuration <= 0) return null;
+  const firstTime = series[0].time;
+  const lastTime = series.at(-1).time;
+  if (lastTime - firstTime < targetDuration) return null;
+
+  const seen = new Set();
+  let best = null;
+  const considerStart = (startTime) => {
+    const roundedStart = Number(startTime.toFixed(3));
+    if (seen.has(roundedStart)) return;
+    seen.add(roundedStart);
+
+    const endTime = startTime + targetDuration;
+    if (startTime < firstTime || endTime > lastTime) return;
+    const startDistance = interpolateDistanceAtTime(series, startTime);
+    const endDistance = interpolateDistanceAtTime(series, endTime);
+    if (!Number.isFinite(startDistance) || !Number.isFinite(endDistance)) return;
+    const distance = endDistance - startDistance;
+    if (distance <= 0) return;
+    if (!best || distance > best.distance || (distance === best.distance && startTime < best.startOffset)) {
+      best = {
+        distance,
+        startOffset: startTime,
+        endOffset: endTime
+      };
+    }
+  };
+
+  for (const point of series) {
+    considerStart(point.time);
+    considerStart(point.time - targetDuration);
+  }
+
+  return best;
+}
+
+function interpolateDistanceAtTime(series, targetTime) {
+  if (targetTime <= series[0].time) return series[0].distance;
+  const last = series.at(-1);
+  if (targetTime >= last.time) return last.distance;
+
+  let low = 0;
+  let high = series.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (series[middle].time < targetTime) low = middle + 1;
+    else high = middle;
+  }
+
+  const upper = series[low];
+  if (upper.time === targetTime) return upper.distance;
+  const lower = series[low - 1];
+  const span = upper.time - lower.time;
+  if (span <= 0) return lower.distance;
+  const ratio = (targetTime - lower.time) / span;
+  return lower.distance + (upper.distance - lower.distance) * ratio;
+}
+
+function compareTimeBestEfforts(a, b) {
+  return b.distance - a.distance ||
+    a.paceSecondsPerKm - b.paceSecondsPerKm ||
+    new Date(a.startDate || 0) - new Date(b.startDate || 0);
+}
+
+function summarizeMedianTimeBestEffort(efforts) {
+  if (!efforts.length) return null;
+  const durationSeconds = Number(efforts[0]?.durationSeconds || 0);
+  const distance = medianNumber(efforts.map((effort) => effort.distance));
+  const distanceKm = Number.isFinite(distance) ? distance / 1000 : null;
+  const paceSecondsPerKm = distanceKm && durationSeconds
+    ? durationSeconds / distanceKm
+    : medianNumber(efforts.map((effort) => effort.paceSecondsPerKm));
+  if (!durationSeconds || !Number.isFinite(distance) || !Number.isFinite(paceSecondsPerKm)) return null;
+  return {
+    count: efforts.length,
+    durationSeconds,
+    distance,
+    distanceKm: round(distanceKm, 3),
+    paceSecondsPerKm
+  };
+}
+
+function addSecondsToDateString(value, seconds) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() + Math.round(seconds) * 1000).toISOString();
 }
 
 function comparePersonalBestEfforts(a, b) {
@@ -1046,6 +1375,7 @@ async function fetchActivitiesPage(accessToken, { page, after, before }) {
 
 async function fetchDetailedActivity(accessToken, id) {
   const url = new URL(`https://www.strava.com/api/v3/activities/${id}`);
+  url.searchParams.set("include_all_efforts", "true");
 
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${accessToken}` }
@@ -1060,6 +1390,28 @@ async function fetchDetailedActivity(accessToken, id) {
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("Strava returned an unexpected activity detail payload.");
+  }
+  return payload;
+}
+
+async function fetchActivityStreams(accessToken, id) {
+  const url = new URL(`https://www.strava.com/api/v3/activities/${id}/streams`);
+  url.searchParams.set("keys", ACTIVITY_STREAM_KEYS.join(","));
+  url.searchParams.set("key_by_type", "true");
+
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${accessToken}` }
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload.message || payload.error || `Strava activity streams request failed with ${response.status}`;
+    const error = new Error(message);
+    error.statusCode = response.status;
+    throw error;
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Strava returned an unexpected activity streams payload.");
   }
   return payload;
 }
@@ -1132,17 +1484,20 @@ async function syncActivityDetails(options = {}) {
   const limit = requestedLimit ? Math.min(requestedLimit, MAX_DETAIL_SYNC_ACTIVITIES) : MAX_DETAIL_SYNC_ACTIVITIES;
   const detailsById = new Map(store.detailsById || []);
   const rawDetailIds = new Set(store.rawDetailIds || []);
+  const rawStreamIds = new Set(store.rawStreamIds || []);
   const pendingRuns = store.activities
     .filter((activity) => {
       const id = String(activity.id);
-      return isRun(activity) && (!isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id));
+      return isRun(activity) && needsActivityDataSync(id, detailsById, rawDetailIds, rawStreamIds);
     })
     .sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
   const selected = pendingRuns.slice(0, limit);
   const syncedAt = new Date().toISOString();
   const errors = [];
+  const streamErrors = [];
   let fetched = 0;
   let rawBackfilled = 0;
+  let rawStreamsFetched = 0;
   let attempted = 0;
   let stoppedReason = null;
 
@@ -1150,55 +1505,97 @@ async function syncActivityDetails(options = {}) {
     attempted += 1;
     const id = String(activity.id);
     const alreadyHadDetail = isSuccessfulActivityDetail(detailsById.get(id));
-    const alreadyHadRaw = rawDetailIds.has(id);
-    try {
-      const detail = await fetchDetailedActivity(tokenResult.accessToken, activity.id);
-      await writeRawActivityDetail(activity.id, detail);
-      rawDetailIds.add(id);
-      const sanitized = sanitizeActivityDetails(detail, syncedAt);
-      await writeActivityDetail(activity.id, sanitized);
-      detailsById.set(id, sanitized);
-      if (alreadyHadDetail && !alreadyHadRaw) rawBackfilled += 1;
-      else fetched += 1;
-    } catch (error) {
-      if (error.statusCode === 429) {
-        stoppedReason = "rate_limited";
-        break;
+    const alreadyHadRawDetail = rawDetailIds.has(id);
+    const needsDetail = !alreadyHadDetail || !alreadyHadRawDetail;
+    const needsStream = !rawStreamIds.has(id);
+    let detailReady = alreadyHadDetail;
+
+    if (needsDetail) {
+      try {
+        const detail = await fetchDetailedActivity(tokenResult.accessToken, activity.id);
+        await writeRawActivityDetail(activity.id, detail);
+        rawDetailIds.add(id);
+        const sanitized = sanitizeActivityDetails(detail, syncedAt);
+        await writeActivityDetail(activity.id, sanitized);
+        detailsById.set(id, sanitized);
+        detailReady = true;
+        if (alreadyHadDetail && !alreadyHadRawDetail) rawBackfilled += 1;
+        else fetched += 1;
+      } catch (error) {
+        if (error.statusCode === 429) {
+          stoppedReason = "rate_limited";
+          break;
+        }
+
+        const failure = sanitizeActivityDetailError(activity, error, syncedAt);
+        await writeActivityDetail(activity.id, failure);
+        detailsById.set(id, failure);
+        detailReady = false;
+
+        errors.push({
+          id: activity.id,
+          statusCode: error.statusCode || null,
+          message: error.message || "Activity detail fetch failed"
+        });
       }
+    }
 
-      const failure = sanitizeActivityDetailError(activity, error, syncedAt);
-      await writeActivityDetail(activity.id, failure);
-      detailsById.set(id, failure);
+    if (needsStream && detailReady) {
+      try {
+        const streams = await fetchActivityStreams(tokenResult.accessToken, activity.id);
+        await writeRawActivityStream(activity.id, streams);
+        rawStreamIds.add(id);
+        rawStreamsFetched += 1;
+      } catch (error) {
+        if (error.statusCode === 429) {
+          stoppedReason = "rate_limited";
+          break;
+        }
 
-      errors.push({
-        id: activity.id,
-        statusCode: error.statusCode || null,
-        message: error.message || "Activity detail fetch failed"
-      });
+        streamErrors.push({
+          id: activity.id,
+          statusCode: error.statusCode || null,
+          message: error.message || "Activity streams fetch failed"
+        });
+      }
     }
   }
 
-  const remaining = store.activities.filter((activity) => {
+  const remainingDetails = store.activities.filter((activity) => {
     const id = String(activity.id);
     return isRun(activity) && (!isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id));
+  }).length;
+  const remainingRawStreams = store.activities.filter((activity) => {
+    const id = String(activity.id);
+    return isRun(activity) && !rawStreamIds.has(id);
+  }).length;
+  const remaining = store.activities.filter((activity) => {
+    const id = String(activity.id);
+    return isRun(activity) && needsActivityDataSync(id, detailsById, rawDetailIds, rawStreamIds);
   }).length;
   const summary = {
     requested: selected.length,
     attempted,
     fetched,
     rawBackfilled,
+    rawStreamsFetched,
     failed: errors.length,
+    streamFailed: streamErrors.length,
     skippedAlreadyFetched: store.activities.filter((activity) => {
       const id = String(activity.id);
       return isRun(activity)
         && isSuccessfulActivityDetail((store.detailsById || new Map()).get(id))
-        && rawDetailIds.has(id);
+        && rawDetailIds.has(id)
+        && rawStreamIds.has(id);
     }).length,
     skippedFailed: store.activities.filter((activity) => isRun(activity) && isFailedActivityDetail((store.detailsById || new Map()).get(String(activity.id)))).length,
     remaining,
+    remainingDetails,
+    remainingRawStreams,
     limit,
     stoppedReason,
     errors: errors.slice(0, 10),
+    streamErrors: streamErrors.slice(0, 10),
     syncedAt
   };
 
@@ -1206,11 +1603,16 @@ async function syncActivityDetails(options = {}) {
     ...store,
     detailsById,
     rawDetailIds,
+    rawStreamIds,
     lastDetailSyncAt: syncedAt,
     lastDetailSyncSummary: summary
   });
 
   return { summary, status: statusFromStore(store) };
+}
+
+function needsActivityDataSync(id, detailsById, rawDetailIds, rawStreamIds) {
+  return !isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id) || !rawStreamIds.has(id);
 }
 
 async function refreshActivityDetail(activityId) {
@@ -1236,15 +1638,32 @@ async function refreshActivityDetail(activityId) {
   await writeRawActivityDetail(id, detail);
   const sanitized = sanitizeActivityDetails(detail, syncedAt);
   await writeActivityDetail(id, sanitized);
+  let rawStreamsFetched = 0;
+  let streamError = null;
+  try {
+    const streams = await fetchActivityStreams(tokenResult.accessToken, id);
+    await writeRawActivityStream(id, streams);
+    rawStreamsFetched = 1;
+  } catch (error) {
+    streamError = {
+      statusCode: error.statusCode || null,
+      message: error.message || "Activity streams fetch failed"
+    };
+  }
 
   const detailsById = new Map(store.detailsById || []);
   const rawDetailIds = new Set(store.rawDetailIds || []);
+  const rawStreamIds = new Set(store.rawStreamIds || []);
   detailsById.set(id, sanitized);
   rawDetailIds.add(id);
+  if (rawStreamsFetched) rawStreamIds.add(id);
   const merged = mergeActivities(store.activities, [sanitized]);
   const summary = {
     activityId: id,
     refreshed: 1,
+    rawStreamsFetched,
+    streamFailed: streamError ? 1 : 0,
+    streamErrors: streamError ? [streamError] : [],
     syncedAt
   };
 
@@ -1253,6 +1672,7 @@ async function refreshActivityDetail(activityId) {
     activities: merged.activities,
     detailsById,
     rawDetailIds,
+    rawStreamIds,
     lastDetailSyncAt: syncedAt,
     lastDetailSyncSummary: summary
   });
