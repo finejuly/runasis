@@ -10,7 +10,7 @@ const PERSONAL_BEST_DEFAULT_LIMIT = 3;
 const PERSONAL_BEST_EXPANDED_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT_OPTIONS = new Set([5, 10, 20]);
-const PERSONAL_BEST_TABS = new Set(["distance", "time"]);
+const PERSONAL_BEST_TABS = new Set(["distance", "time", "pace"]);
 const RECENT_ACTIVITY_LIMIT = 5;
 const REPOSITORY_URL = "";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -78,11 +78,14 @@ const appState = {
   personalBests: null,
   expandedPersonalBestDistances: new Set(),
   expandedTimeBestDurations: new Set(),
+  expandedPaceBestTargets: new Set(),
   personalBestTrendDistanceName: null,
   personalBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   timeBestTrendDurationName: null,
   timeBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   timeBestScale: "log",
+  paceBestTrendTargetName: null,
+  paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   currentView: "dashboard",
   personalBestTab: "distance",
   personalBestScale: "linear",
@@ -176,6 +179,7 @@ function cacheElements() {
     "pbView",
     "personalBestDistanceView",
     "timeView",
+    "paceView",
     "analysisView",
     "analysisRankControl",
     "openActivityListButton",
@@ -216,6 +220,15 @@ function cacheElements() {
     "personalBestTrendDistanceSelect",
     "personalBestDurationGrid",
     "personalBestDurationCaption",
+    "personalBestPaceGrid",
+    "personalBestPaceCaption",
+    "paceBestDurationChart",
+    "paceBestDurationChartCaption",
+    "paceBestRecencyChart",
+    "paceBestRecencyChartCaption",
+    "paceBestTrendChart",
+    "paceBestTrendCaption",
+    "paceBestTrendTargetSelect",
     "timeBestDistanceChart",
     "timeBestDistanceChartCaption",
     "timeBestRecencyChart",
@@ -247,6 +260,7 @@ function cacheElements() {
   els.timeBestScaleButtons = Array.from(document.querySelectorAll(".time-scale-option"));
   els.personalBestTrendLimitButtons = Array.from(document.querySelectorAll(".pb-trend-limit-option"));
   els.timeBestTrendLimitButtons = Array.from(document.querySelectorAll(".time-trend-limit-option"));
+  els.paceBestTrendLimitButtons = Array.from(document.querySelectorAll(".pace-trend-limit-option"));
   els.riegelFiveKScaleButtons = Array.from(document.querySelectorAll(".riegel-scale-option"));
   els.riegelFiveKSeriesButtons = Array.from(document.querySelectorAll(".riegel-series-option"));
   els.riegelExponentModeButtons = Array.from(document.querySelectorAll(".riegel-exponent-mode-option"));
@@ -417,6 +431,20 @@ function bindEvents() {
     });
   }
 
+  if (els.paceBestTrendTargetSelect) {
+    els.paceBestTrendTargetSelect.addEventListener("change", () => {
+      appState.paceBestTrendTargetName = els.paceBestTrendTargetSelect.value || null;
+      renderPaceBestTrendChart();
+    });
+  }
+
+  for (const button of els.paceBestTrendLimitButtons || []) {
+    button.addEventListener("click", () => {
+      appState.paceBestTrendLimit = normalizePersonalBestTrendLimit(button.dataset.limit);
+      renderPaceBestTrendChart();
+    });
+  }
+
   for (const button of els.riegelFiveKScaleButtons) {
     button.addEventListener("click", () => {
       appState.riegelFiveKScale = button.dataset.scale === "log" ? "log" : "linear";
@@ -465,6 +493,9 @@ function bindEvents() {
   els.personalBestGrid.addEventListener("click", handlePersonalBestToggle);
   if (els.personalBestDurationGrid) {
     els.personalBestDurationGrid.addEventListener("click", handlePersonalBestToggle);
+  }
+  if (els.personalBestPaceGrid) {
+    els.personalBestPaceGrid.addEventListener("click", handlePersonalBestToggle);
   }
   for (const button of els.excludedRecordsToggleButtons || []) {
     button.addEventListener("click", toggleIncludeExcludedRecords);
@@ -1091,6 +1122,7 @@ function renderView() {
   els.pbView.classList.toggle("hidden", !showPersonalBests);
   els.personalBestDistanceView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "distance");
   els.timeView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "time");
+  els.paceView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "pace");
   els.analysisView.classList.toggle("hidden", appState.currentView !== "analysis");
   els.analysisRankControl.classList.toggle("hidden", appState.currentView !== "analysis");
 }
@@ -1767,6 +1799,10 @@ function renderPersonalBestTab() {
   const tab = normalizePersonalBestTab(appState.personalBestTab);
   appState.personalBestTab = tab;
   updatePersonalBestTabControls(tab);
+  if (tab === "pace") {
+    renderPaceBestsView();
+    return;
+  }
   if (tab === "time") {
     renderTimeBestsView();
     return;
@@ -1782,6 +1818,31 @@ function updatePersonalBestTabControls(tab = normalizePersonalBestTab(appState.p
   for (const button of els.personalBestTabOptions || []) {
     button.classList.toggle("active", button.dataset.personalBestTab === tab);
   }
+}
+
+function renderBestRecordColgroup(type) {
+  if (type === "pace") {
+    return `
+            <colgroup>
+              <col class="record-rank-column">
+              <col class="record-date-column">
+              <col class="record-time-column">
+              <col class="record-distance-column">
+              <col class="record-pace-column">
+              <col class="record-activity-column">
+              <col class="record-actions-column">
+            </colgroup>`;
+  }
+  const metricColumn = type === "time" ? "record-distance-column" : "record-time-column";
+  return `
+            <colgroup>
+              <col class="record-rank-column">
+              <col class="record-date-column">
+              <col class="${metricColumn}">
+              <col class="record-pace-column">
+              <col class="record-activity-column">
+              <col class="record-actions-column">
+            </colgroup>`;
 }
 
 function renderPersonalBests() {
@@ -1810,10 +1871,10 @@ function renderPersonalBests() {
         <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
           <td>${index + 1}</td>
           <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
-          <td class="activity-name">${escapeHtml(activityName)}</td>
           <td>${formatClockDuration(effort.movingTime)}</td>
           <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
-          <td>${exclusionButton}</td>
+          <td class="activity-name">${escapeHtml(activityName)}</td>
+          <td class="record-actions">${exclusionButton}</td>
         </tr>
       `;
     }).join("") : `<tr><td colspan="6">No best efforts</td></tr>`;
@@ -1839,13 +1900,14 @@ function renderPersonalBests() {
         </div>
         <div class="table-wrap personal-best-table">
           <table>
+            ${renderBestRecordColgroup("distance")}
             <thead>
               <tr>
                 <th>#</th>
                 <th>Date</th>
-                <th>Activity</th>
                 <th>Best Time</th>
                 <th>Pace</th>
+                <th>Activity</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1864,6 +1926,14 @@ function renderTimeBestsView() {
   renderTimeBestRecencyChart();
   renderTimeBestTrendChart();
   renderTimeLimitedBests(payload.durations || [], payload);
+}
+
+function renderPaceBestsView() {
+  const payload = appState.personalBests || {};
+  renderPaceBestDurationChart();
+  renderPaceBestRecencyChart();
+  renderPaceBestTrendChart();
+  renderPaceLimitedBests(payload.paces || [], payload);
 }
 
 function renderTimeLimitedBests(durations, payload = {}) {
@@ -1891,14 +1961,13 @@ function renderTimeLimitedBests(durations, payload = {}) {
         <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
           <td>${index + 1}</td>
           <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
-          <td class="activity-name">${escapeHtml(activityName)}</td>
           <td>${formatNumber(Number(effort.distanceKm || 0), 2)} km</td>
           <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
-          <td>${formatClockDuration(effort.startOffset || 0)}</td>
-          <td>${exclusionButton}</td>
+          <td class="activity-name">${escapeHtml(activityName)}</td>
+          <td class="record-actions">${exclusionButton}</td>
         </tr>
       `;
-    }).join("") || `<tr><td colspan="7">No time bests</td></tr>`;
+    }).join("") || `<tr><td colspan="6">No time bests</td></tr>`;
     const hasMore = topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT;
     const toggleLabel = isExpanded ? "Show Less" : "Show More";
     const toggleMeta = isExpanded
@@ -1921,14 +1990,14 @@ function renderTimeLimitedBests(durations, payload = {}) {
         </div>
         <div class="table-wrap personal-best-table time-best-table">
           <table>
+            ${renderBestRecordColgroup("time")}
             <thead>
               <tr>
                 <th>#</th>
                 <th>Date</th>
-                <th>Activity</th>
                 <th>Distance</th>
                 <th>Pace</th>
-                <th>Start</th>
+                <th>Activity</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -1939,6 +2008,364 @@ function renderTimeLimitedBests(durations, payload = {}) {
       </article>
     `;
   }).join("");
+}
+
+function renderPaceLimitedBests(paces, payload = {}) {
+  if (!els.personalBestPaceGrid) return;
+  if (els.personalBestPaceCaption) {
+    els.personalBestPaceCaption.textContent = paces.length
+      ? `${formatInteger(payload.paceActivityCount || 0)} stream activities · ${formatInteger(payload.paceEffortCount || 0)} pace bests`
+      : "No stream data";
+  }
+
+  if (!paces.length) {
+    els.personalBestPaceGrid.innerHTML = `<div class="chart-empty">No pace best data</div>`;
+    return;
+  }
+
+  els.personalBestPaceGrid.innerHTML = paces.map((pace) => {
+    const topEfforts = pace.top || [];
+    const isExpanded = appState.expandedPaceBestTargets.has(pace.name);
+    const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
+    const visibleEfforts = topEfforts.slice(0, visibleLimit);
+    const rows = visibleEfforts.map((effort, index) => {
+      const activityName = effort.activityName || "Untitled";
+      const exclusionButton = renderRecordExclusionButton(effort, activityName);
+      return `
+        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
+          <td>${index + 1}</td>
+          <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
+          <td>${formatClockDuration(effort.durationSeconds || effort.movingTime)}</td>
+          <td>${formatNumber(Number(effort.distanceKm || 0), 2)} km</td>
+          <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
+          <td class="activity-name">${escapeHtml(activityName)}</td>
+          <td class="record-actions">${exclusionButton}</td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="7">No pace bests</td></tr>`;
+    const hasMore = topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT;
+    const toggleLabel = isExpanded ? "Show Less" : "Show More";
+    const toggleMeta = isExpanded
+      ? `Showing top ${visibleEfforts.length}`
+      : `Showing top ${PERSONAL_BEST_DEFAULT_LIMIT}`;
+    const toggle = hasMore ? `
+      <div class="personal-best-more-row">
+        <span>${toggleMeta}</span>
+        <button class="button ghost personal-best-more" type="button" data-pace-best-toggle="${escapeHtml(pace.name)}">
+          ${toggleLabel}
+        </button>
+      </div>
+    ` : "";
+
+    return `
+      <article class="records-panel personal-best-panel">
+        <div class="panel-title">
+          <h2>${escapeHtml(pace.name)}</h2>
+          <span>${formatInteger(pace.count || 0)} ${Number(pace.count || 0) === 1 ? "segment" : "segments"}</span>
+        </div>
+        <div class="table-wrap personal-best-table pace-best-table">
+          <table>
+            ${renderBestRecordColgroup("pace")}
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Distance</th>
+                <th>Pace</th>
+                <th>Activity</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        ${toggle}
+      </article>
+    `;
+  }).join("");
+}
+
+function renderPaceBestDurationChart() {
+  if (!els.paceBestDurationChart) return;
+  const series = buildPaceBestDurationSeries();
+  const durationValues = series.flatMap((item) => item.points.map((point) => point.durationSeconds));
+  const paceValues = series.flatMap((item) => item.points.map((point) => point.targetPaceSecondsPerKm));
+  if (!durationValues.length || !paceValues.length) {
+    if (els.paceBestDurationChartCaption) els.paceBestDurationChartCaption.textContent = "No data";
+    return renderEmpty(els.paceBestDurationChart, "No pace best duration data");
+  }
+
+  if (els.paceBestDurationChartCaption) els.paceBestDurationChartCaption.textContent = "";
+  const width = 980;
+  const height = 318;
+  const padding = { top: 24, right: 28, bottom: 58, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const paceDomain = buildLinearDomain(paceValues, 15);
+  const durationDomain = buildDurationAxisDomain(durationValues);
+  const x = (pace) => padding.left + ((pace - paceDomain.min) / paceDomain.spread) * chartWidth;
+  const y = (duration) => padding.top + ((durationDomain.max - duration) / durationDomain.spread) * chartHeight;
+  const xTicks = getPaceBestTicks();
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => durationDomain.min + ratio * durationDomain.spread);
+
+  const grid = [
+    ...xTicks.map((pace) => {
+      const tickX = x(pace.paceSecondsPerKm);
+      return `
+        <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
+        <text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle">${escapeHtml(pace.name)}</text>
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = y(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatClockDuration(tick)}</text>
+      `;
+    })
+  ].join("");
+
+  const lines = series.map((item) => {
+    if (item.points.length < 2) return "";
+    const path = item.points
+      .map((point, index) => `${index ? "L" : "M"} ${x(point.targetPaceSecondsPerKm).toFixed(1)} ${y(point.durationSeconds).toFixed(1)}`)
+      .join(" ");
+    const dashAttribute = item.dashArray ? ` stroke-dasharray="${item.dashArray}"` : "";
+    const dots = item.points.map((point) => `
+      <circle cx="${x(point.targetPaceSecondsPerKm)}" cy="${y(point.durationSeconds)}" r="${item.dotRadius || 4}" fill="${item.dotFill || item.color}" stroke="${item.dotStroke || item.color}" stroke-width="${item.dotStrokeWidth || 0}" data-tooltip="${escapeHtml(formatPaceBestDurationTooltip(item, point))}"></circle>
+    `).join("");
+    return `
+      <path d="${path}" fill="none" stroke="${item.color}" stroke-width="${item.strokeWidth || 3}"${dashAttribute} stroke-linecap="round" stroke-linejoin="round"></path>
+      ${dots}
+    `;
+  }).join("");
+
+  const legend = series.map((item, index) => {
+    const xPosition = padding.left + 36 + index * 112;
+    const dashAttribute = item.dashArray ? ` stroke-dasharray="${item.dashArray}"` : "";
+    return `
+      <g transform="translate(${xPosition}, 10)">
+        <line x1="0" x2="22" y1="0" y2="0" stroke="${item.color}" stroke-width="${item.strokeWidth || 3}"${dashAttribute}></line>
+        <text class="axis-label" x="28" y="4">${item.label}</text>
+      </g>
+    `;
+  }).join("");
+
+  els.paceBestDurationChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median duration by target pace">
+      ${grid}
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
+      <text class="axis-label" x="10" y="16">Time</text>
+      ${legend}
+      ${lines}
+    </svg>
+  `;
+}
+
+function renderPaceBestRecencyChart() {
+  if (!els.paceBestRecencyChart) return;
+  const newestSeries = buildPaceBestRecencySeries("newest");
+  const oldestSeries = buildPaceBestRecencySeries("oldest");
+  const series = [...oldestSeries, ...newestSeries];
+  const datedSeries = series.map((item) => ({
+    ...item,
+    points: item.points
+      .map((point) => {
+        const recordedAt = getLocalFirstTimestamp(point.startDateLocal, point.startDate);
+        if (!Number.isFinite(recordedAt)) return null;
+        return { ...point, recordedAt };
+      })
+      .filter(Boolean)
+  }));
+  const paceValues = datedSeries.flatMap((item) => item.points.map((point) => point.targetPaceSecondsPerKm));
+  const recordedDates = datedSeries.flatMap((item) => item.points.map((point) => point.recordedAt));
+  const today = startOfLocalDay(new Date());
+  const todayTime = today.getTime();
+  if (!recordedDates.length || !paceValues.length || !Number.isFinite(todayTime)) {
+    if (els.paceBestRecencyChartCaption) els.paceBestRecencyChartCaption.textContent = "No data";
+    return renderEmpty(els.paceBestRecencyChart, "No pace best timing data");
+  }
+
+  const pointsWithDays = datedSeries.map((item) => ({
+    ...item,
+    points: item.points.map((point) => ({
+      ...point,
+      daysAgo: Math.max(0, Math.round((todayTime - startOfLocalDay(new Date(point.recordedAt)).getTime()) / (24 * 60 * 60 * 1000)))
+    }))
+  }));
+  const maxDaysAgo = Math.max(...pointsWithDays.flatMap((item) => item.points.map((point) => point.daysAgo)), 1);
+  if (els.paceBestRecencyChartCaption) els.paceBestRecencyChartCaption.textContent = `As of ${formatDate(today)}`;
+
+  const width = 980;
+  const height = 318;
+  const padding = { top: 24, right: 28, bottom: 58, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const paceDomain = buildLinearDomain(paceValues, 15);
+  const yMax = Math.ceil(maxDaysAgo / 90) * 90 || 90;
+  const x = (pace) => padding.left + ((pace - paceDomain.min) / paceDomain.spread) * chartWidth;
+  const y = (daysAgo) => padding.top + (daysAgo / yMax) * chartHeight;
+  const xTicks = getPaceBestTicks();
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio));
+
+  const grid = [
+    ...xTicks.map((pace) => {
+      const tickX = x(pace.paceSecondsPerKm);
+      return `
+        <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
+        <text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle">${escapeHtml(pace.name)}</text>
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = y(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatDDay(tick)}</text>
+      `;
+    })
+  ].join("");
+
+  const lines = pointsWithDays.map((item) => {
+    if (item.points.length < 2) return "";
+    const path = item.points
+      .map((point, index) => `${index ? "L" : "M"} ${x(point.targetPaceSecondsPerKm).toFixed(1)} ${y(point.daysAgo).toFixed(1)}`)
+      .join(" ");
+    const isOldest = item.boundary === "oldest";
+    const dots = item.points.map((point) => `
+      <circle cx="${x(point.targetPaceSecondsPerKm)}" cy="${y(point.daysAgo)}" r="${isOldest ? 5 : 4}" fill="${isOldest ? "var(--surface)" : item.color}" stroke="${item.color}" stroke-width="${isOldest ? 2 : 0}" data-tooltip="${escapeHtml(`${item.label} ${item.boundaryLabel} ${point.paceName}\n${formatDDay(point.daysAgo)} · #${point.rank}\n${formatDate(point.startDateLocal || point.startDate)}`)}"></circle>
+    `).join("");
+    return `
+      <path d="${path}" fill="none" stroke="${item.color}" stroke-width="${isOldest ? 2.4 : 3}" ${isOldest ? "stroke-dasharray=\"8 6\"" : ""} stroke-linecap="round" stroke-linejoin="round"></path>
+      ${dots}
+    `;
+  }).join("");
+
+  const colorLegend = getPersonalBestSeriesDefinitions().map((item, index) => {
+    const xPosition = padding.left + index * 96;
+    return `
+      <g transform="translate(${xPosition}, 10)">
+        <line x1="0" x2="22" y1="0" y2="0" stroke="${item.color}" stroke-width="3"></line>
+        <text class="axis-label" x="28" y="4">${item.label}</text>
+      </g>
+    `;
+  }).join("");
+  const styleLegend = `
+    <g transform="translate(${padding.left + 330}, 10)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#59635b" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Newest</text>
+    </g>
+    <g transform="translate(${padding.left + 446}, 10)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#59635b" stroke-width="2.4" stroke-dasharray="8 6"></line>
+      <circle cx="11" cy="0" r="4" fill="var(--surface)" stroke="#59635b" stroke-width="2"></circle>
+      <text class="axis-label" x="28" y="4">Oldest</text>
+    </g>
+  `;
+
+  els.paceBestRecencyChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, and top 10 pace best timing by target pace">
+      ${grid}
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
+      <text class="axis-label" x="10" y="16">D-day</text>
+      ${colorLegend}
+      ${styleLegend}
+      ${lines}
+    </svg>
+  `;
+}
+
+function renderPaceBestTrendChart() {
+  if (!els.paceBestTrendChart) return;
+  appState.paceBestTrendLimit = normalizePersonalBestTrendLimit(appState.paceBestTrendLimit);
+  updatePaceBestTrendLimitButtons();
+  const paces = getPaceBestTrendTargets();
+  const selected = resolvePaceBestTrendTarget(paces);
+  renderPaceBestTrendTargetOptions(paces, selected?.name || null);
+
+  if (!selected) {
+    if (els.paceBestTrendCaption) els.paceBestTrendCaption.textContent = "";
+    return renderEmpty(els.paceBestTrendChart, "No pace best trend data");
+  }
+
+  const selectedLimit = normalizePersonalBestTrendLimit(appState.paceBestTrendLimit);
+  const efforts = selected.trendEfforts;
+  const activeEfforts = efforts.filter((effort) => effort.rank <= selectedLimit);
+  const dates = efforts.map((effort) => effort.recordedAt);
+  const minDate = Math.min(...dates);
+  const maxDate = Math.max(...dates);
+  const trend = buildDurationTrend(activeEfforts);
+  const durationValues = efforts.map((effort) => effort.durationSeconds);
+  if (trend) durationValues.push(trend.startDuration, trend.endDuration);
+  const durationDomain = buildDurationAxisDomain(durationValues);
+
+  const width = 980;
+  const height = 318;
+  const padding = { top: 48, right: 30, bottom: 42, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const dateSpread = Math.max(maxDate - minDate, 1);
+  const x = (date) => padding.left + ((date - minDate) / dateSpread) * chartWidth;
+  const y = (duration) => padding.top + ((durationDomain.max - duration) / durationDomain.spread) * chartHeight;
+  const trendLegendLabel = trend ? `Trend ${formatDurationTrendRate(trend.annualDurationChange)}` : "Trend";
+  const contextLegendLabel = `Top ${PERSONAL_BEST_TREND_LIMIT}`;
+  if (els.paceBestTrendCaption) els.paceBestTrendCaption.textContent = "";
+
+  const xTicks = getDateTicks(minDate, maxDate);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => durationDomain.min + ratio * durationDomain.spread);
+  const grid = [
+    ...xTicks.map((tick) => {
+      const tickX = x(tick);
+      return `
+        <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
+        <text class="axis-label" x="${tickX}" y="${height - 18}" text-anchor="middle">${formatDate(tick)}</text>
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = y(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatClockDuration(tick)}</text>
+      `;
+    })
+  ].join("");
+
+  const contextPath = efforts
+    .map((effort, index) => `${index ? "L" : "M"} ${x(effort.recordedAt).toFixed(1)} ${y(effort.durationSeconds).toFixed(1)}`)
+    .join(" ");
+  const activePath = activeEfforts.length > 1 ? activeEfforts
+    .map((effort, index) => `${index ? "L" : "M"} ${x(effort.recordedAt).toFixed(1)} ${y(effort.durationSeconds).toFixed(1)}`)
+    .join(" ") : "";
+  const dots = efforts.map((effort) => `
+    <circle cx="${x(effort.recordedAt)}" cy="${y(effort.durationSeconds)}" r="${effort.rank <= selectedLimit ? "4" : "3.4"}" fill="#24724f" stroke="#ffffff" stroke-width="1.5" opacity="${effort.rank <= selectedLimit ? "1" : "0.24"}" data-tooltip="${escapeHtml(`${selected.name} #${effort.rank}${effort.rank <= selectedLimit ? "" : ` · outside top ${selectedLimit}`}\n${formatDate(effort.startDateLocal || effort.startDate)} · ${formatClockDuration(effort.durationSeconds)}\n${formatNumber(effort.distanceKm, 2)} km · ${effort.activityName || "Untitled"}`)}"></circle>
+  `).join("");
+  const trendPath = trend ? `
+    <path d="M ${x(activeEfforts[0].recordedAt).toFixed(1)} ${y(trend.startDuration).toFixed(1)} L ${x(activeEfforts.at(-1).recordedAt).toFixed(1)} ${y(trend.endDuration).toFixed(1)}" fill="none" stroke="#c7672f" stroke-width="2.6" stroke-dasharray="8 6" stroke-linecap="round"></path>
+  ` : "";
+  const legend = `
+    <g transform="translate(${padding.left}, 22)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#24724f" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Selected Bests</text>
+    </g>
+    <g transform="translate(${padding.left + 170}, 22)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#24724f" stroke-width="3" opacity="0.22"></line>
+      <text class="axis-label" x="28" y="4">${escapeHtml(contextLegendLabel)}</text>
+    </g>
+    <g transform="translate(${padding.left + 278}, 22)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#c7672f" stroke-width="2.6" stroke-dasharray="8 6"></line>
+      <text class="axis-label" x="28" y="4">${escapeHtml(trendLegendLabel)}</text>
+    </g>
+  `;
+
+  els.paceBestTrendChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(`${selected.name} pace best duration trend by date, ${trendLegendLabel}`)}">
+      ${grid}
+      ${legend}
+      <path d="${contextPath}" fill="none" stroke="#24724f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.18"></path>
+      ${activePath ? `<path d="${activePath}" fill="none" stroke="#24724f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${trendPath}
+      ${dots}
+    </svg>
+  `;
 }
 
 function renderTimeBestDistanceChart() {
@@ -2266,9 +2693,28 @@ function renderRecordExclusionButton(effort, activityName = "record") {
   const nextExcluded = excluded ? "false" : "true";
   const label = excluded ? "Include" : "Exclude";
   const busy = appState.excludingRecordKey === recordKey;
-  const buttonLabel = busy ? "Saving" : label;
   const ariaLabel = `${label} ${activityName || "record"}`;
-  return `<button class="button ghost record-exclusion-button${excluded ? " is-excluded" : ""}${busy ? " is-busy" : ""}" type="button" data-record-exclusion-key="${escapeHtml(recordKey)}" data-record-exclusion-excluded="${nextExcluded}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(`${label} Record`)}"${busy ? " disabled" : ""}>${buttonLabel}</button>`;
+  return `<button class="button ghost record-exclusion-button${excluded ? " is-excluded" : ""}${busy ? " is-busy" : ""}" type="button" data-record-exclusion-key="${escapeHtml(recordKey)}" data-record-exclusion-excluded="${nextExcluded}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(`${label} Record`)}"${busy ? ` aria-busy="true" disabled` : ""}>${renderRecordExclusionIcon(excluded)}</button>`;
+}
+
+function renderRecordExclusionIcon(excluded) {
+  if (excluded) {
+    return `
+      <svg class="record-exclusion-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      </svg>
+    `;
+  }
+
+  return `
+    <svg class="record-exclusion-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M3 3l18 18"></path>
+      <path d="M10.6 5.2c.46-.12.93-.2 1.4-.2 6.5 0 10 7 10 7a18.2 18.2 0 0 1-4 4.73"></path>
+      <path d="M6.1 6.1C3.55 7.82 2 12 2 12s3.5 6 10 6c1.61 0 3.02-.32 4.22-.84"></path>
+      <path d="M10.88 10.88A3 3 0 0 0 13.12 13.12"></path>
+    </svg>
+  `;
 }
 
 async function handlePersonalBestToggle(event) {
@@ -2276,7 +2722,8 @@ async function handlePersonalBestToggle(event) {
   const exclusionButton = event.target.closest("[data-record-exclusion-key]");
   const inExclusionDistanceGrid = exclusionButton && els.personalBestGrid.contains(exclusionButton);
   const inExclusionDurationGrid = exclusionButton && els.personalBestDurationGrid?.contains(exclusionButton);
-  if (exclusionButton && (inExclusionDistanceGrid || inExclusionDurationGrid)) {
+  const inExclusionPaceGrid = exclusionButton && els.personalBestPaceGrid?.contains(exclusionButton);
+  if (exclusionButton && (inExclusionDistanceGrid || inExclusionDurationGrid || inExclusionPaceGrid)) {
     await updateRecordExclusion(
       exclusionButton.dataset.recordExclusionKey,
       exclusionButton.dataset.recordExclusionExcluded === "true"
@@ -2287,7 +2734,8 @@ async function handlePersonalBestToggle(event) {
   const refreshButton = event.target.closest("[data-refresh-activity-id]");
   const inDistanceGrid = refreshButton && els.personalBestGrid.contains(refreshButton);
   const inDurationGrid = refreshButton && els.personalBestDurationGrid?.contains(refreshButton);
-  if (refreshButton && (inDistanceGrid || inDurationGrid)) {
+  const inPaceGrid = refreshButton && els.personalBestPaceGrid?.contains(refreshButton);
+  if (refreshButton && (inDistanceGrid || inDurationGrid || inPaceGrid)) {
     refreshActivityDetail(refreshButton.dataset.refreshActivityId);
     return;
   }
@@ -2307,17 +2755,31 @@ async function handlePersonalBestToggle(event) {
   }
 
   const timeButton = event.target.closest("[data-time-best-toggle]");
-  if (!timeButton || !els.personalBestDurationGrid?.contains(timeButton)) return;
+  if (timeButton && els.personalBestDurationGrid?.contains(timeButton)) {
+    const durationName = timeButton.dataset.timeBestToggle;
+    if (!durationName) return;
 
-  const durationName = timeButton.dataset.timeBestToggle;
-  if (!durationName) return;
-
-  if (appState.expandedTimeBestDurations.has(durationName)) {
-    appState.expandedTimeBestDurations.delete(durationName);
-  } else {
-    appState.expandedTimeBestDurations.add(durationName);
+    if (appState.expandedTimeBestDurations.has(durationName)) {
+      appState.expandedTimeBestDurations.delete(durationName);
+    } else {
+      appState.expandedTimeBestDurations.add(durationName);
+    }
+    renderTimeBestsView();
+    return;
   }
-  renderTimeBestsView();
+
+  const paceButton = event.target.closest("[data-pace-best-toggle]");
+  if (!paceButton || !els.personalBestPaceGrid?.contains(paceButton)) return;
+
+  const paceName = paceButton.dataset.paceBestToggle;
+  if (!paceName) return;
+
+  if (appState.expandedPaceBestTargets.has(paceName)) {
+    appState.expandedPaceBestTargets.delete(paceName);
+  } else {
+    appState.expandedPaceBestTargets.add(paceName);
+  }
+  renderPaceBestsView();
 }
 
 function renderRiegelAnalysis() {
@@ -3470,6 +3932,62 @@ function renderTimeBestTrendDurationOptions(durations, selectedName) {
   `).join("");
 }
 
+function getPaceBestTrendTargets() {
+  return (appState.personalBests?.paces || [])
+    .map((pace) => {
+      const trendEfforts = (pace.top || [])
+        .slice(0, PERSONAL_BEST_TREND_LIMIT)
+        .map((effort, index) => {
+          const recordedAt = getLocalFirstTimestamp(effort.startDateLocal, effort.startDate);
+          const durationSeconds = Number(effort.durationSeconds || effort.movingTime || 0);
+          const distanceKm = Number(effort.distanceKm || 0);
+          const paceSecondsPerKm = Number(effort.paceSecondsPerKm || 0);
+          if (
+            !Number.isFinite(recordedAt) ||
+            !Number.isFinite(durationSeconds) ||
+            durationSeconds <= 0 ||
+            !Number.isFinite(distanceKm) ||
+            distanceKm <= 0 ||
+            !Number.isFinite(paceSecondsPerKm) ||
+            paceSecondsPerKm <= 0
+          ) return null;
+          return { ...effort, rank: index + 1, recordedAt, durationSeconds, distanceKm, paceSecondsPerKm };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
+      return { ...pace, trendEfforts };
+    })
+    .filter((pace) => pace.trendEfforts.length >= 2);
+}
+
+function updatePaceBestTrendLimitButtons() {
+  for (const button of els.paceBestTrendLimitButtons || []) {
+    button.classList.toggle("active", Number(button.dataset.limit) === appState.paceBestTrendLimit);
+  }
+}
+
+function resolvePaceBestTrendTarget(paces) {
+  if (!paces.length) {
+    appState.paceBestTrendTargetName = null;
+    return null;
+  }
+
+  const selected = paces.find((pace) => pace.name === appState.paceBestTrendTargetName);
+  if (selected) return selected;
+
+  const fallback = paces.find((pace) => pace.name === "5:30/km") || paces[0];
+  appState.paceBestTrendTargetName = fallback.name;
+  return fallback;
+}
+
+function renderPaceBestTrendTargetOptions(paces, selectedName) {
+  if (!els.paceBestTrendTargetSelect) return;
+  els.paceBestTrendTargetSelect.disabled = !paces.length;
+  els.paceBestTrendTargetSelect.innerHTML = paces.map((pace) => `
+    <option value="${escapeHtml(pace.name)}"${pace.name === selectedName ? " selected" : ""}>${escapeHtml(pace.name)}</option>
+  `).join("");
+}
+
 function getPersonalBestTrendDistances() {
   return (appState.personalBests?.distances || [])
     .map((distance) => {
@@ -3539,6 +4057,28 @@ function buildPaceTrend(efforts) {
   const startPace = intercept + slope * startX;
   const endPace = intercept + slope * endX;
   return { startPace, endPace, annualPaceChange: slope * YEAR_DAYS };
+}
+
+function buildDurationTrend(efforts) {
+  if (efforts.length < 2) return null;
+  const firstDate = efforts[0].recordedAt;
+  const xs = efforts.map((effort, index) => {
+    const days = (effort.recordedAt - firstDate) / (24 * 60 * 60 * 1000);
+    return days || index;
+  });
+  const ys = efforts.map((effort) => effort.durationSeconds);
+  const xAverage = sum(xs, (value) => value) / xs.length;
+  const yAverage = sum(ys, (value) => value) / ys.length;
+  const denominator = sum(xs, (value) => (value - xAverage) ** 2);
+  if (!denominator) return null;
+  const numerator = xs.reduce((total, value, index) => total + (value - xAverage) * (ys[index] - yAverage), 0);
+  const slope = numerator / denominator;
+  const intercept = yAverage - slope * xAverage;
+  const startX = xs[0];
+  const endX = xs.at(-1);
+  const startDuration = intercept + slope * startX;
+  const endDuration = intercept + slope * endX;
+  return { startDuration, endDuration, annualDurationChange: slope * YEAR_DAYS };
 }
 
 function getDateTicks(minDate, maxDate) {
@@ -3659,6 +4199,99 @@ function formatTimeBestPaceTooltip(series, point) {
   return `${summary} · based on all ${formatInteger(point.count)} time bests`;
 }
 
+function buildPaceBestDurationSeries() {
+  const paces = appState.personalBests?.paces || [];
+  return getPersonalBestPaceSeriesDefinitions().map((item) => ({
+    ...item,
+    points: paces
+      .map((pace) => {
+        const targetPaceSecondsPerKm = Number(pace.paceSecondsPerKm || 0);
+        if (item.key === "median") {
+          const effort = pace.median;
+          const durationSeconds = Number(effort?.durationSeconds || effort?.movingTime || 0);
+          const distanceKm = Number(effort?.distanceKm || 0);
+          const paceSecondsPerKm = Number(effort?.paceSecondsPerKm || 0);
+          if (!effort || !Number.isFinite(durationSeconds) || !Number.isFinite(distanceKm) || !Number.isFinite(paceSecondsPerKm)) return null;
+          return {
+            targetPaceSecondsPerKm,
+            paceName: pace.name,
+            durationSeconds,
+            distanceKm,
+            paceSecondsPerKm,
+            count: effort.count || pace.count || 0
+          };
+        }
+
+        const effort = pace.top?.[item.index];
+        const durationSeconds = Number(effort?.durationSeconds || effort?.movingTime || 0);
+        const distanceKm = Number(effort?.distanceKm || 0);
+        const paceSecondsPerKm = Number(effort?.paceSecondsPerKm || 0);
+        if (!effort || !Number.isFinite(durationSeconds) || !Number.isFinite(distanceKm) || !Number.isFinite(paceSecondsPerKm)) return null;
+        return {
+          targetPaceSecondsPerKm,
+          paceName: pace.name,
+          durationSeconds,
+          distanceKm,
+          paceSecondsPerKm,
+          startDate: effort.startDate,
+          startDateLocal: effort.startDateLocal
+        };
+      })
+      .filter((point) => (
+        point &&
+        point.targetPaceSecondsPerKm > 0 &&
+        point.durationSeconds > 0 &&
+        point.distanceKm > 0 &&
+        point.paceSecondsPerKm > 0
+      ))
+  }));
+}
+
+function formatPaceBestDurationTooltip(series, point) {
+  const summary = `${series.label} ${point.paceName}\n${formatClockDuration(point.durationSeconds)}\n${formatNumber(point.distanceKm, 2)} km · ${formatPaceWithUnit(point.paceSecondsPerKm)}`;
+  if (series.key !== "median") return summary;
+  return `${summary} · based on all ${formatInteger(point.count)} pace bests`;
+}
+
+function buildPaceBestRecencySeries(boundary) {
+  const paces = appState.personalBests?.paces || [];
+  const boundaryLabel = boundary === "oldest" ? "oldest" : "newest";
+  return getPersonalBestSeriesDefinitions().map((item) => ({
+    ...item,
+    boundary,
+    boundaryLabel,
+    points: paces
+      .map((pace) => {
+        const selectedEffort = (pace.top || [])
+          .slice(0, item.limit)
+          .map((effort, index) => ({
+            ...effort,
+            rank: index + 1,
+            recordedAt: getLocalFirstTimestamp(effort.startDateLocal, effort.startDate)
+          }))
+          .filter((effort) => Number.isFinite(effort.recordedAt))
+          .sort((a, b) => boundary === "oldest" ? a.recordedAt - b.recordedAt : b.recordedAt - a.recordedAt)[0];
+
+        const targetPaceSecondsPerKm = Number(pace.paceSecondsPerKm || 0);
+        const durationSeconds = Number(selectedEffort?.durationSeconds || selectedEffort?.movingTime || 0);
+        const distanceKm = Number(selectedEffort?.distanceKm || 0);
+        if (!selectedEffort || !targetPaceSecondsPerKm || !durationSeconds || !distanceKm) return null;
+        return {
+          targetPaceSecondsPerKm,
+          paceName: pace.name,
+          durationSeconds,
+          distanceKm,
+          paceSecondsPerKm: selectedEffort.paceSecondsPerKm,
+          startDate: selectedEffort.startDate,
+          startDateLocal: selectedEffort.startDateLocal,
+          activityName: selectedEffort.activityName,
+          rank: selectedEffort.rank
+        };
+      })
+      .filter((point) => point && point.targetPaceSecondsPerKm > 0)
+  }));
+}
+
 function buildTimeBestRecencySeries(boundary) {
   const durations = appState.personalBests?.durations || [];
   const boundaryLabel = boundary === "oldest" ? "oldest" : "newest";
@@ -3707,6 +4340,15 @@ function getTimeBestDurationTicks({ useLogScale, minDuration, maxDuration, xMax,
   return fixedTicks.filter((tick) => tick.durationSeconds <= xMax);
 }
 
+function getPaceBestTicks() {
+  return (appState.personalBests?.paces || [])
+    .map((pace) => ({
+      name: pace.name,
+      paceSecondsPerKm: Number(pace.paceSecondsPerKm || 0)
+    }))
+    .filter((pace) => pace.paceSecondsPerKm > 0);
+}
+
 function formatTimeBestTick(duration) {
   const seconds = Number(duration.durationSeconds || duration || 0);
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
@@ -3744,6 +4386,28 @@ function getDistanceTicks({ useLogScale, minDistance, maxDistance, xMax }) {
     return [0.4, 1, 2, 5, 10, 20, 30, 42.195, 50].filter((tick) => tick >= minDistance && tick <= maxDistance);
   }
   return Array.from({ length: Math.floor(xMax / 5) + 1 }, (_, index) => index * 5);
+}
+
+function buildLinearDomain(values, step = 1) {
+  const numbers = values.filter((value) => Number.isFinite(value));
+  if (!numbers.length) return { min: 0, max: step, spread: step };
+  const rawMin = Math.min(...numbers);
+  const rawMax = Math.max(...numbers);
+  const rawSpread = Math.max(rawMax - rawMin, step);
+  const padding = Math.max(rawSpread * 0.12, step);
+  const min = Math.floor((rawMin - padding) / step) * step;
+  const max = Math.ceil((rawMax + padding) / step) * step;
+  const spread = Math.max(max - min, step);
+  return { min, max: min + spread, spread };
+}
+
+function buildDurationAxisDomain(values) {
+  const durations = values.filter((value) => Number.isFinite(value) && value >= 0);
+  if (!durations.length) return { min: 0, max: 300, spread: 300 };
+  const rawMax = Math.max(...durations, 60);
+  const step = rawMax <= 3600 ? 300 : 900;
+  const max = Math.ceil(rawMax / step) * step;
+  return { min: 0, max, spread: Math.max(max, step) };
 }
 
 function buildPaceAxisDomain(values) {
@@ -3899,6 +4563,11 @@ function formatPaceWithUnit(secondsPerKm) {
 
 function formatPaceTrendRate(secondsPerKmPerYear) {
   const delta = formatDeltaPlain(secondsPerKmPerYear);
+  return delta === "-" ? delta : `${delta}/yr`;
+}
+
+function formatDurationTrendRate(secondsPerYear) {
+  const delta = formatDeltaPlain(secondsPerYear);
   return delta === "-" ? delta : `${delta}/yr`;
 }
 
