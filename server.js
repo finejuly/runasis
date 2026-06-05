@@ -21,6 +21,7 @@ const RAW_DETAILS_DIR = path.join(ACTIVITIES_DIR, "raw-details");
 const RAW_STREAMS_DIR = path.join(ACTIVITIES_DIR, "raw-streams");
 const DERIVED_DIR = path.join(STRAVA_DATA_DIR, "derived");
 const PERSONAL_BESTS_CACHE_PATH = path.join(DERIVED_DIR, "personal-bests.json");
+const EXCLUDED_RECORDS_PATH = path.join(DERIVED_DIR, "excluded-records.json");
 
 loadEnvFile();
 
@@ -33,7 +34,8 @@ const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
-const PERSONAL_BESTS_CACHE_VERSION = 4;
+const PERSONAL_BESTS_CACHE_VERSION = 5;
+const EXCLUDED_RECORDS_VERSION = 1;
 const ACTIVITY_STREAM_KEYS = [
   "time",
   "distance",
@@ -833,12 +835,135 @@ function isFreshPersonalBestsCache(payload, sourceFingerprint) {
   );
 }
 
-async function personalBestsFromStore(store) {
+async function readExcludedRecords() {
+  const payload = await readJson(EXCLUDED_RECORDS_PATH, emptyExcludedRecords());
+  return normalizeExcludedRecords(payload);
+}
+
+function emptyExcludedRecords() {
+  return {
+    version: EXCLUDED_RECORDS_VERSION,
+    records: {}
+  };
+}
+
+function normalizeExcludedRecords(payload) {
+  const normalized = emptyExcludedRecords();
+  const records = payload?.records && typeof payload.records === "object" && !Array.isArray(payload.records)
+    ? payload.records
+    : {};
+  for (const [key, value] of Object.entries(records)) {
+    const recordKey = normalizeRecordKey(key);
+    if (!recordKey) continue;
+    normalized.records[recordKey] = {
+      recordKey,
+      excludedAt: value?.excludedAt || new Date(0).toISOString()
+    };
+  }
+  return normalized;
+}
+
+async function setRecordExcluded(recordKeyValue, excluded) {
+  const recordKey = normalizeRecordKey(recordKeyValue);
+  if (!recordKey) {
+    const error = new Error("Record key is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const excludedRecords = await readExcludedRecords();
+  if (excluded) {
+    excludedRecords.records[recordKey] = {
+      recordKey,
+      excludedAt: new Date().toISOString()
+    };
+  } else {
+    delete excludedRecords.records[recordKey];
+  }
+  await writeJsonAtomic(EXCLUDED_RECORDS_PATH, excludedRecords);
+
+  return {
+    ok: true,
+    recordKey,
+    excluded: Boolean(excluded),
+    excludedRecordCount: Object.keys(excludedRecords.records).length
+  };
+}
+
+function normalizeRecordKey(value) {
+  const recordKey = String(value ?? "").trim();
+  if (!recordKey || recordKey.length > 512 || /[\r\n]/.test(recordKey)) return "";
+  return recordKey;
+}
+
+async function personalBestsFromStore(store, options = {}) {
   const sourceFingerprint = buildPersonalBestsCacheFingerprint(store);
   const cached = await readPersonalBestsCache(sourceFingerprint);
-  if (cached) return cached;
+  const payload = cached || await computePersonalBestsFromStore(store, sourceFingerprint);
+  const excludedRecords = await readExcludedRecords();
+  return applyRecordExclusions(payload, excludedRecords, {
+    includeExcluded: options.includeExcluded
+  });
+}
 
-  return computePersonalBestsFromStore(store, sourceFingerprint);
+function applyRecordExclusions(payload, excludedRecords, options = {}) {
+  const excludedKeys = new Set(Object.keys(excludedRecords?.records || {}));
+  const includeExcluded = Boolean(options.includeExcluded);
+  const distances = filterRecordGroups(payload.distances || [], excludedKeys, includeExcluded, summarizeMedianPersonalBestEffort);
+  const durations = filterRecordGroups(payload.durations || [], excludedKeys, includeExcluded, summarizeMedianTimeBestEffort);
+
+  return {
+    ...payload,
+    includeExcluded,
+    excludedRecordCount: excludedKeys.size,
+    detailActivityCount: countUniqueRecordActivities(distances),
+    effortCount: countGroupRecords(distances),
+    distanceCount: distances.length,
+    distances,
+    durationActivityCount: countUniqueRecordActivities(durations),
+    durationEffortCount: countGroupRecords(durations),
+    durationCount: durations.length,
+    durations
+  };
+}
+
+function filterRecordGroups(groups, excludedKeys, includeExcluded, summarizeMedian) {
+  return groups
+    .map((group) => {
+      const records = (group.top || [])
+        .map((record) => markRecordExclusion(record, excludedKeys))
+        .filter((record) => includeExcluded || !record.excluded);
+      return {
+        ...group,
+        count: records.length,
+        median: summarizeMedian(records),
+        top: records
+      };
+    })
+    .filter((group) => group.count > 0);
+}
+
+function markRecordExclusion(record, excludedKeys) {
+  const recordKey = record.recordKey || buildRecordKey(record.recordType, record.name, record.activityId, record.startOffset, record.endOffset);
+  return {
+    ...record,
+    recordKey,
+    excluded: excludedKeys.has(recordKey)
+  };
+}
+
+function countGroupRecords(groups) {
+  return groups.reduce((total, group) => total + Number(group.count || 0), 0);
+}
+
+function countUniqueRecordActivities(groups) {
+  const activityIds = new Set();
+  for (const group of groups) {
+    for (const record of group.top || []) {
+      if (record?.activityId) activityIds.add(String(record.activityId));
+    }
+  }
+  return activityIds.size;
 }
 
 async function computePersonalBestsFromStore(store, sourceFingerprint) {
@@ -900,7 +1025,7 @@ async function distanceBestsFromStore(store) {
         distanceKm: round(target.distance / 1000, 3),
         count: sorted.length,
         median: medianEffort,
-        top: sorted.slice(0, 20)
+        top: sorted
       };
     })
     .filter((distance) => distance.count > 0)
@@ -924,6 +1049,15 @@ function rawStreamIdsFromStore(store) {
   return typeof store.rawStreamIds?.[Symbol.iterator] === "function"
     ? Array.from(store.rawStreamIds)
     : [];
+}
+
+function buildRecordKey(recordType, name, activityId, startOffset, endOffset) {
+  const type = recordType || "record";
+  const targetName = String(name || "");
+  const id = String(activityId || "");
+  const start = Math.round(Number(startOffset || 0));
+  const end = Math.round(Number(endOffset || 0));
+  return `${type}|${targetName}|${id}|${start}|${end}`;
 }
 
 function distanceBestEffortsForActivity(activity, streams) {
@@ -951,7 +1085,9 @@ function distanceBestEffortsForActivity(activity, streams) {
         endOffset: Math.round(best.endOffset),
         startIndex: null,
         endIndex: null,
-        prRank: null
+        prRank: null,
+        recordKey: buildRecordKey("distance", target.name, activity.id, best.startOffset, best.endOffset),
+        recordType: "distance"
       };
     })
     .filter(Boolean);
@@ -990,7 +1126,7 @@ async function timeBestsFromStore(store) {
         durationSeconds: target.durationSeconds,
         count: sorted.length,
         median: medianEffort,
-        top: sorted.slice(0, 20)
+        top: sorted
       };
     })
     .filter((duration) => duration.count > 0);
@@ -1018,7 +1154,9 @@ function timeBestEffortsForActivity(activity, streams) {
         distanceKm: round(distanceKm, 3),
         paceSecondsPerKm: distanceKm ? target.durationSeconds / distanceKm : null,
         startOffset: Math.round(best.startOffset),
-        endOffset: Math.round(best.endOffset)
+        endOffset: Math.round(best.endOffset),
+        recordKey: buildRecordKey("duration", target.name, activity.id, best.startOffset, best.endOffset),
+        recordType: "duration"
       };
     })
     .filter(Boolean);
@@ -1870,7 +2008,13 @@ async function handleApi(req, res, url) {
 
   if (url.pathname === "/api/personal-bests" && req.method === "GET") {
     const store = await readStore();
-    return sendJson(res, 200, await personalBestsFromStore(store));
+    const includeExcluded = url.searchParams.get("includeExcluded") === "true" || url.searchParams.get("includeExcluded") === "1";
+    return sendJson(res, 200, await personalBestsFromStore(store, { includeExcluded }));
+  }
+
+  if (url.pathname === "/api/excluded-records" && req.method === "POST") {
+    const body = await parseJsonBody(req);
+    return sendJson(res, 200, await setRecordExcluded(body.recordKey, body.excluded));
   }
 
   if (url.pathname === "/api/config/strava" && req.method === "POST") {

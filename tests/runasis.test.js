@@ -1049,11 +1049,147 @@ test("personalBestsFromStore computes standard distance bests from streams", asy
   assert.equal(Math.round(distances["1K"].top[0].movingTime), 180);
   assert.equal(distances["5K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["5K"].top[0].movingTime), 900);
+  assert.equal(distances["5K"].top[0].effortId, null);
   assert.equal(distances["10K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["10K"].top[0].movingTime), 1800);
   assert.equal(distances["15K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["15K"].top[0].movingTime), 2700);
   assert.equal(vm.runInContext("mockWrittenPersonalBests.distanceCount", server), 8);
+});
+
+test("personalBestsFromStore caches every computed record for lower ranks", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockWrittenPersonalBests = null;
+    readJson = async (file, fallback) => {
+      const text = String(file);
+      if (text.includes("/raw-streams/")) {
+        return {
+          time: { data: [0, 300, 1000] },
+          distance: { data: [0, 1500, 5000] }
+        };
+      }
+      return fallback;
+    };
+    writeJsonAtomic = async (file, payload) => {
+      mockWrittenPersonalBests = payload;
+    };
+    const activities = Array.from({ length: 25 }, (_, index) => ({
+      id: index + 1,
+      name: "Run " + (index + 1),
+      sport_type: "Run",
+      start_date: new Date(Date.UTC(2026, 4, index + 1)).toISOString()
+    }));
+    mockStore = {
+      activities,
+      detailsById: new Map(activities.map((activity) => [String(activity.id), {
+        ...activity,
+        best_efforts: [{ id: "strava-" + activity.id, name: "5K", distance: 5000, moving_time: 9999 }]
+      }])),
+      rawStreamIds: new Set(activities.map((activity) => String(activity.id)))
+    };
+  `, server);
+
+  await vm.runInContext("personalBestsFromStore(mockStore)", server);
+  const cached = vm.runInContext("mockWrittenPersonalBests", server);
+  const cached5k = cached.distances.find((distance) => distance.name === "5K");
+  const cached5min = cached.durations.find((duration) => duration.name === "5 min");
+
+  assert.equal(cached5k.count, 25);
+  assert.equal(cached5k.top.length, 25);
+  assert.equal(cached5k.top.every((effort) => effort.effortId === null), true);
+  assert.equal(cached5min.count, 25);
+  assert.equal(cached5min.top.length, 25);
+});
+
+test("personalBestsFromStore hides excluded distance and duration records by default", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    readJson = async (file, fallback) => {
+      const text = String(file);
+      if (text.endsWith("/derived/excluded-records.json")) {
+        return {
+          version: 1,
+          records: {
+            "distance|5K|1|0|750": { excludedAt: "2026-06-01T00:00:00.000Z" },
+            "duration|5 min|1|0|300": { excludedAt: "2026-06-01T00:00:00.000Z" }
+          }
+        };
+      }
+      if (text.endsWith("/raw-streams/1.json")) {
+        return {
+          time: { data: [0, 300, 600, 900] },
+          distance: { data: [0, 2000, 4000, 6000] }
+        };
+      }
+      return fallback;
+    };
+    writeJsonAtomic = async () => {};
+    mockStore = {
+      activities: [
+        { id: 1, name: "Excluded Source", sport_type: "Run", start_date: "2026-05-01T12:00:00Z" }
+      ],
+      detailsById: new Map(),
+      rawStreamIds: new Set(["1"])
+    };
+  `, server);
+
+  const defaultResult = await vm.runInContext("personalBestsFromStore(mockStore)", server);
+  const includeResult = await vm.runInContext("personalBestsFromStore(mockStore, { includeExcluded: true })", server);
+
+  assert.equal(defaultResult.distances.some((distance) => distance.name === "5K"), false);
+  assert.equal(defaultResult.durations.some((duration) => duration.name === "5 min"), false);
+
+  const included5k = includeResult.distances.find((distance) => distance.name === "5K");
+  const included5min = includeResult.durations.find((duration) => duration.name === "5 min");
+  assert.equal(included5k.top[0].recordKey, "distance|5K|1|0|750");
+  assert.equal(included5k.top[0].excluded, true);
+  assert.equal(included5min.top[0].recordKey, "duration|5 min|1|0|300");
+  assert.equal(included5min.top[0].excluded, true);
+  assert.equal(includeResult.includeExcluded, true);
+  assert.equal(includeResult.excludedRecordCount, 2);
+});
+
+test("excluded record API stores and removes record keys", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockSavedPayloads = [];
+    readJson = async (file, fallback) => {
+      const text = String(file);
+      if (text.endsWith("/derived/excluded-records.json")) {
+        return {
+          version: 1,
+          records: {
+            "distance|5K|1|0|750": { excludedAt: "2026-06-01T00:00:00.000Z" }
+          }
+        };
+      }
+      return fallback;
+    };
+    writeJsonAtomic = async (file, payload) => {
+      mockSavedPayloads.push({ file: String(file), payload });
+    };
+  `, server);
+
+  const addResponse = await callApi(server, "/api/excluded-records", "POST", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ recordKey: "duration|5 min|2|0|300", excluded: true })
+  });
+  const removeResponse = await callApi(server, "/api/excluded-records", "POST", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ recordKey: "distance|5K|1|0|750", excluded: false })
+  });
+
+  const savedPayloads = vm.runInContext("mockSavedPayloads", server);
+  assert.equal(addResponse.statusCode, 200);
+  assert.equal(removeResponse.statusCode, 200);
+  assert.equal(JSON.parse(addResponse.body).excluded, true);
+  assert.equal(JSON.parse(removeResponse.body).excluded, false);
+  assert.equal(savedPayloads[0].payload.records["duration|5 min|2|0|300"].recordKey, "duration|5 min|2|0|300");
+  assert.equal(savedPayloads[1].payload.records["distance|5K|1|0|750"], undefined);
 });
 
 test("personalBestsFromStore reuses a fresh derived cache without rereading streams", async () => {
@@ -1079,7 +1215,21 @@ test("personalBestsFromStore reuses a fresh derived cache without rereading stre
       detailActivityCount: 0,
       effortCount: 0,
       distanceCount: 1,
-      distances: [{ name: "Cached", count: 1, top: [] }],
+      distances: [{
+        name: "Cached",
+        count: 1,
+        top: [{
+          recordKey: "distance|Cached|1|0|1",
+          recordType: "distance",
+          activityId: 1,
+          name: "Cached",
+          distance: 1000,
+          distanceKm: 1,
+          movingTime: 300,
+          elapsedTime: 300,
+          paceSecondsPerKm: 300
+        }]
+      }],
       durationActivityCount: 0,
       durationEffortCount: 0,
       durationCount: 0,
@@ -1124,6 +1274,14 @@ test("topbar reserves a hidden repository icon link", () => {
   assert.match(html, /<a class="topbar-icon-link repository-link hidden" id="repositoryLink"[\s\S]*aria-label="View repository"[\s\S]*title="View repository"/);
   assert.match(html, /<svg[\s\S]*aria-hidden="true"[\s\S]*viewBox="0 0 24 24"/);
   assert.match(css, /\.topbar-icon-link\s*{/);
+});
+
+test("excluded record rows use a distinct text color", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+
+  assert.match(css, /\.record-row-excluded td\s*{[^}]*color:\s*var\(--red\);/);
+  assert.match(css, /\.record-row-excluded td\.activity-name\s*{[^}]*color:\s*var\(--red\);/);
+  assert.doesNotMatch(css, /\.record-row-excluded td\s*{[^}]*color:\s*var\(--muted\);/);
 });
 
 test("configureRepositoryLink shows the repository link only when a URL is configured", () => {
@@ -1518,13 +1676,13 @@ test("renderPersonalBestChart keeps the panel caption empty", () => {
   assert.doesNotMatch(html, /Top 1 · Top 3 · Top 10 · Median/);
 });
 
-test("renderPersonalBests adds refresh buttons for source activities", () => {
+test("renderPersonalBests adds exclusion buttons for source records", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
     els.personalBestGrid = { innerHTML: "" };
     appState.expandedPersonalBestDistances = new Set();
-    appState.refreshingActivityId = null;
+    appState.excludingRecordKey = null;
     appState.personalBests = {
       detailActivityCount: 1,
       effortCount: 1,
@@ -1535,6 +1693,7 @@ test("renderPersonalBests adds refresh buttons for source activities", () => {
           activityId: 123,
           activityName: "Fixed Run",
           startDate: "2026-05-01T00:00:00Z",
+          recordKey: "distance|5K|123|0|1490",
           movingTime: 1490,
           paceSecondsPerKm: 298
         }]
@@ -1545,12 +1704,11 @@ test("renderPersonalBests adds refresh buttons for source activities", () => {
     els.personalBestGrid.innerHTML;
   `, app);
 
-  assert.match(result, /data-refresh-activity-id="123"/);
-  assert.match(result, /aria-label="Refresh Fixed Run"/);
-  assert.match(result, /title="Refresh Activity"/);
-  assert.match(result, /class="refresh-icon"/);
-  assert.match(result, /aria-hidden="true"/);
-  assert.doesNotMatch(result, />Refresh Activity</);
+  assert.match(result, /data-record-exclusion-key="distance\|5K\|123\|0\|1490"/);
+  assert.match(result, /data-record-exclusion-excluded="true"/);
+  assert.match(result, /aria-label="Exclude Fixed Run"/);
+  assert.match(result, />Exclude</);
+  assert.doesNotMatch(result, /data-refresh-activity-id="123"/);
 });
 
 test("renderTimeBestsView renders fixed-time distance records from streams", () => {
@@ -1560,11 +1718,12 @@ test("renderTimeBestsView renders fixed-time distance records from streams", () 
     els.personalBestDurationGrid = { innerHTML: "" };
     els.personalBestDurationCaption = { textContent: "" };
     appState.expandedTimeBestDurations = new Set();
-    appState.refreshingActivityId = null;
+    appState.excludingRecordKey = null;
     const timeEfforts = Array.from({ length: 4 }, (_, index) => ({
       activityId: 456 + index,
       activityName: "Tempo " + (index + 1),
       startDate: "2026-05-02T12:00:00Z",
+      recordKey: "duration|30 min|" + (456 + index) + "|900|2700",
       distanceKm: 6.5 - index * 0.1,
       paceSecondsPerKm: 1800 / (6.5 - index * 0.1),
       startOffset: 900
@@ -1595,7 +1754,7 @@ test("renderTimeBestsView renders fixed-time distance records from streams", () 
   assert.match(result.durationGrid, /6.50 km/);
   assert.match(result.durationGrid, /4:37\/km/);
   assert.match(result.durationGrid, /15:00/);
-  assert.match(result.durationGrid, /data-refresh-activity-id="456"/);
+  assert.match(result.durationGrid, /data-record-exclusion-key="duration\|30 min\|456\|900\|2700"/);
   assert.match(result.durationGrid, /data-time-best-toggle="30 min"/);
   assert.match(result.durationGrid, /Show More/);
   assert.doesNotMatch(result.durationGrid, /Tempo 4/);
