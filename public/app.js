@@ -415,7 +415,7 @@ function bindEvents() {
 
   for (const button of els.paceBestDistanceScaleButtons || []) {
     button.addEventListener("click", () => {
-      appState.paceBestDistanceScale = button.dataset.scale === "log" ? "log" : "linear";
+      appState.paceBestDistanceScale = button.dataset.scale === "sqrt" ? "sqrt" : "linear";
       renderPaceBestDurationChart();
     });
   }
@@ -2084,26 +2084,25 @@ function renderPaceBestDurationChart() {
   const positiveDistanceValues = distanceValues.filter((distanceKm) => Number.isFinite(distanceKm) && distanceKm > 0);
   const minDistance = Math.min(...positiveDistanceValues);
   const maxDistance = Math.max(...positiveDistanceValues);
-  const useLogScale = (
-    appState.paceBestDistanceScale === "log" &&
+  const useSqrtScale = (
+    appState.paceBestDistanceScale === "sqrt" &&
     Number.isFinite(minDistance) &&
     Number.isFinite(maxDistance) &&
-    minDistance > 0 &&
-    maxDistance > minDistance
+    maxDistance > 0
   );
-  const distanceDomain = useLogScale
-    ? buildLogDistanceAxisDomain(positiveDistanceValues)
+  const distanceDomain = useSqrtScale
+    ? buildSqrtDistanceAxisDomain(distanceValues)
     : buildDistanceAxisDomain(distanceValues);
   const x = (pace) => padding.left + ((pace - paceDomain.min) / paceDomain.spread) * chartWidth;
   const y = (distanceKm) => {
-    if (!useLogScale) return padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
+    if (!useSqrtScale) return padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
     const clampedDistance = Math.max(distanceKm, distanceDomain.min);
-    return padding.top + ((distanceDomain.logMax - Math.log(clampedDistance)) / distanceDomain.logSpread) * chartHeight;
+    return padding.top + ((distanceDomain.sqrtMax - Math.sqrt(clampedDistance)) / distanceDomain.sqrtSpread) * chartHeight;
   };
   const xTicks = getPaceBestTicks();
   const xLabelIndexes = getPaceBestAxisLabelIndexes(xTicks.length);
-  const yTicks = useLogScale
-    ? getLogDistanceAxisTicks(distanceDomain.min, distanceDomain.max)
+  const yTicks = useSqrtScale
+    ? getSqrtDistanceAxisTicks(distanceDomain.min, distanceDomain.max)
     : [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
 
   const grid = [
@@ -2153,7 +2152,7 @@ function renderPaceBestDurationChart() {
   }).join("");
 
   els.paceBestDurationChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median distance by target pace" data-y-scale="${useLogScale ? "log" : "linear"}">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median distance by target pace" data-y-scale="${useSqrtScale ? "sqrt" : "linear"}">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
       <text class="axis-label" x="10" y="16">Distance (km)</text>
@@ -4452,42 +4451,40 @@ function buildDistanceAxisDomain(values) {
   return { min: 0, max, spread: Math.max(max, step) };
 }
 
-function buildLogDistanceAxisDomain(values) {
-  const distances = values.filter((value) => Number.isFinite(value) && value > 0);
+function buildSqrtDistanceAxisDomain(values) {
+  const distances = values.filter((value) => Number.isFinite(value) && value >= 0);
   if (!distances.length) {
-    const min = 0.1;
+    const min = 0;
     const max = 1;
     return {
       min,
       max,
-      logMin: Math.log(min),
-      logMax: Math.log(max),
-      logSpread: Math.log(max) - Math.log(min)
+      sqrtMin: 0,
+      sqrtMax: 1,
+      sqrtSpread: 1
     };
   }
 
-  const rawMin = Math.min(...distances);
   const rawMax = Math.max(...distances);
-  const min = Math.max(rawMin * 0.85, 0.05);
-  const max = Math.max(rawMax * 1.12, min * 1.1);
-  const logMin = Math.log(min);
-  const logMax = Math.log(max);
+  const step = rawMax <= 10 ? 1 : rawMax <= 50 ? 5 : 10;
+  const min = 0;
+  const max = Math.max(Math.ceil(rawMax / step) * step, step);
   return {
     min,
     max,
-    logMin,
-    logMax,
-    logSpread: Math.max(logMax - logMin, 0.0001)
+    sqrtMin: 0,
+    sqrtMax: Math.sqrt(max),
+    sqrtSpread: Math.max(Math.sqrt(max), 0.0001)
   };
 }
 
-function getLogDistanceAxisTicks(minDistance, maxDistance) {
-  const min = Math.max(Number(minDistance) || 0, 0.05);
+function getSqrtDistanceAxisTicks(minDistance, maxDistance) {
+  const min = Math.max(Number(minDistance) || 0, 0);
   const max = Math.max(Number(maxDistance) || min, min * 1.1);
-  const logMin = Math.log(min);
-  const logSpread = Math.max(Math.log(max) - logMin, 0.0001);
+  const sqrtMin = Math.sqrt(min);
+  const sqrtSpread = Math.max(Math.sqrt(max) - sqrtMin, 0.0001);
   return Array.from({ length: 5 }, (_, index) => (
-    Math.exp(logMin + logSpread * (index / 4))
+    (sqrtMin + sqrtSpread * (index / 4)) ** 2
   ));
 }
 
