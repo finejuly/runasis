@@ -102,6 +102,8 @@ const appState = {
   syncing: false,
   detailSyncing: false,
   refreshingActivityId: null,
+  excludingRecordKey: null,
+  includeExcludedRecords: false,
   configSaving: false
 };
 
@@ -244,6 +246,7 @@ function cacheElements() {
   els.riegelFiveKScaleButtons = Array.from(document.querySelectorAll(".riegel-scale-option"));
   els.riegelFiveKSeriesButtons = Array.from(document.querySelectorAll(".riegel-series-option"));
   els.riegelExponentModeButtons = Array.from(document.querySelectorAll(".riegel-exponent-mode-option"));
+  els.excludedRecordsToggleButtons = Array.from(document.querySelectorAll("[data-include-excluded-toggle]"));
 }
 
 function configureRepositoryLink(repositoryUrl = REPOSITORY_URL) {
@@ -456,6 +459,9 @@ function bindEvents() {
   if (els.personalBestDurationGrid) {
     els.personalBestDurationGrid.addEventListener("click", handlePersonalBestToggle);
   }
+  for (const button of els.excludedRecordsToggleButtons || []) {
+    button.addEventListener("click", toggleIncludeExcludedRecords);
+  }
 
   document.addEventListener("pointerover", handleChartTooltip);
   document.addEventListener("pointermove", handleChartTooltip);
@@ -664,7 +670,7 @@ async function loadData() {
   setLoading(true);
   try {
     const payload = await fetchJson("/api/activities");
-    const personalBests = await fetchJson("/api/personal-bests");
+    const personalBests = await fetchJson(personalBestsApiUrl());
     appState.status = payload.status;
     appState.csrfToken = payload.status?.csrfToken || appState.csrfToken;
     appState.activities = payload.activities || [];
@@ -675,6 +681,16 @@ async function loadData() {
   } finally {
     setLoading(false);
   }
+}
+
+function personalBestsApiUrl() {
+  return appState.includeExcludedRecords
+    ? "/api/personal-bests?includeExcluded=true"
+    : "/api/personal-bests";
+}
+
+async function loadPersonalBests() {
+  appState.personalBests = await fetchJson(personalBestsApiUrl());
 }
 
 async function syncActivities() {
@@ -777,6 +793,40 @@ async function refreshActivityDetail(activityId) {
   }
 }
 
+async function updateRecordExclusion(recordKey, excluded) {
+  const key = String(recordKey || "").trim();
+  if (!key) return;
+
+  setRecordExcluding(key);
+  try {
+    await fetchJson("/api/excluded-records", {
+      method: "POST",
+      body: JSON.stringify({ recordKey: key, excluded: Boolean(excluded) })
+    });
+    await loadPersonalBests();
+    render();
+    toast(excluded ? "Record excluded." : "Record included.");
+  } catch (error) {
+    toast(error.message || "Could not update record.");
+  } finally {
+    setRecordExcluding(null);
+  }
+}
+
+async function toggleIncludeExcludedRecords() {
+  const previous = appState.includeExcludedRecords;
+  appState.includeExcludedRecords = !previous;
+  updateExcludedRecordsToggleButtons();
+  try {
+    await loadPersonalBests();
+    render();
+  } catch (error) {
+    appState.includeExcludedRecords = previous;
+    updateExcludedRecordsToggleButtons();
+    toast(error.message || "Could not load excluded records.");
+  }
+}
+
 async function saveStravaConfig(event) {
   event.preventDefault();
   const clientId = els.stravaClientIdInput.value.trim();
@@ -827,6 +877,7 @@ async function fetchJson(url, options = {}) {
 function render() {
   renderStatus();
   renderView();
+  updateExcludedRecordsToggleButtons();
   if (appState.currentView === "pb") {
     renderPersonalBestChart();
     renderPersonalBestRecencyChart();
@@ -1704,22 +1755,16 @@ function renderPersonalBests() {
     const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
     const visibleEfforts = topEfforts.slice(0, visibleLimit);
     const rows = visibleEfforts.length ? visibleEfforts.map((effort, index) => {
-      const activityId = String(effort.activityId || "").trim();
       const activityName = effort.activityName || "Untitled";
-      const isRefreshing = activityId && activityId === appState.refreshingActivityId;
-      const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
-      const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
-      const refreshButton = activityId
-        ? `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`
-        : "";
+      const exclusionButton = renderRecordExclusionButton(effort, activityName);
       return `
-        <tr>
+        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
           <td>${index + 1}</td>
           <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
           <td class="activity-name">${escapeHtml(activityName)}</td>
           <td>${formatClockDuration(effort.movingTime)}</td>
           <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
-          <td>${refreshButton}</td>
+          <td>${exclusionButton}</td>
         </tr>
       `;
     }).join("") : `<tr><td colspan="6">No best efforts</td></tr>`;
@@ -1791,23 +1836,17 @@ function renderTimeLimitedBests(durations, payload = {}) {
     const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
     const visibleEfforts = topEfforts.slice(0, visibleLimit);
     const rows = visibleEfforts.map((effort, index) => {
-      const activityId = String(effort.activityId || "").trim();
       const activityName = effort.activityName || "Untitled";
-      const isRefreshing = activityId && activityId === appState.refreshingActivityId;
-      const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
-      const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
-      const refreshButton = activityId
-        ? `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`
-        : "";
+      const exclusionButton = renderRecordExclusionButton(effort, activityName);
       return `
-        <tr>
+        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
           <td>${index + 1}</td>
           <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
           <td class="activity-name">${escapeHtml(activityName)}</td>
           <td>${formatNumber(Number(effort.distanceKm || 0), 2)} km</td>
           <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
           <td>${formatClockDuration(effort.startOffset || 0)}</td>
-          <td>${refreshButton}</td>
+          <td>${exclusionButton}</td>
         </tr>
       `;
     }).join("") || `<tr><td colspan="7">No time bests</td></tr>`;
@@ -2170,8 +2209,32 @@ function renderRefreshIcon() {
   `;
 }
 
-function handlePersonalBestToggle(event) {
+function renderRecordExclusionButton(effort, activityName = "record") {
+  const recordKey = String(effort?.recordKey || "").trim();
+  if (!recordKey) return "";
+
+  const excluded = Boolean(effort.excluded);
+  const nextExcluded = excluded ? "false" : "true";
+  const label = excluded ? "Include" : "Exclude";
+  const busy = appState.excludingRecordKey === recordKey;
+  const buttonLabel = busy ? "Saving" : label;
+  const ariaLabel = `${label} ${activityName || "record"}`;
+  return `<button class="button ghost record-exclusion-button${excluded ? " is-excluded" : ""}${busy ? " is-busy" : ""}" type="button" data-record-exclusion-key="${escapeHtml(recordKey)}" data-record-exclusion-excluded="${nextExcluded}" aria-label="${escapeHtml(ariaLabel)}" title="${escapeHtml(`${label} Record`)}"${busy ? " disabled" : ""}>${buttonLabel}</button>`;
+}
+
+async function handlePersonalBestToggle(event) {
   if (!(event.target instanceof Element)) return;
+  const exclusionButton = event.target.closest("[data-record-exclusion-key]");
+  const inExclusionDistanceGrid = exclusionButton && els.personalBestGrid.contains(exclusionButton);
+  const inExclusionDurationGrid = exclusionButton && els.personalBestDurationGrid?.contains(exclusionButton);
+  if (exclusionButton && (inExclusionDistanceGrid || inExclusionDurationGrid)) {
+    await updateRecordExclusion(
+      exclusionButton.dataset.recordExclusionKey,
+      exclusionButton.dataset.recordExclusionExcluded === "true"
+    );
+    return;
+  }
+
   const refreshButton = event.target.closest("[data-refresh-activity-id]");
   const inDistanceGrid = refreshButton && els.personalBestGrid.contains(refreshButton);
   const inDurationGrid = refreshButton && els.personalBestDurationGrid?.contains(refreshButton);
@@ -4014,6 +4077,13 @@ function setActivityRefreshing(activityId) {
   if (appState.currentView === "dashboard" && appState.activityListOpen) renderAllActivities();
 }
 
+function setRecordExcluding(recordKey) {
+  appState.excludingRecordKey = recordKey ? String(recordKey) : null;
+  updateActionButtons();
+  if (appState.currentView === "pb") renderPersonalBests();
+  if (appState.currentView === "time") renderTimeBestsView();
+}
+
 function setConfigSaving(configSaving) {
   appState.configSaving = configSaving;
   updateActionButtons();
@@ -4021,7 +4091,7 @@ function setConfigSaving(configSaving) {
 
 function updateActionButtons() {
   const status = appState.status || {};
-  const busy = appState.loading || appState.syncing || appState.detailSyncing || appState.configSaving || Boolean(appState.refreshingActivityId);
+  const busy = appState.loading || appState.syncing || appState.detailSyncing || appState.configSaving || Boolean(appState.refreshingActivityId) || Boolean(appState.excludingRecordKey);
 
   els.connectButton.disabled = busy || status.configured === false;
   els.syncButton.disabled = busy || !status.connected;
@@ -4029,6 +4099,16 @@ function updateActionButtons() {
   els.stravaConfigSaveButton.disabled = busy;
   els.syncButton.textContent = appState.syncing || appState.detailSyncing ? "Syncing" : "Sync";
   els.stravaConfigSaveButton.textContent = appState.configSaving ? "Saving" : "Save Settings";
+  updateExcludedRecordsToggleButtons(busy);
+}
+
+function updateExcludedRecordsToggleButtons(disabled = false) {
+  for (const button of els.excludedRecordsToggleButtons || []) {
+    button.disabled = disabled;
+    button.classList.toggle("active", appState.includeExcludedRecords);
+    button.textContent = appState.includeExcludedRecords ? "Hide Excluded" : "Include Excluded";
+    button.setAttribute("aria-pressed", appState.includeExcludedRecords ? "true" : "false");
+  }
 }
 
 function handleChartTooltip(event) {
