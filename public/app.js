@@ -1826,8 +1826,8 @@ function renderBestRecordColgroup(type) {
             <colgroup>
               <col class="record-rank-column">
               <col class="record-date-column">
-              <col class="record-time-column">
               <col class="record-distance-column">
+              <col class="record-time-column">
               <col class="record-pace-column">
               <col class="record-activity-column">
               <col class="record-actions-column">
@@ -2035,8 +2035,8 @@ function renderPaceLimitedBests(paces, payload = {}) {
         <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
           <td>${index + 1}</td>
           <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
-          <td>${formatClockDuration(effort.durationSeconds || effort.movingTime)}</td>
           <td>${formatNumber(Number(effort.distanceKm || 0), 2)} km</td>
+          <td>${formatClockDuration(effort.durationSeconds || effort.movingTime)}</td>
           <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
           <td class="activity-name">${escapeHtml(activityName)}</td>
           <td class="record-actions">${exclusionButton}</td>
@@ -2070,8 +2070,8 @@ function renderPaceLimitedBests(paces, payload = {}) {
               <tr>
                 <th>#</th>
                 <th>Date</th>
-                <th>Time</th>
                 <th>Distance</th>
+                <th>Time</th>
                 <th>Pace</th>
                 <th>Activity</th>
                 <th>Actions</th>
@@ -2089,11 +2089,11 @@ function renderPaceLimitedBests(paces, payload = {}) {
 function renderPaceBestDurationChart() {
   if (!els.paceBestDurationChart) return;
   const series = buildPaceBestDurationSeries();
-  const durationValues = series.flatMap((item) => item.points.map((point) => point.durationSeconds));
+  const distanceValues = series.flatMap((item) => item.points.map((point) => point.distanceKm));
   const paceValues = series.flatMap((item) => item.points.map((point) => point.targetPaceSecondsPerKm));
-  if (!durationValues.length || !paceValues.length) {
+  if (!distanceValues.length || !paceValues.length) {
     if (els.paceBestDurationChartCaption) els.paceBestDurationChartCaption.textContent = "No data";
-    return renderEmpty(els.paceBestDurationChart, "No pace best duration data");
+    return renderEmpty(els.paceBestDurationChart, "No pace best distance data");
   }
 
   if (els.paceBestDurationChartCaption) els.paceBestDurationChartCaption.textContent = "";
@@ -2103,11 +2103,11 @@ function renderPaceBestDurationChart() {
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const paceDomain = buildLinearDomain(paceValues, 15);
-  const durationDomain = buildDurationAxisDomain(durationValues);
+  const distanceDomain = buildDistanceAxisDomain(distanceValues);
   const x = (pace) => padding.left + ((pace - paceDomain.min) / paceDomain.spread) * chartWidth;
-  const y = (duration) => padding.top + ((durationDomain.max - duration) / durationDomain.spread) * chartHeight;
+  const y = (distanceKm) => padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
   const xTicks = getPaceBestTicks();
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => durationDomain.min + ratio * durationDomain.spread);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
 
   const grid = [
     ...xTicks.map((pace) => {
@@ -2121,7 +2121,7 @@ function renderPaceBestDurationChart() {
       const tickY = y(tick);
       return `
         <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
-        <text class="axis-label" x="8" y="${tickY + 4}">${formatClockDuration(tick)}</text>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatDistanceAxisTick(tick)}</text>
       `;
     })
   ].join("");
@@ -2129,11 +2129,11 @@ function renderPaceBestDurationChart() {
   const lines = series.map((item) => {
     if (item.points.length < 2) return "";
     const path = item.points
-      .map((point, index) => `${index ? "L" : "M"} ${x(point.targetPaceSecondsPerKm).toFixed(1)} ${y(point.durationSeconds).toFixed(1)}`)
+      .map((point, index) => `${index ? "L" : "M"} ${x(point.targetPaceSecondsPerKm).toFixed(1)} ${y(point.distanceKm).toFixed(1)}`)
       .join(" ");
     const dashAttribute = item.dashArray ? ` stroke-dasharray="${item.dashArray}"` : "";
     const dots = item.points.map((point) => `
-      <circle cx="${x(point.targetPaceSecondsPerKm)}" cy="${y(point.durationSeconds)}" r="${item.dotRadius || 4}" fill="${item.dotFill || item.color}" stroke="${item.dotStroke || item.color}" stroke-width="${item.dotStrokeWidth || 0}" data-tooltip="${escapeHtml(formatPaceBestDurationTooltip(item, point))}"></circle>
+      <circle cx="${x(point.targetPaceSecondsPerKm)}" cy="${y(point.distanceKm)}" r="${item.dotRadius || 4}" fill="${item.dotFill || item.color}" stroke="${item.dotStroke || item.color}" stroke-width="${item.dotStrokeWidth || 0}" data-tooltip="${escapeHtml(formatPaceBestDurationTooltip(item, point))}"></circle>
     `).join("");
     return `
       <path d="${path}" fill="none" stroke="${item.color}" stroke-width="${item.strokeWidth || 3}"${dashAttribute} stroke-linecap="round" stroke-linejoin="round"></path>
@@ -2153,10 +2153,10 @@ function renderPaceBestDurationChart() {
   }).join("");
 
   els.paceBestDurationChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median duration by target pace">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median distance by target pace">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
-      <text class="axis-label" x="10" y="16">Time</text>
+      <text class="axis-label" x="10" y="16">Distance (km)</text>
       ${legend}
       ${lines}
     </svg>
@@ -2293,10 +2293,10 @@ function renderPaceBestTrendChart() {
   const dates = efforts.map((effort) => effort.recordedAt);
   const minDate = Math.min(...dates);
   const maxDate = Math.max(...dates);
-  const trend = buildDurationTrend(activeEfforts);
-  const durationValues = efforts.map((effort) => effort.durationSeconds);
-  if (trend) durationValues.push(trend.startDuration, trend.endDuration);
-  const durationDomain = buildDurationAxisDomain(durationValues);
+  const trend = buildDistanceTrend(activeEfforts);
+  const distanceValues = efforts.map((effort) => effort.distanceKm);
+  if (trend) distanceValues.push(trend.startDistanceKm, trend.endDistanceKm);
+  const distanceDomain = buildDistanceAxisDomain(distanceValues);
 
   const width = 980;
   const height = 318;
@@ -2305,13 +2305,13 @@ function renderPaceBestTrendChart() {
   const chartHeight = height - padding.top - padding.bottom;
   const dateSpread = Math.max(maxDate - minDate, 1);
   const x = (date) => padding.left + ((date - minDate) / dateSpread) * chartWidth;
-  const y = (duration) => padding.top + ((durationDomain.max - duration) / durationDomain.spread) * chartHeight;
-  const trendLegendLabel = trend ? `Trend ${formatDurationTrendRate(trend.annualDurationChange)}` : "Trend";
+  const y = (distanceKm) => padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
+  const trendLegendLabel = trend ? `Trend ${formatDistanceTrendRate(trend.annualDistanceChangeKm)}` : "Trend";
   const contextLegendLabel = `Top ${PERSONAL_BEST_TREND_LIMIT}`;
   if (els.paceBestTrendCaption) els.paceBestTrendCaption.textContent = "";
 
   const xTicks = getDateTicks(minDate, maxDate);
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => durationDomain.min + ratio * durationDomain.spread);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
   const grid = [
     ...xTicks.map((tick) => {
       const tickX = x(tick);
@@ -2324,22 +2324,22 @@ function renderPaceBestTrendChart() {
       const tickY = y(tick);
       return `
         <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
-        <text class="axis-label" x="8" y="${tickY + 4}">${formatClockDuration(tick)}</text>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatDistanceAxisTick(tick)}</text>
       `;
     })
   ].join("");
 
   const contextPath = efforts
-    .map((effort, index) => `${index ? "L" : "M"} ${x(effort.recordedAt).toFixed(1)} ${y(effort.durationSeconds).toFixed(1)}`)
+    .map((effort, index) => `${index ? "L" : "M"} ${x(effort.recordedAt).toFixed(1)} ${y(effort.distanceKm).toFixed(1)}`)
     .join(" ");
   const activePath = activeEfforts.length > 1 ? activeEfforts
-    .map((effort, index) => `${index ? "L" : "M"} ${x(effort.recordedAt).toFixed(1)} ${y(effort.durationSeconds).toFixed(1)}`)
+    .map((effort, index) => `${index ? "L" : "M"} ${x(effort.recordedAt).toFixed(1)} ${y(effort.distanceKm).toFixed(1)}`)
     .join(" ") : "";
   const dots = efforts.map((effort) => `
-    <circle cx="${x(effort.recordedAt)}" cy="${y(effort.durationSeconds)}" r="${effort.rank <= selectedLimit ? "4" : "3.4"}" fill="#24724f" stroke="#ffffff" stroke-width="1.5" opacity="${effort.rank <= selectedLimit ? "1" : "0.24"}" data-tooltip="${escapeHtml(`${selected.name} #${effort.rank}${effort.rank <= selectedLimit ? "" : ` · outside top ${selectedLimit}`}\n${formatDate(effort.startDateLocal || effort.startDate)} · ${formatClockDuration(effort.durationSeconds)}\n${formatNumber(effort.distanceKm, 2)} km · ${effort.activityName || "Untitled"}`)}"></circle>
+    <circle cx="${x(effort.recordedAt)}" cy="${y(effort.distanceKm)}" r="${effort.rank <= selectedLimit ? "4" : "3.4"}" fill="#24724f" stroke="#ffffff" stroke-width="1.5" opacity="${effort.rank <= selectedLimit ? "1" : "0.24"}" data-tooltip="${escapeHtml(`${selected.name} #${effort.rank}${effort.rank <= selectedLimit ? "" : ` · outside top ${selectedLimit}`}\n${formatDate(effort.startDateLocal || effort.startDate)} · ${formatNumber(effort.distanceKm, 2)} km\n${formatClockDuration(effort.durationSeconds)} · ${effort.activityName || "Untitled"}`)}"></circle>
   `).join("");
   const trendPath = trend ? `
-    <path d="M ${x(activeEfforts[0].recordedAt).toFixed(1)} ${y(trend.startDuration).toFixed(1)} L ${x(activeEfforts.at(-1).recordedAt).toFixed(1)} ${y(trend.endDuration).toFixed(1)}" fill="none" stroke="#c7672f" stroke-width="2.6" stroke-dasharray="8 6" stroke-linecap="round"></path>
+    <path d="M ${x(activeEfforts[0].recordedAt).toFixed(1)} ${y(trend.startDistanceKm).toFixed(1)} L ${x(activeEfforts.at(-1).recordedAt).toFixed(1)} ${y(trend.endDistanceKm).toFixed(1)}" fill="none" stroke="#c7672f" stroke-width="2.6" stroke-dasharray="8 6" stroke-linecap="round"></path>
   ` : "";
   const legend = `
     <g transform="translate(${padding.left}, 22)">
@@ -2357,7 +2357,7 @@ function renderPaceBestTrendChart() {
   `;
 
   els.paceBestTrendChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(`${selected.name} pace best duration trend by date, ${trendLegendLabel}`)}">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(`${selected.name} pace best distance trend by date, ${trendLegendLabel}`)}">
       ${grid}
       ${legend}
       <path d="${contextPath}" fill="none" stroke="#24724f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.18"></path>
@@ -4081,6 +4081,28 @@ function buildDurationTrend(efforts) {
   return { startDuration, endDuration, annualDurationChange: slope * YEAR_DAYS };
 }
 
+function buildDistanceTrend(efforts) {
+  if (efforts.length < 2) return null;
+  const firstDate = efforts[0].recordedAt;
+  const xs = efforts.map((effort, index) => {
+    const days = (effort.recordedAt - firstDate) / (24 * 60 * 60 * 1000);
+    return days || index;
+  });
+  const ys = efforts.map((effort) => effort.distanceKm);
+  const xAverage = sum(xs, (value) => value) / xs.length;
+  const yAverage = sum(ys, (value) => value) / ys.length;
+  const denominator = sum(xs, (value) => (value - xAverage) ** 2);
+  if (!denominator) return null;
+  const numerator = xs.reduce((total, value, index) => total + (value - xAverage) * (ys[index] - yAverage), 0);
+  const slope = numerator / denominator;
+  const intercept = yAverage - slope * xAverage;
+  const startX = xs[0];
+  const endX = xs.at(-1);
+  const startDistanceKm = intercept + slope * startX;
+  const endDistanceKm = intercept + slope * endX;
+  return { startDistanceKm, endDistanceKm, annualDistanceChangeKm: slope * YEAR_DAYS };
+}
+
 function getDateTicks(minDate, maxDate) {
   if (minDate === maxDate) return [minDate];
   return [minDate, minDate + (maxDate - minDate) / 2, maxDate];
@@ -4248,7 +4270,7 @@ function buildPaceBestDurationSeries() {
 }
 
 function formatPaceBestDurationTooltip(series, point) {
-  const summary = `${series.label} ${point.paceName}\n${formatClockDuration(point.durationSeconds)}\n${formatNumber(point.distanceKm, 2)} km · ${formatPaceWithUnit(point.paceSecondsPerKm)}`;
+  const summary = `${series.label} ${point.paceName}\n${formatNumber(point.distanceKm, 2)} km\n${formatClockDuration(point.durationSeconds)} · ${formatPaceWithUnit(point.paceSecondsPerKm)}`;
   if (series.key !== "median") return summary;
   return `${summary} · based on all ${formatInteger(point.count)} pace bests`;
 }
@@ -4406,6 +4428,15 @@ function buildDurationAxisDomain(values) {
   if (!durations.length) return { min: 0, max: 300, spread: 300 };
   const rawMax = Math.max(...durations, 60);
   const step = rawMax <= 3600 ? 300 : 900;
+  const max = Math.ceil(rawMax / step) * step;
+  return { min: 0, max, spread: Math.max(max, step) };
+}
+
+function buildDistanceAxisDomain(values) {
+  const distances = values.filter((value) => Number.isFinite(value) && value >= 0);
+  if (!distances.length) return { min: 0, max: 1, spread: 1 };
+  const rawMax = Math.max(...distances, 1);
+  const step = rawMax <= 10 ? 1 : rawMax <= 50 ? 5 : 10;
   const max = Math.ceil(rawMax / step) * step;
   return { min: 0, max, spread: Math.max(max, step) };
 }
@@ -4569,6 +4600,18 @@ function formatPaceTrendRate(secondsPerKmPerYear) {
 function formatDurationTrendRate(secondsPerYear) {
   const delta = formatDeltaPlain(secondsPerYear);
   return delta === "-" ? delta : `${delta}/yr`;
+}
+
+function formatDistanceTrendRate(kmPerYear) {
+  if (!Number.isFinite(kmPerYear)) return "-";
+  const sign = kmPerYear > 0 ? "+" : "";
+  return `${sign}${formatNumber(kmPerYear, 1)} km/yr`;
+}
+
+function formatDistanceAxisTick(km) {
+  if (!Number.isFinite(km)) return "-";
+  const digits = Math.abs(km) < 10 && !Number.isInteger(km) ? 1 : 0;
+  return `${formatNumber(km, digits)} km`;
 }
 
 function formatDistanceTick(km) {
