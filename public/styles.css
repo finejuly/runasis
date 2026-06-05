@@ -547,6 +547,33 @@ input[type="search"] {
   margin-top: 14px;
 }
 
+.personal-best-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 0 2px;
+}
+
+.personal-best-section-heading h2 {
+  font-size: 18px;
+}
+
+.personal-best-section-heading span {
+  color: var(--muted);
+  font-size: var(--font-label);
+  font-weight: 650;
+}
+
+.personal-best-tabs {
+  grid-template-columns: repeat(3, minmax(92px, 1fr));
+}
+
+.time-best-heading {
+  margin-top: 0;
+}
+
 .personal-best-chart-panel {
   margin-top: 14px;
 }
@@ -663,6 +690,12 @@ input[type="search"] {
   border: 1px solid var(--line);
   background: var(--surface-soft);
   min-height: 34px;
+}
+
+.scale-toggle.personal-best-tabs {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .series-toggle {
@@ -802,6 +835,37 @@ table {
 
 .personal-best-table table {
   min-width: 620px;
+  table-layout: fixed;
+}
+
+.time-best-table table {
+  min-width: 620px;
+}
+
+.pace-best-table table {
+  min-width: 720px;
+}
+
+.record-rank-column {
+  width: 44px;
+}
+
+.record-actions-column {
+  width: 56px;
+}
+
+.record-date-column {
+  width: 112px;
+}
+
+.record-time-column,
+.record-distance-column,
+.record-pace-column {
+  width: 96px;
+}
+
+.record-activity-column {
+  width: auto;
 }
 
 .all-activity-table {
@@ -921,6 +985,43 @@ table {
   animation: refresh-spin 0.8s linear infinite;
 }
 
+.record-exclusion-button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.record-exclusion-button.is-excluded {
+  color: var(--green-dark);
+}
+
+.record-exclusion-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.record-actions {
+  text-align: center;
+}
+
+.record-row-excluded {
+  background: var(--green-soft);
+}
+
+.excluded-records-toggle.active {
+  background: var(--green-soft);
+  border-color: var(--green-light);
+  color: var(--green-dark);
+}
+
 @keyframes refresh-spin {
   to {
     transform: rotate(360deg);
@@ -933,6 +1034,13 @@ td {
   text-align: left;
   border-bottom: 1px solid var(--line);
   font-size: var(--font-table);
+}
+
+.personal-best-table th,
+.personal-best-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 th {
@@ -948,6 +1056,14 @@ td.activity-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.record-row-excluded td {
+  color: var(--red);
+}
+
+.record-row-excluded td.activity-name {
+  color: var(--red);
 }
 
 .modal-backdrop {

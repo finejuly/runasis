@@ -18,7 +18,10 @@ const ACTIVITIES_DIR = path.join(STRAVA_DATA_DIR, "activities");
 const ACTIVITIES_INDEX_PATH = path.join(ACTIVITIES_DIR, "index.json");
 const DETAILS_DIR = path.join(ACTIVITIES_DIR, "details");
 const RAW_DETAILS_DIR = path.join(ACTIVITIES_DIR, "raw-details");
+const RAW_STREAMS_DIR = path.join(ACTIVITIES_DIR, "raw-streams");
 const DERIVED_DIR = path.join(STRAVA_DATA_DIR, "derived");
+const PERSONAL_BESTS_CACHE_PATH = path.join(DERIVED_DIR, "personal-bests.json");
+const EXCLUDED_RECORDS_PATH = path.join(DERIVED_DIR, "excluded-records.json");
 
 loadEnvFile();
 
@@ -30,23 +33,77 @@ const HOST = resolveHost(process.env.HOST || "127.0.0.1");
 const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
-const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 80;
-const PREFERRED_BEST_EFFORT_ORDER = [
-  "400m",
-  "1/2 mile",
-  "1K",
-  "1 mile",
-  "2 mile",
-  "5K",
-  "10K",
-  "15K",
-  "10 mile",
-  "20K",
-  "Half-Marathon",
-  "30K",
-  "Marathon",
-  "50K"
+const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
+const PERSONAL_BESTS_CACHE_VERSION = 8;
+const EXCLUDED_RECORDS_VERSION = 1;
+const ACTIVITY_STREAM_KEYS = [
+  "time",
+  "distance",
+  "latlng",
+  "altitude",
+  "velocity_smooth",
+  "heartrate",
+  "cadence",
+  "watts",
+  "temp",
+  "moving",
+  "grade_smooth"
 ];
+const TIME_BEST_TARGETS = [
+  { name: "15s", durationSeconds: 15 },
+  { name: "30s", durationSeconds: 30 },
+  { name: "1m", durationSeconds: 60 },
+  { name: "3m", durationSeconds: 3 * 60 },
+  { name: "5m", durationSeconds: 5 * 60 },
+  { name: "10m", durationSeconds: 10 * 60 },
+  { name: "20m", durationSeconds: 20 * 60 },
+  { name: "30m", durationSeconds: 30 * 60 },
+  { name: "1h", durationSeconds: 60 * 60 },
+  { name: "1.5h", durationSeconds: 90 * 60 },
+  { name: "2h", durationSeconds: 2 * 60 * 60 },
+  { name: "2.5h", durationSeconds: 2.5 * 60 * 60 },
+  { name: "3h", durationSeconds: 3 * 60 * 60 },
+  { name: "3.5h", durationSeconds: 3.5 * 60 * 60 },
+  { name: "4h", durationSeconds: 4 * 60 * 60 }
+];
+const PACE_BEST_TARGETS = [
+  { name: "3:30/km", paceSecondsPerKm: 3 * 60 + 30 },
+  { name: "3:45/km", paceSecondsPerKm: 3 * 60 + 45 },
+  { name: "4:00/km", paceSecondsPerKm: 4 * 60 },
+  { name: "4:15/km", paceSecondsPerKm: 4 * 60 + 15 },
+  { name: "4:30/km", paceSecondsPerKm: 4 * 60 + 30 },
+  { name: "4:45/km", paceSecondsPerKm: 4 * 60 + 45 },
+  { name: "5:00/km", paceSecondsPerKm: 5 * 60 },
+  { name: "5:13/km", paceSecondsPerKm: 5 * 60 + 13 },
+  { name: "5:27/km", paceSecondsPerKm: 5 * 60 + 27 },
+  { name: "5:40/km", paceSecondsPerKm: 5 * 60 + 40 },
+  { name: "5:50/km", paceSecondsPerKm: 5 * 60 + 50 },
+  { name: "6:00/km", paceSecondsPerKm: 6 * 60 },
+  { name: "6:20/km", paceSecondsPerKm: 6 * 60 + 20 },
+  { name: "6:40/km", paceSecondsPerKm: 6 * 60 + 40 },
+  { name: "7:00/km", paceSecondsPerKm: 7 * 60 }
+];
+const PERSONAL_BEST_DISTANCE_TARGETS = [
+  { name: "100m", distance: 100 },
+  { name: "200m", distance: 200 },
+  { name: "400m", distance: 400 },
+  { name: "1/2 mile", distance: 804.672 },
+  { name: "1K", distance: 1000 },
+  { name: "1 mile", distance: 1609.344 },
+  { name: "2K", distance: 2000 },
+  { name: "5K", distance: 5000 },
+  { name: "5 mile", distance: 8046.72 },
+  { name: "10K", distance: 10000 },
+  { name: "15K", distance: 15000 },
+  { name: "10 mile", distance: 16093.44 },
+  { name: "20K", distance: 20000 },
+  { name: "Half-Marathon", distance: 21097.5 },
+  { name: "25K", distance: 25000 },
+  { name: "30K", distance: 30000 },
+  { name: "35K", distance: 35000 },
+  { name: "Marathon", distance: 42195 }
+];
+const PREFERRED_BEST_EFFORT_ORDER = PERSONAL_BEST_DISTANCE_TARGETS.map((target) => target.name);
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -233,6 +290,7 @@ function emptyStore() {
     activities: [],
     detailsById: new Map(),
     rawDetailIds: new Set(),
+    rawStreamIds: new Set(),
     lastSyncAt: null,
     lastSyncSummary: null,
     lastDetailSyncAt: null,
@@ -245,15 +303,16 @@ function emptyStore() {
 async function readStore() {
   await ensureStoreMigrated();
 
-  const [auth, syncState, activityIndex, detailsById, rawDetailIds] = await Promise.all([
+  const [auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds] = await Promise.all([
     readJson(AUTH_PATH, emptyAuthStore()),
     readJson(SYNC_STATE_PATH, emptySyncState()),
     readJson(ACTIVITIES_INDEX_PATH, emptyActivityIndex()),
     readActivityDataMap(DETAILS_DIR),
-    listActivityDataIds(RAW_DETAILS_DIR)
+    listActivityDataIds(RAW_DETAILS_DIR),
+    listActivityDataIds(RAW_STREAMS_DIR)
   ]);
 
-  return buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds });
+  return buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds });
 }
 
 async function writeStore(store) {
@@ -295,7 +354,8 @@ async function writeStore(store) {
     syncState,
     activityIndex,
     detailsById: store.detailsById || new Map(),
-    rawDetailIds: store.rawDetailIds || new Set()
+    rawDetailIds: store.rawDetailIds || new Set(),
+    rawStreamIds: store.rawStreamIds || new Set()
   });
 }
 
@@ -331,7 +391,7 @@ function emptyActivityIndex() {
   };
 }
 
-function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds }) {
+function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds }) {
   return {
     schemaVersion: 2,
     athlete: auth.athlete || null,
@@ -340,6 +400,7 @@ function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds 
     activities: Array.isArray(activityIndex.activities) ? activityIndex.activities : [],
     detailsById: detailsById || new Map(),
     rawDetailIds: rawDetailIds || new Set(),
+    rawStreamIds: rawStreamIds || new Set(),
     lastSyncAt: syncState.lastSyncAt || null,
     lastSyncSummary: syncState.lastSyncSummary || null,
     lastDetailSyncAt: syncState.lastDetailSyncAt || null,
@@ -413,7 +474,7 @@ function hasDetailedActivityData(activity) {
 }
 
 async function ensureDataDirs() {
-  const directories = [DATA_DIR, STRAVA_DATA_DIR, ACTIVITIES_DIR, DETAILS_DIR, RAW_DETAILS_DIR, DERIVED_DIR];
+  const directories = [DATA_DIR, STRAVA_DATA_DIR, ACTIVITIES_DIR, DETAILS_DIR, RAW_DETAILS_DIR, RAW_STREAMS_DIR, DERIVED_DIR];
   await Promise.all(directories.map(async (directory) => {
     await fs.mkdir(directory, { recursive: true, mode: PRIVATE_DIR_MODE });
     await fs.chmod(directory, PRIVATE_DIR_MODE).catch(() => {});
@@ -504,6 +565,10 @@ async function writeActivityDetail(id, detail) {
 
 async function writeRawActivityDetail(id, detail) {
   await writeJsonAtomic(activityDataPath(RAW_DETAILS_DIR, id), detail);
+}
+
+async function writeRawActivityStream(id, streams) {
+  await writeJsonAtomic(activityDataPath(RAW_STREAMS_DIR, id), streams);
 }
 
 async function clearStore() {
@@ -665,14 +730,21 @@ function detailStatusFromStore(store) {
   const runs = store.activities.filter(isRun);
   const detailsById = store.detailsById || new Map();
   const rawDetailIds = typeof store.rawDetailIds?.has === "function" ? store.rawDetailIds : null;
+  const rawStreamIds = typeof store.rawStreamIds?.has === "function" ? store.rawStreamIds : null;
   const rawRunCount = rawDetailIds
     ? runs.filter((activity) => rawDetailIds.has(String(activity.id))).length
+    : null;
+  const rawStreamRunCount = rawStreamIds
+    ? runs.filter((activity) => rawStreamIds.has(String(activity.id))).length
     : null;
   const pendingRunCount = rawDetailIds
     ? runs.filter((activity) => {
       const id = String(activity.id);
       return !isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id);
     }).length
+    : null;
+  const pendingRawStreamRunCount = rawStreamIds
+    ? runs.length - rawStreamRunCount
     : null;
   const records = runs
     .map((activity) => detailsById.get(String(activity.id)))
@@ -689,7 +761,9 @@ function detailStatusFromStore(store) {
     bestEffortActivityCount: bestEffortActivities.length,
     bestEffortCount,
     rawRunCount: rawDetailIds ? rawRunCount : undefined,
-    pendingRawRunCount: rawDetailIds ? runs.length - rawRunCount : undefined
+    pendingRawRunCount: rawDetailIds ? runs.length - rawRunCount : undefined,
+    rawStreamRunCount: rawStreamIds ? rawStreamRunCount : undefined,
+    pendingRawStreamRunCount: rawStreamIds ? pendingRawStreamRunCount : undefined
   });
 }
 
@@ -723,67 +797,773 @@ function isFailedActivityDetail(detail) {
   return Boolean(detail?.details_fetch_failed_at || detail?.details_fetch_error);
 }
 
-async function personalBestsFromStore(store) {
-  const groups = new Map();
-  let effortCount = 0;
-  let detailActivityCount = 0;
+function buildPersonalBestsCacheFingerprint(store) {
+  const activities = (store.activities || [])
+    .map((activity) => ({
+      id: String(activity?.id || ""),
+      name: activity?.name || null,
+      sportType: activity?.sport_type || activity?.type || null,
+      startDate: activity?.start_date || null,
+      startDateLocal: activity?.start_date_local || null,
+      distance: Number(activity?.distance || 0),
+      movingTime: Number(activity?.moving_time || 0)
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const details = Array.from((store.detailsById || new Map()).entries())
+    .map(([id, detail]) => ({
+      id: String(id),
+      activityId: String(detail?.id || id),
+      name: detail?.name || null,
+      sportType: detail?.sport_type || detail?.type || null,
+      startDate: detail?.start_date || null,
+      startDateLocal: detail?.start_date_local || null,
+      fetchedAt: detail?.details_fetched_at || null,
+      failedAt: detail?.details_fetch_failed_at || null,
+      error: detail?.details_fetch_error || null
+    }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const rawStreamIds = iterableToSortedStrings(store.rawStreamIds);
 
+  return hashJson({
+    cacheVersion: PERSONAL_BESTS_CACHE_VERSION,
+    personalBestDistanceTargets: PERSONAL_BEST_DISTANCE_TARGETS,
+    timeBestTargets: TIME_BEST_TARGETS,
+    paceBestTargets: PACE_BEST_TARGETS,
+    updatedAt: store.updatedAt || null,
+    lastSyncAt: store.lastSyncAt || null,
+    lastDetailSyncAt: store.lastDetailSyncAt || null,
+    activities,
+    details,
+    rawStreamIds
+  });
+}
+
+function iterableToSortedStrings(value) {
+  if (!value || typeof value[Symbol.iterator] !== "function") return [];
+  return Array.from(value).map(String).sort();
+}
+
+function hashJson(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+async function readPersonalBestsCache(sourceFingerprint) {
+  const payload = await readJson(PERSONAL_BESTS_CACHE_PATH, null);
+  if (!isFreshPersonalBestsCache(payload, sourceFingerprint)) return null;
+  return payload;
+}
+
+function isFreshPersonalBestsCache(payload, sourceFingerprint) {
+  return Boolean(
+    payload &&
+    payload.cache?.version === PERSONAL_BESTS_CACHE_VERSION &&
+    payload.cache?.sourceFingerprint === sourceFingerprint &&
+    Array.isArray(payload.distances) &&
+    Array.isArray(payload.durations) &&
+    Array.isArray(payload.paces)
+  );
+}
+
+async function readExcludedRecords() {
+  const payload = await readJson(EXCLUDED_RECORDS_PATH, emptyExcludedRecords());
+  return normalizeExcludedRecords(payload);
+}
+
+function emptyExcludedRecords() {
+  return {
+    version: EXCLUDED_RECORDS_VERSION,
+    records: {}
+  };
+}
+
+function normalizeExcludedRecords(payload) {
+  const normalized = emptyExcludedRecords();
+  const records = payload?.records && typeof payload.records === "object" && !Array.isArray(payload.records)
+    ? payload.records
+    : {};
+  for (const [key, value] of Object.entries(records)) {
+    const recordKey = normalizeRecordKey(key);
+    if (!recordKey) continue;
+    normalized.records[recordKey] = {
+      recordKey,
+      excludedAt: value?.excludedAt || new Date(0).toISOString()
+    };
+  }
+  return normalized;
+}
+
+async function setRecordExcluded(recordKeyValue, excluded) {
+  const recordKey = normalizeRecordKey(recordKeyValue);
+  if (!recordKey) {
+    const error = new Error("Record key is required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const excludedRecords = await readExcludedRecords();
+  if (excluded) {
+    excludedRecords.records[recordKey] = {
+      recordKey,
+      excludedAt: new Date().toISOString()
+    };
+  } else {
+    delete excludedRecords.records[recordKey];
+  }
+  await writeJsonAtomic(EXCLUDED_RECORDS_PATH, excludedRecords);
+
+  return {
+    ok: true,
+    recordKey,
+    excluded: Boolean(excluded),
+    excludedRecordCount: Object.keys(excludedRecords.records).length
+  };
+}
+
+function normalizeRecordKey(value) {
+  const recordKey = String(value ?? "").trim();
+  if (!recordKey || recordKey.length > 512 || /[\r\n]/.test(recordKey)) return "";
+  return recordKey;
+}
+
+async function personalBestsFromStore(store, options = {}) {
+  const sourceFingerprint = buildPersonalBestsCacheFingerprint(store);
+  const cached = await readPersonalBestsCache(sourceFingerprint);
+  const payload = cached || await computePersonalBestsFromStore(store, sourceFingerprint);
+  const excludedRecords = await readExcludedRecords();
+  return applyRecordExclusions(payload, excludedRecords, {
+    includeExcluded: options.includeExcluded
+  });
+}
+
+function applyRecordExclusions(payload, excludedRecords, options = {}) {
+  const excludedKeys = new Set(Object.keys(excludedRecords?.records || {}));
+  const includeExcluded = Boolean(options.includeExcluded);
+  const distances = filterRecordGroups(payload.distances || [], excludedKeys, includeExcluded, summarizeMedianPersonalBestEffort);
+  const durations = filterRecordGroups(payload.durations || [], excludedKeys, includeExcluded, summarizeMedianTimeBestEffort);
+  const paces = filterRecordGroups(payload.paces || [], excludedKeys, includeExcluded, summarizeMedianPaceBestEffort);
+
+  return {
+    ...payload,
+    includeExcluded,
+    excludedRecordCount: excludedKeys.size,
+    detailActivityCount: countUniqueRecordActivities(distances),
+    effortCount: countGroupRecords(distances),
+    distanceCount: distances.length,
+    distances,
+    durationActivityCount: countUniqueRecordActivities(durations),
+    durationEffortCount: countGroupRecords(durations),
+    durationCount: durations.length,
+    durations,
+    paceActivityCount: countUniqueRecordActivities(paces),
+    paceEffortCount: countGroupRecords(paces),
+    paceCount: paces.length,
+    paces
+  };
+}
+
+function filterRecordGroups(groups, excludedKeys, includeExcluded, summarizeMedian) {
+  return groups
+    .map((group) => {
+      const records = (group.top || [])
+        .map((record) => markRecordExclusion(record, excludedKeys))
+        .filter((record) => includeExcluded || !record.excluded);
+      return {
+        ...group,
+        count: records.length,
+        median: summarizeMedian(records),
+        top: records
+      };
+    })
+    .filter((group) => group.count > 0);
+}
+
+function markRecordExclusion(record, excludedKeys) {
+  const recordKey = record.recordKey || buildRecordKey(record.recordType, record.name, record.activityId, record.startOffset, record.endOffset);
+  return {
+    ...record,
+    recordKey,
+    excluded: excludedKeys.has(recordKey)
+  };
+}
+
+function countGroupRecords(groups) {
+  return groups.reduce((total, group) => total + Number(group.count || 0), 0);
+}
+
+function countUniqueRecordActivities(groups) {
+  const activityIds = new Set();
+  for (const group of groups) {
+    for (const record of group.top || []) {
+      if (record?.activityId) activityIds.add(String(record.activityId));
+    }
+  }
+  return activityIds.size;
+}
+
+async function computePersonalBestsFromStore(store, sourceFingerprint) {
+  const distanceBests = await distanceBestsFromStore(store);
+  const timeBests = await timeBestsFromStore(store);
+  const paceBests = await paceBestsFromStore(store);
+  const generatedAt = new Date().toISOString();
+  const payload = {
+    generatedAt,
+    cache: {
+      version: PERSONAL_BESTS_CACHE_VERSION,
+      sourceFingerprint,
+      generatedAt
+    },
+    detailActivityCount: distanceBests.activityCount,
+    effortCount: distanceBests.effortCount,
+    distanceCount: distanceBests.distances.length,
+    distances: distanceBests.distances,
+    durationActivityCount: timeBests.activityCount,
+    durationEffortCount: timeBests.effortCount,
+    durationCount: timeBests.durations.length,
+    durations: timeBests.durations,
+    paceActivityCount: paceBests.activityCount,
+    paceEffortCount: paceBests.effortCount,
+    paceCount: paceBests.paces.length,
+    paces: paceBests.paces
+  };
+
+  await writeJsonAtomic(PERSONAL_BESTS_CACHE_PATH, payload);
+  return payload;
+}
+
+async function distanceBestsFromStore(store) {
+  const result = await groupedStreamBestsFromStore(store, {
+    targets: PERSONAL_BEST_DISTANCE_TARGETS,
+    computeEfforts: distanceBestEffortsForActivity,
+    compareEfforts: comparePersonalBestEfforts,
+    summarizeEfforts: summarizeMedianPersonalBestEffort,
+    mapGroup: (target, sorted, medianEffort) => ({
+      name: target.name,
+      distance: target.distance,
+      distanceKm: round(target.distance / 1000, 3),
+      count: sorted.length,
+      median: medianEffort,
+      top: sorted
+    })
+  });
+  const distances = result.groups.sort(compareBestEffortGroups);
+
+  return {
+    activityCount: result.activityCount,
+    effortCount: result.effortCount,
+    distances
+  };
+}
+
+function activityMapFromStore(store) {
+  const activityById = new Map();
+  for (const activity of store.activities || []) {
+    if (activity?.id) activityById.set(String(activity.id), activity);
+  }
   for (const detail of (store.detailsById || new Map()).values()) {
-    if (!isRun(detail) || !Array.isArray(detail.best_efforts)) continue;
-    detailActivityCount += 1;
+    if (detail?.id) activityById.set(String(detail.id), { ...activityById.get(String(detail.id)), ...detail });
+  }
+  return activityById;
+}
 
-    for (const effort of detail.best_efforts) {
-      const distance = Number(effort.distance || 0);
-      const movingTime = Number(effort.moving_time || 0);
-      if (!distance || !movingTime) continue;
+function rawStreamIdsFromStore(store) {
+  return typeof store.rawStreamIds?.[Symbol.iterator] === "function"
+    ? Array.from(store.rawStreamIds)
+    : [];
+}
 
-      const name = effort.name || `${round(distance / 1000, 3)}K`;
-      if (!groups.has(name)) groups.set(name, []);
+function buildRecordKey(recordType, name, activityId, startOffset, endOffset) {
+  const type = recordType || "record";
+  const targetName = String(name || "");
+  const id = String(activityId || "");
+  const start = Math.round(Number(startOffset || 0));
+  const end = Math.round(Number(endOffset || 0));
+  return `${type}|${targetName}|${id}|${start}|${end}`;
+}
+
+function distanceBestEffortsForActivity(activity, streams) {
+  const series = buildTimeDistanceSeries(streams);
+  if (!series) return [];
+
+  return PERSONAL_BEST_DISTANCE_TARGETS
+    .map((target) => {
+      const best = findBestTimeForDistance(series, target.distance);
+      if (!best || best.duration <= 0) return null;
+      const distanceKm = target.distance / 1000;
+      return {
+        effortId: null,
+        activityId: activity.id,
+        activityName: activity.name || "Untitled",
+        startDate: addSecondsToDateString(activity.start_date, best.startOffset),
+        startDateLocal: addSecondsToDateString(activity.start_date_local || activity.start_date, best.startOffset),
+        name: target.name,
+        distance: target.distance,
+        distanceKm: round(distanceKm, 3),
+        movingTime: best.duration,
+        elapsedTime: best.duration,
+        paceSecondsPerKm: distanceKm ? best.duration / distanceKm : null,
+        startOffset: Math.round(best.startOffset),
+        endOffset: Math.round(best.endOffset),
+        startIndex: null,
+        endIndex: null,
+        prRank: null,
+        recordKey: buildRecordKey("distance", target.name, activity.id, best.startOffset, best.endOffset),
+        recordType: "distance"
+      };
+    })
+    .filter(Boolean);
+}
+
+async function timeBestsFromStore(store) {
+  const result = await groupedStreamBestsFromStore(store, {
+    targets: TIME_BEST_TARGETS,
+    computeEfforts: timeBestEffortsForActivity,
+    compareEfforts: compareTimeBestEfforts,
+    summarizeEfforts: summarizeMedianTimeBestEffort,
+    mapGroup: (target, sorted, medianEffort) => ({
+      name: target.name,
+      durationSeconds: target.durationSeconds,
+      count: sorted.length,
+      median: medianEffort,
+      top: sorted
+    })
+  });
+
+  return {
+    activityCount: result.activityCount,
+    effortCount: result.effortCount,
+    durations: result.groups
+  };
+}
+
+function timeBestEffortsForActivity(activity, streams) {
+  const series = buildTimeDistanceSeries(streams);
+  if (!series) return [];
+
+  return TIME_BEST_TARGETS
+    .map((target) => {
+      const best = findBestDistanceForDuration(series, target.durationSeconds);
+      if (!best || best.distance <= 0) return null;
+      const distanceKm = best.distance / 1000;
+      return {
+        activityId: activity.id,
+        activityName: activity.name || "Untitled",
+        startDate: addSecondsToDateString(activity.start_date, best.startOffset),
+        startDateLocal: addSecondsToDateString(activity.start_date_local || activity.start_date, best.startOffset),
+        name: target.name,
+        durationSeconds: target.durationSeconds,
+        distance: best.distance,
+        distanceKm: round(distanceKm, 3),
+        paceSecondsPerKm: distanceKm ? target.durationSeconds / distanceKm : null,
+        startOffset: Math.round(best.startOffset),
+        endOffset: Math.round(best.endOffset),
+        recordKey: buildRecordKey("duration", target.name, activity.id, best.startOffset, best.endOffset),
+        recordType: "duration"
+      };
+    })
+    .filter(Boolean);
+}
+
+async function paceBestsFromStore(store) {
+  const result = await groupedStreamBestsFromStore(store, {
+    targets: PACE_BEST_TARGETS,
+    computeEfforts: paceBestEffortsForActivity,
+    compareEfforts: comparePaceBestEfforts,
+    summarizeEfforts: summarizeMedianPaceBestEffort,
+    mapGroup: (target, sorted, medianEffort) => ({
+      name: target.name,
+      paceSecondsPerKm: target.paceSecondsPerKm,
+      count: sorted.length,
+      median: medianEffort,
+      top: sorted
+    })
+  });
+
+  return {
+    activityCount: result.activityCount,
+    effortCount: result.effortCount,
+    paces: result.groups
+  };
+}
+
+async function groupedStreamBestsFromStore(store, { targets, computeEfforts, compareEfforts, summarizeEfforts, mapGroup }) {
+  const groups = new Map(targets.map((target) => [target.name, []]));
+  const activityById = activityMapFromStore(store);
+  let activityCount = 0;
+  let effortCount = 0;
+
+  for (const rawId of rawStreamIdsFromStore(store)) {
+    const id = String(rawId);
+    const activity = activityById.get(id);
+    if (!activity || !isRun(activity)) continue;
+
+    const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
+    const efforts = computeEfforts(activity, streams) || [];
+    if (!efforts.length) continue;
+
+    activityCount += 1;
+    for (const effort of efforts) {
+      const group = groups.get(effort.name);
+      if (!group) continue;
       effortCount += 1;
-      groups.get(name).push({
-        effortId: effort.id || null,
-        activityId: detail.id,
-        activityName: detail.name || "Untitled",
-        startDate: effort.start_date || detail.start_date || null,
-        startDateLocal: effort.start_date_local || detail.start_date_local || null,
-        name,
-        distance,
-        distanceKm: round(distance / 1000, 3),
-        movingTime,
-        elapsedTime: Number(effort.elapsed_time || movingTime),
-        paceSecondsPerKm: distance ? movingTime / (distance / 1000) : null,
-        startIndex: effort.start_index ?? null,
-        endIndex: effort.end_index ?? null,
-        prRank: effort.pr_rank ?? null
-      });
+      group.push(effort);
     }
   }
 
-  const distances = Array.from(groups.entries())
-    .map(([name, efforts]) => {
-      const sorted = efforts.sort(comparePersonalBestEfforts);
-      const medianEffort = summarizeMedianPersonalBestEffort(sorted);
+  const bestGroups = targets
+    .map((target) => {
+      const sorted = (groups.get(target.name) || []).sort(compareEfforts);
+      return mapGroup(target, sorted, summarizeEfforts(sorted));
+    })
+    .filter((group) => group.count > 0);
+
+  return { activityCount, effortCount, groups: bestGroups };
+}
+
+function paceBestEffortsForActivity(activity, streams) {
+  const series = buildTimeDistanceSeries(streams);
+  if (!series) return [];
+
+  return PACE_BEST_TARGETS
+    .map((target) => {
+      const best = findLongestDistanceForPace(series, target.paceSecondsPerKm);
+      if (!best || best.duration <= 0 || best.distance <= 0) return null;
+      const distanceKm = best.distance / 1000;
       return {
-        name,
-        distance: sorted[0]?.distance || null,
-        distanceKm: sorted[0]?.distanceKm || null,
-        count: efforts.length,
-        median: medianEffort,
-        top: sorted.slice(0, 20)
+        activityId: activity.id,
+        activityName: activity.name || "Untitled",
+        startDate: addSecondsToDateString(activity.start_date, best.startOffset),
+        startDateLocal: addSecondsToDateString(activity.start_date_local || activity.start_date, best.startOffset),
+        name: target.name,
+        targetPaceSecondsPerKm: target.paceSecondsPerKm,
+        durationSeconds: best.duration,
+        movingTime: best.duration,
+        distance: best.distance,
+        distanceKm: round(distanceKm, 3),
+        paceSecondsPerKm: distanceKm ? best.duration / distanceKm : null,
+        startOffset: Math.round(best.startOffset),
+        endOffset: Math.round(best.endOffset),
+        recordKey: buildRecordKey("pace", target.name, activity.id, best.startOffset, best.endOffset),
+        recordType: "pace"
       };
     })
-    .sort(compareBestEffortGroups);
+    .filter(Boolean);
+}
 
-  const payload = {
-    generatedAt: new Date().toISOString(),
-    detailActivityCount,
-    effortCount,
-    distanceCount: distances.length,
-    distances
+function buildTimeDistanceSeries(streams) {
+  const times = streams?.time?.data;
+  const distances = streams?.distance?.data;
+  if (!Array.isArray(times) || !Array.isArray(distances)) return null;
+
+  const length = Math.min(times.length, distances.length);
+  const series = [];
+  for (let index = 0; index < length; index += 1) {
+    const time = Number(times[index]);
+    const distance = Number(distances[index]);
+    if (!Number.isFinite(time) || !Number.isFinite(distance)) continue;
+    if (time < 0 || distance < 0) continue;
+    const previous = series.at(-1);
+    if (previous && time <= previous.time) continue;
+    series.push({ time, distance });
+  }
+
+  return series.length >= 2 ? series : null;
+}
+
+function findLongestDistanceForPace(series, paceSecondsPerKm) {
+  const targetPace = Number(paceSecondsPerKm);
+  if (!Number.isFinite(targetPace) || targetPace <= 0) return null;
+  const speedMetersPerSecond = 1000 / targetPace;
+  const scored = (series || [])
+    .map((point) => ({
+      time: Number(point.time),
+      distance: Number(point.distance),
+      score: Number(point.distance) - speedMetersPerSecond * Number(point.time)
+    }))
+    .filter((point) => Number.isFinite(point.time) && Number.isFinite(point.distance) && Number.isFinite(point.score));
+  if (scored.length < 2) return null;
+
+  const sortedScores = Array.from(new Set(scored.map((point) => point.score))).sort((a, b) => a - b);
+  const tree = createPaceStartFenwickTree(sortedScores.length, scored);
+  let best = null;
+
+  for (let index = 0; index < scored.length; index += 1) {
+    const point = scored[index];
+    const maxRank = upperBound(sortedScores, point.score);
+    const startIndex = tree.query(maxRank);
+    if (startIndex !== null && startIndex < index) {
+      const start = scored[startIndex];
+      const duration = point.time - start.time;
+      const distance = point.distance - start.distance;
+      if (duration > 0 && distance > 0 && distance >= speedMetersPerSecond * duration) {
+        const pace = duration / (distance / 1000);
+        const bestPace = best ? best.duration / (best.distance / 1000) : Infinity;
+        if (!best ||
+          distance > best.distance ||
+          (distance === best.distance && pace < bestPace) ||
+          (distance === best.distance && pace === bestPace && duration > best.duration) ||
+          (distance === best.distance && pace === bestPace && duration === best.duration && start.time < best.startOffset)
+        ) {
+          best = {
+            duration,
+            distance,
+            startOffset: start.time,
+            endOffset: point.time
+          };
+        }
+      }
+    }
+
+    const rank = lowerBound(sortedScores, point.score) + 1;
+    tree.update(rank, index);
+  }
+
+  return best;
+}
+
+function createPaceStartFenwickTree(size, points) {
+  const values = Array(size + 1).fill(null);
+  const isBetterStart = (nextIndex, currentIndex) => {
+    if (currentIndex === null) return true;
+    const next = points[nextIndex];
+    const current = points[currentIndex];
+    return next.distance < current.distance ||
+      (next.distance === current.distance && next.time < current.time) ||
+      (next.distance === current.distance && next.time === current.time && nextIndex < currentIndex);
   };
 
-  await writeJsonAtomic(path.join(DERIVED_DIR, "personal-bests.json"), payload);
-  return payload;
+  return {
+    update(index, value) {
+      for (let cursor = index; cursor <= size; cursor += cursor & -cursor) {
+        if (isBetterStart(value, values[cursor])) values[cursor] = value;
+      }
+    },
+    query(index) {
+      let best = null;
+      for (let cursor = Math.min(index, size); cursor > 0; cursor -= cursor & -cursor) {
+        const value = values[cursor];
+        if (value !== null && isBetterStart(value, best)) best = value;
+      }
+      return best;
+    }
+  };
+}
+
+function lowerBound(values, target) {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (values[middle] < target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function upperBound(values, target) {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (values[middle] <= target) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function findBestDistanceForDuration(series, durationSeconds) {
+  const targetDuration = Number(durationSeconds);
+  if (!Number.isFinite(targetDuration) || targetDuration <= 0) return null;
+  const firstTime = series[0].time;
+  const lastTime = series.at(-1).time;
+  if (lastTime - firstTime < targetDuration) return null;
+
+  const seen = new Set();
+  let best = null;
+  const considerStart = (startTime) => {
+    const roundedStart = Number(startTime.toFixed(3));
+    if (seen.has(roundedStart)) return;
+    seen.add(roundedStart);
+
+    const endTime = startTime + targetDuration;
+    if (startTime < firstTime || endTime > lastTime) return;
+    const startDistance = interpolateDistanceAtTime(series, startTime);
+    const endDistance = interpolateDistanceAtTime(series, endTime);
+    if (!Number.isFinite(startDistance) || !Number.isFinite(endDistance)) return;
+    const distance = endDistance - startDistance;
+    if (distance <= 0) return;
+    if (!best || distance > best.distance || (distance === best.distance && startTime < best.startOffset)) {
+      best = {
+        distance,
+        startOffset: startTime,
+        endOffset: endTime
+      };
+    }
+  };
+
+  for (const point of series) {
+    considerStart(point.time);
+    considerStart(point.time - targetDuration);
+  }
+
+  return best;
+}
+
+function findBestTimeForDistance(series, distanceMeters) {
+  const targetDistance = Number(distanceMeters);
+  if (!Number.isFinite(targetDistance) || targetDistance <= 0) return null;
+
+  const distanceSeries = buildDistanceTimeSeries(series);
+  if (!distanceSeries) return null;
+
+  const firstDistance = distanceSeries[0].distance;
+  const lastDistance = distanceSeries.at(-1).distance;
+  if (lastDistance - firstDistance < targetDistance) return null;
+
+  const seen = new Set();
+  let best = null;
+  const considerStartDistance = (startDistance) => {
+    const roundedStart = Number(startDistance.toFixed(3));
+    if (seen.has(roundedStart)) return;
+    seen.add(roundedStart);
+
+    const endDistance = startDistance + targetDistance;
+    if (startDistance < firstDistance || endDistance > lastDistance) return;
+    const startTime = interpolateTimeAtDistance(distanceSeries, startDistance);
+    const endTime = interpolateTimeAtDistance(distanceSeries, endDistance);
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return;
+    const duration = endTime - startTime;
+    if (duration <= 0) return;
+    if (!best || duration < best.duration || (duration === best.duration && startTime < best.startOffset)) {
+      best = {
+        duration,
+        startOffset: startTime,
+        endOffset: endTime
+      };
+    }
+  };
+
+  for (const point of distanceSeries) {
+    considerStartDistance(point.distance);
+    considerStartDistance(point.distance - targetDistance);
+  }
+
+  return best;
+}
+
+function buildDistanceTimeSeries(series) {
+  const distanceSeries = [];
+  for (const point of series || []) {
+    const time = Number(point?.time);
+    const distance = Number(point?.distance);
+    if (!Number.isFinite(time) || !Number.isFinite(distance)) continue;
+    const previous = distanceSeries.at(-1);
+    if (previous && distance <= previous.distance) continue;
+    distanceSeries.push({ time, distance });
+  }
+  return distanceSeries.length >= 2 ? distanceSeries : null;
+}
+
+function interpolateDistanceAtTime(series, targetTime) {
+  if (targetTime <= series[0].time) return series[0].distance;
+  const last = series.at(-1);
+  if (targetTime >= last.time) return last.distance;
+
+  let low = 0;
+  let high = series.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (series[middle].time < targetTime) low = middle + 1;
+    else high = middle;
+  }
+
+  const upper = series[low];
+  if (upper.time === targetTime) return upper.distance;
+  const lower = series[low - 1];
+  const span = upper.time - lower.time;
+  if (span <= 0) return lower.distance;
+  const ratio = (targetTime - lower.time) / span;
+  return lower.distance + (upper.distance - lower.distance) * ratio;
+}
+
+function interpolateTimeAtDistance(series, targetDistance) {
+  if (targetDistance <= series[0].distance) return series[0].time;
+  const last = series.at(-1);
+  if (targetDistance >= last.distance) return last.time;
+
+  let low = 0;
+  let high = series.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (series[middle].distance < targetDistance) low = middle + 1;
+    else high = middle;
+  }
+
+  const upper = series[low];
+  if (upper.distance === targetDistance) return upper.time;
+  const lower = series[low - 1];
+  const span = upper.distance - lower.distance;
+  if (span <= 0) return lower.time;
+  const ratio = (targetDistance - lower.distance) / span;
+  return lower.time + (upper.time - lower.time) * ratio;
+}
+
+function compareTimeBestEfforts(a, b) {
+  return b.distance - a.distance ||
+    a.paceSecondsPerKm - b.paceSecondsPerKm ||
+    new Date(a.startDate || 0) - new Date(b.startDate || 0);
+}
+
+function comparePaceBestEfforts(a, b) {
+  return b.distance - a.distance ||
+    a.paceSecondsPerKm - b.paceSecondsPerKm ||
+    b.durationSeconds - a.durationSeconds ||
+    new Date(a.startDate || 0) - new Date(b.startDate || 0);
+}
+
+function summarizeMedianTimeBestEffort(efforts) {
+  if (!efforts.length) return null;
+  const durationSeconds = Number(efforts[0]?.durationSeconds || 0);
+  const distance = medianNumber(efforts.map((effort) => effort.distance));
+  const distanceKm = Number.isFinite(distance) ? distance / 1000 : null;
+  const paceSecondsPerKm = distanceKm && durationSeconds
+    ? durationSeconds / distanceKm
+    : medianNumber(efforts.map((effort) => effort.paceSecondsPerKm));
+  if (!durationSeconds || !Number.isFinite(distance) || !Number.isFinite(paceSecondsPerKm)) return null;
+  return {
+    count: efforts.length,
+    durationSeconds,
+    distance,
+    distanceKm: round(distanceKm, 3),
+    paceSecondsPerKm
+  };
+}
+
+function summarizeMedianPaceBestEffort(efforts) {
+  if (!efforts.length) return null;
+  const targetPaceSecondsPerKm = Number(efforts[0]?.targetPaceSecondsPerKm || efforts[0]?.paceSecondsPerKm || 0);
+  const durationSeconds = medianNumber(efforts.map((effort) => effort.durationSeconds));
+  const distance = medianNumber(efforts.map((effort) => effort.distance));
+  const distanceKm = Number.isFinite(distance) ? distance / 1000 : null;
+  const paceSecondsPerKm = distanceKm && Number.isFinite(durationSeconds)
+    ? durationSeconds / distanceKm
+    : medianNumber(efforts.map((effort) => effort.paceSecondsPerKm));
+  if (!Number.isFinite(durationSeconds) || !Number.isFinite(distance) || !Number.isFinite(paceSecondsPerKm)) return null;
+  return {
+    count: efforts.length,
+    targetPaceSecondsPerKm,
+    durationSeconds,
+    movingTime: durationSeconds,
+    distance,
+    distanceKm: round(distanceKm, 3),
+    paceSecondsPerKm
+  };
+}
+
+function addSecondsToDateString(value, seconds) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() + Math.round(seconds) * 1000).toISOString();
 }
 
 function comparePersonalBestEfforts(a, b) {
@@ -1046,6 +1826,7 @@ async function fetchActivitiesPage(accessToken, { page, after, before }) {
 
 async function fetchDetailedActivity(accessToken, id) {
   const url = new URL(`https://www.strava.com/api/v3/activities/${id}`);
+  url.searchParams.set("include_all_efforts", "true");
 
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${accessToken}` }
@@ -1060,6 +1841,28 @@ async function fetchDetailedActivity(accessToken, id) {
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("Strava returned an unexpected activity detail payload.");
+  }
+  return payload;
+}
+
+async function fetchActivityStreams(accessToken, id) {
+  const url = new URL(`https://www.strava.com/api/v3/activities/${id}/streams`);
+  url.searchParams.set("keys", ACTIVITY_STREAM_KEYS.join(","));
+  url.searchParams.set("key_by_type", "true");
+
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${accessToken}` }
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload.message || payload.error || `Strava activity streams request failed with ${response.status}`;
+    const error = new Error(message);
+    error.statusCode = response.status;
+    throw error;
+  }
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Strava returned an unexpected activity streams payload.");
   }
   return payload;
 }
@@ -1132,17 +1935,20 @@ async function syncActivityDetails(options = {}) {
   const limit = requestedLimit ? Math.min(requestedLimit, MAX_DETAIL_SYNC_ACTIVITIES) : MAX_DETAIL_SYNC_ACTIVITIES;
   const detailsById = new Map(store.detailsById || []);
   const rawDetailIds = new Set(store.rawDetailIds || []);
+  const rawStreamIds = new Set(store.rawStreamIds || []);
   const pendingRuns = store.activities
     .filter((activity) => {
       const id = String(activity.id);
-      return isRun(activity) && (!isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id));
+      return isRun(activity) && needsActivityDataSync(id, detailsById, rawDetailIds, rawStreamIds);
     })
     .sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
   const selected = pendingRuns.slice(0, limit);
   const syncedAt = new Date().toISOString();
   const errors = [];
+  const streamErrors = [];
   let fetched = 0;
   let rawBackfilled = 0;
+  let rawStreamsFetched = 0;
   let attempted = 0;
   let stoppedReason = null;
 
@@ -1150,55 +1956,97 @@ async function syncActivityDetails(options = {}) {
     attempted += 1;
     const id = String(activity.id);
     const alreadyHadDetail = isSuccessfulActivityDetail(detailsById.get(id));
-    const alreadyHadRaw = rawDetailIds.has(id);
-    try {
-      const detail = await fetchDetailedActivity(tokenResult.accessToken, activity.id);
-      await writeRawActivityDetail(activity.id, detail);
-      rawDetailIds.add(id);
-      const sanitized = sanitizeActivityDetails(detail, syncedAt);
-      await writeActivityDetail(activity.id, sanitized);
-      detailsById.set(id, sanitized);
-      if (alreadyHadDetail && !alreadyHadRaw) rawBackfilled += 1;
-      else fetched += 1;
-    } catch (error) {
-      if (error.statusCode === 429) {
-        stoppedReason = "rate_limited";
-        break;
+    const alreadyHadRawDetail = rawDetailIds.has(id);
+    const needsDetail = !alreadyHadDetail || !alreadyHadRawDetail;
+    const needsStream = !rawStreamIds.has(id);
+    let detailReady = alreadyHadDetail;
+
+    if (needsDetail) {
+      try {
+        const detail = await fetchDetailedActivity(tokenResult.accessToken, activity.id);
+        await writeRawActivityDetail(activity.id, detail);
+        rawDetailIds.add(id);
+        const sanitized = sanitizeActivityDetails(detail, syncedAt);
+        await writeActivityDetail(activity.id, sanitized);
+        detailsById.set(id, sanitized);
+        detailReady = true;
+        if (alreadyHadDetail && !alreadyHadRawDetail) rawBackfilled += 1;
+        else fetched += 1;
+      } catch (error) {
+        if (error.statusCode === 429) {
+          stoppedReason = "rate_limited";
+          break;
+        }
+
+        const failure = sanitizeActivityDetailError(activity, error, syncedAt);
+        await writeActivityDetail(activity.id, failure);
+        detailsById.set(id, failure);
+        detailReady = false;
+
+        errors.push({
+          id: activity.id,
+          statusCode: error.statusCode || null,
+          message: error.message || "Activity detail fetch failed"
+        });
       }
+    }
 
-      const failure = sanitizeActivityDetailError(activity, error, syncedAt);
-      await writeActivityDetail(activity.id, failure);
-      detailsById.set(id, failure);
+    if (needsStream && detailReady) {
+      try {
+        const streams = await fetchActivityStreams(tokenResult.accessToken, activity.id);
+        await writeRawActivityStream(activity.id, streams);
+        rawStreamIds.add(id);
+        rawStreamsFetched += 1;
+      } catch (error) {
+        if (error.statusCode === 429) {
+          stoppedReason = "rate_limited";
+          break;
+        }
 
-      errors.push({
-        id: activity.id,
-        statusCode: error.statusCode || null,
-        message: error.message || "Activity detail fetch failed"
-      });
+        streamErrors.push({
+          id: activity.id,
+          statusCode: error.statusCode || null,
+          message: error.message || "Activity streams fetch failed"
+        });
+      }
     }
   }
 
-  const remaining = store.activities.filter((activity) => {
+  const remainingDetails = store.activities.filter((activity) => {
     const id = String(activity.id);
     return isRun(activity) && (!isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id));
+  }).length;
+  const remainingRawStreams = store.activities.filter((activity) => {
+    const id = String(activity.id);
+    return isRun(activity) && !rawStreamIds.has(id);
+  }).length;
+  const remaining = store.activities.filter((activity) => {
+    const id = String(activity.id);
+    return isRun(activity) && needsActivityDataSync(id, detailsById, rawDetailIds, rawStreamIds);
   }).length;
   const summary = {
     requested: selected.length,
     attempted,
     fetched,
     rawBackfilled,
+    rawStreamsFetched,
     failed: errors.length,
+    streamFailed: streamErrors.length,
     skippedAlreadyFetched: store.activities.filter((activity) => {
       const id = String(activity.id);
       return isRun(activity)
         && isSuccessfulActivityDetail((store.detailsById || new Map()).get(id))
-        && rawDetailIds.has(id);
+        && rawDetailIds.has(id)
+        && rawStreamIds.has(id);
     }).length,
     skippedFailed: store.activities.filter((activity) => isRun(activity) && isFailedActivityDetail((store.detailsById || new Map()).get(String(activity.id)))).length,
     remaining,
+    remainingDetails,
+    remainingRawStreams,
     limit,
     stoppedReason,
     errors: errors.slice(0, 10),
+    streamErrors: streamErrors.slice(0, 10),
     syncedAt
   };
 
@@ -1206,11 +2054,16 @@ async function syncActivityDetails(options = {}) {
     ...store,
     detailsById,
     rawDetailIds,
+    rawStreamIds,
     lastDetailSyncAt: syncedAt,
     lastDetailSyncSummary: summary
   });
 
   return { summary, status: statusFromStore(store) };
+}
+
+function needsActivityDataSync(id, detailsById, rawDetailIds, rawStreamIds) {
+  return !isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id) || !rawStreamIds.has(id);
 }
 
 async function refreshActivityDetail(activityId) {
@@ -1236,15 +2089,37 @@ async function refreshActivityDetail(activityId) {
   await writeRawActivityDetail(id, detail);
   const sanitized = sanitizeActivityDetails(detail, syncedAt);
   await writeActivityDetail(id, sanitized);
+  let rawStreamsFetched = 0;
+  let streamError = null;
+  try {
+    const streams = await fetchActivityStreams(tokenResult.accessToken, id);
+    await writeRawActivityStream(id, streams);
+    rawStreamsFetched = 1;
+  } catch (error) {
+    streamError = {
+      statusCode: error.statusCode || null,
+      message: error.message || "Activity streams fetch failed"
+    };
+  }
 
   const detailsById = new Map(store.detailsById || []);
   const rawDetailIds = new Set(store.rawDetailIds || []);
+  const rawStreamIds = new Set(store.rawStreamIds || []);
   detailsById.set(id, sanitized);
   rawDetailIds.add(id);
+  if (rawStreamsFetched) {
+    rawStreamIds.add(id);
+  } else if (streamError) {
+    rawStreamIds.delete(id);
+  }
   const merged = mergeActivities(store.activities, [sanitized]);
   const summary = {
     activityId: id,
     refreshed: 1,
+    rawStreamsFetched,
+    streamFailed: streamError ? 1 : 0,
+    streamPending: Boolean(streamError),
+    streamErrors: streamError ? [streamError] : [],
     syncedAt
   };
 
@@ -1253,6 +2128,7 @@ async function refreshActivityDetail(activityId) {
     activities: merged.activities,
     detailsById,
     rawDetailIds,
+    rawStreamIds,
     lastDetailSyncAt: syncedAt,
     lastDetailSyncSummary: summary
   });
@@ -1353,7 +2229,13 @@ async function handleApi(req, res, url) {
 
   if (url.pathname === "/api/personal-bests" && req.method === "GET") {
     const store = await readStore();
-    return sendJson(res, 200, await personalBestsFromStore(store));
+    const includeExcluded = url.searchParams.get("includeExcluded") === "true" || url.searchParams.get("includeExcluded") === "1";
+    return sendJson(res, 200, await personalBestsFromStore(store, { includeExcluded }));
+  }
+
+  if (url.pathname === "/api/excluded-records" && req.method === "POST") {
+    const body = await parseJsonBody(req);
+    return sendJson(res, 200, await setRecordExcluded(body.recordKey, body.excluded));
   }
 
   if (url.pathname === "/api/config/strava" && req.method === "POST") {
