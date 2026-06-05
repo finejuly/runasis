@@ -84,6 +84,7 @@ const appState = {
   timeBestTrendDurationName: null,
   timeBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   timeBestScale: "log",
+  paceBestDistanceScale: "linear",
   paceBestTrendTargetName: null,
   paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   currentView: "dashboard",
@@ -113,20 +114,24 @@ const appState = {
 };
 
 const RIEGEL_TARGETS = [
+  { name: "100m", distanceKm: 0.1 },
+  { name: "200m", distanceKm: 0.2 },
   { name: "400m", distanceKm: 0.4 },
   { name: "1/2 mile", distanceKm: 0.805 },
   { name: "1K", distanceKm: 1 },
   { name: "1 mile", distanceKm: 1.609 },
-  { name: "2 mile", distanceKm: 3.219 },
+  { name: "2K", distanceKm: 2 },
   { name: "5K", distanceKm: 5 },
+  { name: "5 mile", distanceKm: 8.047 },
   { name: "10K", distanceKm: 10 },
   { name: "15K", distanceKm: 15 },
   { name: "10 mile", distanceKm: 16.09 },
   { name: "20K", distanceKm: 20 },
   { name: "Half-Marathon", distanceKm: 21.097 },
+  { name: "25K", distanceKm: 25 },
   { name: "30K", distanceKm: 30 },
-  { name: "Marathon", distanceKm: 42.195 },
-  { name: "50K", distanceKm: 50 }
+  { name: "35K", distanceKm: 35 },
+  { name: "Marathon", distanceKm: 42.195 }
 ];
 const EXPECTED_SUMMARY_TARGET_NAMES = ["Half-Marathon", "Marathon"];
 const RIEGEL_EXPECTED_PACE_CHART_MAX_PROJECTED_DISTANCE_KM =
@@ -258,6 +263,7 @@ function cacheElements() {
   els.allActivitySortButtons = Array.from(document.querySelectorAll("[data-activity-sort]"));
   els.personalBestScaleButtons = Array.from(document.querySelectorAll(".pb-scale-option"));
   els.timeBestScaleButtons = Array.from(document.querySelectorAll(".time-scale-option"));
+  els.paceBestDistanceScaleButtons = Array.from(document.querySelectorAll(".pace-distance-scale-option"));
   els.personalBestTrendLimitButtons = Array.from(document.querySelectorAll(".pb-trend-limit-option"));
   els.timeBestTrendLimitButtons = Array.from(document.querySelectorAll(".time-trend-limit-option"));
   els.paceBestTrendLimitButtons = Array.from(document.querySelectorAll(".pace-trend-limit-option"));
@@ -404,6 +410,13 @@ function bindEvents() {
       appState.timeBestScale = button.dataset.scale === "linear" ? "linear" : "log";
       renderTimeBestDistanceChart();
       renderTimeBestRecencyChart();
+    });
+  }
+
+  for (const button of els.paceBestDistanceScaleButtons || []) {
+    button.addEventListener("click", () => {
+      appState.paceBestDistanceScale = button.dataset.scale === "log" ? "log" : "linear";
+      renderPaceBestDurationChart();
     });
   }
 
@@ -2088,6 +2101,9 @@ function renderPaceLimitedBests(paces, payload = {}) {
 
 function renderPaceBestDurationChart() {
   if (!els.paceBestDurationChart) return;
+  for (const button of els.paceBestDistanceScaleButtons || []) {
+    button.classList.toggle("active", button.dataset.scale === appState.paceBestDistanceScale);
+  }
   const series = buildPaceBestDurationSeries();
   const distanceValues = series.flatMap((item) => item.points.map((point) => point.distanceKm));
   const paceValues = series.flatMap((item) => item.points.map((point) => point.targetPaceSecondsPerKm));
@@ -2103,18 +2119,40 @@ function renderPaceBestDurationChart() {
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const paceDomain = buildLinearDomain(paceValues, 15);
-  const distanceDomain = buildDistanceAxisDomain(distanceValues);
+  const positiveDistanceValues = distanceValues.filter((distanceKm) => Number.isFinite(distanceKm) && distanceKm > 0);
+  const minDistance = Math.min(...positiveDistanceValues);
+  const maxDistance = Math.max(...positiveDistanceValues);
+  const useLogScale = (
+    appState.paceBestDistanceScale === "log" &&
+    Number.isFinite(minDistance) &&
+    Number.isFinite(maxDistance) &&
+    minDistance > 0 &&
+    maxDistance > minDistance
+  );
+  const distanceDomain = useLogScale
+    ? buildLogDistanceAxisDomain(positiveDistanceValues)
+    : buildDistanceAxisDomain(distanceValues);
   const x = (pace) => padding.left + ((pace - paceDomain.min) / paceDomain.spread) * chartWidth;
-  const y = (distanceKm) => padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
+  const y = (distanceKm) => {
+    if (!useLogScale) return padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
+    const clampedDistance = Math.max(distanceKm, distanceDomain.min);
+    return padding.top + ((distanceDomain.logMax - Math.log(clampedDistance)) / distanceDomain.logSpread) * chartHeight;
+  };
   const xTicks = getPaceBestTicks();
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
+  const xLabelIndexes = getPaceBestAxisLabelIndexes(xTicks.length);
+  const yTicks = useLogScale
+    ? getLogDistanceAxisTicks(distanceDomain.min, distanceDomain.max)
+    : [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
 
   const grid = [
-    ...xTicks.map((pace) => {
+    ...xTicks.map((pace, index) => {
       const tickX = x(pace.paceSecondsPerKm);
+      const label = xLabelIndexes.has(index)
+        ? `<text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle" data-pace-axis-label="${escapeHtml(pace.name)}">${escapeHtml(pace.name)}</text>`
+        : "";
       return `
         <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
-        <text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle">${escapeHtml(pace.name)}</text>
+        ${label}
       `;
     }),
     ...yTicks.map((tick) => {
@@ -2153,7 +2191,7 @@ function renderPaceBestDurationChart() {
   }).join("");
 
   els.paceBestDurationChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median distance by target pace">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median distance by target pace" data-y-scale="${useLogScale ? "log" : "linear"}">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
       <text class="axis-label" x="10" y="16">Distance (km)</text>
@@ -4371,6 +4409,17 @@ function getPaceBestTicks() {
     .filter((pace) => pace.paceSecondsPerKm > 0);
 }
 
+function getPaceBestAxisLabelIndexes(tickCount, maxLabels = 8) {
+  if (tickCount <= 0) return new Set();
+  if (tickCount <= maxLabels) {
+    return new Set(Array.from({ length: tickCount }, (_, index) => index));
+  }
+
+  return new Set(Array.from({ length: maxLabels }, (_, index) => (
+    Math.round((index * (tickCount - 1)) / (maxLabels - 1))
+  )));
+}
+
 function formatTimeBestTick(duration) {
   const seconds = Number(duration.durationSeconds || duration || 0);
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
@@ -4439,6 +4488,45 @@ function buildDistanceAxisDomain(values) {
   const step = rawMax <= 10 ? 1 : rawMax <= 50 ? 5 : 10;
   const max = Math.ceil(rawMax / step) * step;
   return { min: 0, max, spread: Math.max(max, step) };
+}
+
+function buildLogDistanceAxisDomain(values) {
+  const distances = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (!distances.length) {
+    const min = 0.1;
+    const max = 1;
+    return {
+      min,
+      max,
+      logMin: Math.log(min),
+      logMax: Math.log(max),
+      logSpread: Math.log(max) - Math.log(min)
+    };
+  }
+
+  const rawMin = Math.min(...distances);
+  const rawMax = Math.max(...distances);
+  const min = Math.max(rawMin * 0.85, 0.05);
+  const max = Math.max(rawMax * 1.12, min * 1.1);
+  const logMin = Math.log(min);
+  const logMax = Math.log(max);
+  return {
+    min,
+    max,
+    logMin,
+    logMax,
+    logSpread: Math.max(logMax - logMin, 0.0001)
+  };
+}
+
+function getLogDistanceAxisTicks(minDistance, maxDistance) {
+  const min = Math.max(Number(minDistance) || 0, 0.05);
+  const max = Math.max(Number(maxDistance) || min, min * 1.1);
+  const logMin = Math.log(min);
+  const logSpread = Math.max(Math.log(max) - logMin, 0.0001);
+  return Array.from({ length: 5 }, (_, index) => (
+    Math.exp(logMin + logSpread * (index / 4))
+  ));
 }
 
 function buildPaceAxisDomain(values) {

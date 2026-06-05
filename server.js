@@ -34,7 +34,7 @@ const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
-const PERSONAL_BESTS_CACHE_VERSION = 7;
+const PERSONAL_BESTS_CACHE_VERSION = 8;
 const EXCLUDED_RECORDS_VERSION = 1;
 const ACTIVITY_STREAM_KEYS = [
   "time",
@@ -50,36 +50,58 @@ const ACTIVITY_STREAM_KEYS = [
   "grade_smooth"
 ];
 const TIME_BEST_TARGETS = [
-  { name: "5 min", durationSeconds: 5 * 60 },
-  { name: "10 min", durationSeconds: 10 * 60 },
-  { name: "20 min", durationSeconds: 20 * 60 },
-  { name: "30 min", durationSeconds: 30 * 60 },
-  { name: "1 hour", durationSeconds: 60 * 60 },
-  { name: "1 hour 30 min", durationSeconds: 90 * 60 },
-  { name: "2 hours", durationSeconds: 2 * 60 * 60 },
-  { name: "3 hours", durationSeconds: 3 * 60 * 60 },
-  { name: "4 hours", durationSeconds: 4 * 60 * 60 }
+  { name: "15s", durationSeconds: 15 },
+  { name: "30s", durationSeconds: 30 },
+  { name: "1m", durationSeconds: 60 },
+  { name: "3m", durationSeconds: 3 * 60 },
+  { name: "5m", durationSeconds: 5 * 60 },
+  { name: "10m", durationSeconds: 10 * 60 },
+  { name: "20m", durationSeconds: 20 * 60 },
+  { name: "30m", durationSeconds: 30 * 60 },
+  { name: "1h", durationSeconds: 60 * 60 },
+  { name: "1.5h", durationSeconds: 90 * 60 },
+  { name: "2h", durationSeconds: 2 * 60 * 60 },
+  { name: "2.5h", durationSeconds: 2.5 * 60 * 60 },
+  { name: "3h", durationSeconds: 3 * 60 * 60 },
+  { name: "3.5h", durationSeconds: 3.5 * 60 * 60 },
+  { name: "4h", durationSeconds: 4 * 60 * 60 }
 ];
 const PACE_BEST_TARGETS = [
+  { name: "3:30/km", paceSecondsPerKm: 3 * 60 + 30 },
+  { name: "3:45/km", paceSecondsPerKm: 3 * 60 + 45 },
+  { name: "4:00/km", paceSecondsPerKm: 4 * 60 },
+  { name: "4:15/km", paceSecondsPerKm: 4 * 60 + 15 },
+  { name: "4:30/km", paceSecondsPerKm: 4 * 60 + 30 },
+  { name: "4:45/km", paceSecondsPerKm: 4 * 60 + 45 },
   { name: "5:00/km", paceSecondsPerKm: 5 * 60 },
-  { name: "5:30/km", paceSecondsPerKm: 5 * 60 + 30 },
-  { name: "6:00/km", paceSecondsPerKm: 6 * 60 }
+  { name: "5:13/km", paceSecondsPerKm: 5 * 60 + 13 },
+  { name: "5:27/km", paceSecondsPerKm: 5 * 60 + 27 },
+  { name: "5:40/km", paceSecondsPerKm: 5 * 60 + 40 },
+  { name: "5:50/km", paceSecondsPerKm: 5 * 60 + 50 },
+  { name: "6:00/km", paceSecondsPerKm: 6 * 60 },
+  { name: "6:20/km", paceSecondsPerKm: 6 * 60 + 20 },
+  { name: "6:40/km", paceSecondsPerKm: 6 * 60 + 40 },
+  { name: "7:00/km", paceSecondsPerKm: 7 * 60 }
 ];
 const PERSONAL_BEST_DISTANCE_TARGETS = [
+  { name: "100m", distance: 100 },
+  { name: "200m", distance: 200 },
   { name: "400m", distance: 400 },
   { name: "1/2 mile", distance: 804.672 },
   { name: "1K", distance: 1000 },
   { name: "1 mile", distance: 1609.344 },
-  { name: "2 mile", distance: 3218.688 },
+  { name: "2K", distance: 2000 },
   { name: "5K", distance: 5000 },
+  { name: "5 mile", distance: 8046.72 },
   { name: "10K", distance: 10000 },
   { name: "15K", distance: 15000 },
   { name: "10 mile", distance: 16093.44 },
   { name: "20K", distance: 20000 },
   { name: "Half-Marathon", distance: 21097.5 },
+  { name: "25K", distance: 25000 },
   { name: "30K", distance: 30000 },
-  { name: "Marathon", distance: 42195 },
-  { name: "50K", distance: 50000 }
+  { name: "35K", distance: 35000 },
+  { name: "Marathon", distance: 42195 }
 ];
 const PREFERRED_BEST_EFFORT_ORDER = PERSONAL_BEST_DISTANCE_TARGETS.map((target) => target.name);
 
