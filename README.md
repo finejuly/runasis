@@ -23,7 +23,7 @@ It is built for runners who want to understand their own training history withou
 - Training totals and recent volume by date range
 - Cumulative progress, weekly trends, and distance distribution
 - Longest runs, recent activities, and a searchable activity list
-- Personal bests and trend charts from Strava best-effort data
+- Personal bests and trend charts calculated from saved activity streams
 - Riegel race projections for comparing 5K, 10K, half-marathon, marathon, and other distances
 
 ## Before You Start
@@ -72,7 +72,7 @@ If port `3000` is already in use, Runasis automatically tries the next available
 
 Large histories can take a while to sync. Best-effort details are fetched in batches, so click `Sync` again if Runasis says more records remain.
 
-Raw detailed activity payloads are saved locally under `data/strava/activities/raw-details/` before Runasis writes the smaller detail records used by the UI.
+Raw detailed activity payloads are saved locally under `data/strava/activities/raw-details/`, and raw activity streams are saved under `data/strava/activities/raw-streams/`. Runasis still writes smaller detail records used by the UI under `data/strava/activities/details/`.
 
 ## Using Runasis
 
@@ -82,7 +82,7 @@ The dashboard is the main training overview. Use the range selector and metric c
 
 ### Personal Bests
 
-The `Personal Bests` tab compares your best efforts across distances, including pace curves, dates, trends, and ranked efforts. If you edit an activity later in Strava, refresh that activity from its row in Runasis.
+The `Personal Bests` tab calculates your best efforts across standard distances from saved activity streams, including pace curves, dates, trends, and ranked efforts. The `Time Bests` tab uses the same activity streams to show time-limited bests from 5 minutes through 4 hours, including 20 minutes. If you edit an activity later in Strava, refresh that activity from its row in Runasis.
 
 ### Analysis
 
