@@ -337,7 +337,13 @@
           <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
               <h2>Distance by Pace</h2>
-              <span id="paceBestDurationChartCaption"></span>
+              <div class="panel-actions">
+                <span id="paceBestDurationChartCaption"></span>
+                <div class="scale-toggle" role="group" aria-label="Pace best distance Y-axis scale">
+                  <button class="scale-option pace-distance-scale-option active" type="button" data-scale="linear">Linear</button>
+                  <button class="scale-option pace-distance-scale-option" type="button" data-scale="log">Log</button>
+                </div>
+              </div>
             </div>
             <div class="chart-box personal-best-chart" id="paceBestDurationChart" aria-label="Pace best distance by target pace chart"></div>
           </article>

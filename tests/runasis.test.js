@@ -954,28 +954,107 @@ test("personalBestsFromStore computes fixed-time distance bests from streams", a
 
   const durations = Object.fromEntries(result.durations.map((duration) => [duration.name, duration]));
   assert.equal(result.durationActivityCount, 3);
-  assert.equal(result.durationEffortCount, 19);
-  assert.equal(durations["2 min"], undefined);
-  assert.equal(durations["5 min"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["5 min"].top[0].distance), 1700);
-  assert.equal(durations["10 min"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["10 min"].top[0].distance), 3400);
-  assert.equal(durations["20 min"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["20 min"].top[0].distance), 6800);
-  assert.equal(durations["30 min"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["30 min"].top[0].distance), 10000);
-  assert.equal(durations["1 hour"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["1 hour"].top[0].distance), 19000);
-  assert.equal(durations["1 hour 30 min"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["1 hour 30 min"].top[0].distance), 27000);
-  assert.equal(durations["2 hours"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["2 hours"].top[0].distance), 35000);
-  assert.equal(durations["3 hours"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["3 hours"].top[0].distance), 50000);
-  assert.equal(durations["4 hours"].top[0].activityId, 3);
-  assert.equal(Math.round(durations["4 hours"].top[0].distance), 62000);
-  assert.equal(vm.runInContext("mockWrittenPersonalBests.durationCount", server), 9);
+  assert.equal(result.durationEffortCount, 33);
+  assert.equal(durations["2m"], undefined);
+  assert.equal(durations["15s"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["15s"].top[0].distance), 88);
+  assert.equal(durations["30s"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["30s"].top[0].distance), 175);
+  assert.equal(durations["1m"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["1m"].top[0].distance), 350);
+  assert.equal(durations["3m"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["3m"].top[0].distance), 1020);
+  assert.equal(durations["5m"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["5m"].top[0].distance), 1700);
+  assert.equal(durations["10m"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["10m"].top[0].distance), 3400);
+  assert.equal(durations["20m"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["20m"].top[0].distance), 6800);
+  assert.equal(durations["30m"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["30m"].top[0].distance), 10000);
+  assert.equal(durations["1h"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["1h"].top[0].distance), 19000);
+  assert.equal(durations["1.5h"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["1.5h"].top[0].distance), 27000);
+  assert.equal(durations["2h"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["2h"].top[0].distance), 35000);
+  assert.equal(durations["2.5h"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["2.5h"].top[0].distance), 42500);
+  assert.equal(durations["3h"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["3h"].top[0].distance), 50000);
+  assert.equal(durations["3.5h"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["3.5h"].top[0].distance), 56000);
+  assert.equal(durations["4h"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["4h"].top[0].distance), 62000);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.durationCount", server), 15);
   assert.equal(vm.runInContext("mockWrittenPersonalBests.cache.sourceFingerprint", server), sourceFingerprint);
+});
+
+test("best effort target lists match configured distance, time, and pace records", () => {
+  const server = loadServerContext();
+
+  const result = vm.runInContext(`
+    ({
+      distances: PERSONAL_BEST_DISTANCE_TARGETS.map((target) => target.name),
+      durations: TIME_BEST_TARGETS.map((target) => target.name),
+      paces: PACE_BEST_TARGETS.map((target) => target.name)
+    })
+  `, server);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.distances)), [
+    "100m",
+    "200m",
+    "400m",
+    "1/2 mile",
+    "1K",
+    "1 mile",
+    "2K",
+    "5K",
+    "5 mile",
+    "10K",
+    "15K",
+    "10 mile",
+    "20K",
+    "Half-Marathon",
+    "25K",
+    "30K",
+    "35K",
+    "Marathon"
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.durations)), [
+    "15s",
+    "30s",
+    "1m",
+    "3m",
+    "5m",
+    "10m",
+    "20m",
+    "30m",
+    "1h",
+    "1.5h",
+    "2h",
+    "2.5h",
+    "3h",
+    "3.5h",
+    "4h"
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.paces)), [
+    "3:30/km",
+    "3:45/km",
+    "4:00/km",
+    "4:15/km",
+    "4:30/km",
+    "4:45/km",
+    "5:00/km",
+    "5:13/km",
+    "5:27/km",
+    "5:40/km",
+    "5:50/km",
+    "6:00/km",
+    "6:20/km",
+    "6:40/km",
+    "7:00/km"
+  ]);
 });
 
 test("personalBestsFromStore computes standard distance bests from streams", async () => {
@@ -1033,28 +1112,35 @@ test("personalBestsFromStore computes standard distance bests from streams", asy
   const distances = Object.fromEntries(result.distances.map((distance) => [distance.name, distance]));
 
   assert.equal(result.detailActivityCount, 2);
-  assert.equal(result.distanceCount, 8);
+  assert.equal(result.distanceCount, 11);
   assert.deepEqual(JSON.parse(JSON.stringify(result.distances.map((distance) => distance.name))), [
+    "100m",
+    "200m",
     "400m",
     "1/2 mile",
     "1K",
     "1 mile",
-    "2 mile",
+    "2K",
     "5K",
+    "5 mile",
     "10K",
     "15K"
   ]);
-  assert.equal(result.effortCount, 16);
+  assert.equal(result.effortCount, 22);
+  assert.equal(Math.round(distances["100m"].top[0].movingTime), 18);
+  assert.equal(Math.round(distances["200m"].top[0].movingTime), 36);
   assert.equal(distances["1K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["1K"].top[0].movingTime), 180);
+  assert.equal(Math.round(distances["2K"].top[0].movingTime), 360);
   assert.equal(distances["5K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["5K"].top[0].movingTime), 900);
   assert.equal(distances["5K"].top[0].effortId, null);
+  assert.equal(Math.round(distances["5 mile"].top[0].movingTime), 1448);
   assert.equal(distances["10K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["10K"].top[0].movingTime), 1800);
   assert.equal(distances["15K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["15K"].top[0].movingTime), 2700);
-  assert.equal(vm.runInContext("mockWrittenPersonalBests.distanceCount", server), 8);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.distanceCount", server), 11);
 });
 
 test("personalBestsFromStore computes fixed-pace distance bests from streams", async () => {
@@ -1096,9 +1182,24 @@ test("personalBestsFromStore computes fixed-pace distance bests from streams", a
 
   const paces = Object.fromEntries(result.paces.map((pace) => [pace.name, pace]));
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result.paces.map((pace) => pace.name))), ["5:00/km", "5:30/km", "6:00/km"]);
-  assert.equal(result.paceCount, 3);
-  assert.equal(result.paceEffortCount, 6);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.paces.map((pace) => pace.name))), [
+    "3:45/km",
+    "4:00/km",
+    "4:15/km",
+    "4:30/km",
+    "4:45/km",
+    "5:00/km",
+    "5:13/km",
+    "5:27/km",
+    "5:40/km",
+    "5:50/km",
+    "6:00/km",
+    "6:20/km",
+    "6:40/km",
+    "7:00/km"
+  ]);
+  assert.equal(result.paceCount, 14);
+  assert.equal(result.paceEffortCount, 23);
   assert.equal(paces["5:00/km"].paceSecondsPerKm, 300);
   assert.equal(paces["5:00/km"].top[0].activityId, 1);
   assert.equal(Math.round(paces["5:00/km"].top[0].durationSeconds), 1500);
@@ -1107,8 +1208,11 @@ test("personalBestsFromStore computes fixed-pace distance bests from streams", a
   assert.equal(paces["6:00/km"].top[0].activityId, 1);
   assert.equal(Math.round(paces["6:00/km"].top[0].durationSeconds), 1500);
   assert.equal(Math.round(paces["6:00/km"].top[0].distance), 7000);
-  assert.equal(vm.runInContext("mockWrittenPersonalBests.paceCount", server), 3);
-  assert.equal(vm.runInContext("mockWrittenPersonalBests.paces[0].top.length", server), 2);
+  assert.equal(paces["6:40/km"].top[0].activityId, 1);
+  assert.equal(Math.round(paces["6:40/km"].top[0].durationSeconds), 5100);
+  assert.equal(Math.round(paces["6:40/km"].top[0].distance), 13000);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.paceCount", server), 14);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.paces[0].top.length", server), 1);
 });
 
 test("personalBestsFromStore caches every computed record for lower ranks", async () => {
@@ -1148,7 +1252,7 @@ test("personalBestsFromStore caches every computed record for lower ranks", asyn
   await vm.runInContext("personalBestsFromStore(mockStore)", server);
   const cached = vm.runInContext("mockWrittenPersonalBests", server);
   const cached5k = cached.distances.find((distance) => distance.name === "5K");
-  const cached5min = cached.durations.find((duration) => duration.name === "5 min");
+  const cached5min = cached.durations.find((duration) => duration.name === "5m");
   const cachedFivePace = cached.paces.find((pace) => pace.name === "5:00/km");
 
   assert.equal(cached5k.count, 25);
@@ -1171,7 +1275,7 @@ test("personalBestsFromStore hides excluded distance, duration, and pace records
           version: 1,
           records: {
             "distance|5K|1|0|750": { excludedAt: "2026-06-01T00:00:00.000Z" },
-            "duration|5 min|1|0|300": { excludedAt: "2026-06-01T00:00:00.000Z" },
+            "duration|5m|1|0|300": { excludedAt: "2026-06-01T00:00:00.000Z" },
             "pace|5:00/km|1|0|900": { excludedAt: "2026-06-01T00:00:00.000Z" }
           }
         };
@@ -1198,15 +1302,15 @@ test("personalBestsFromStore hides excluded distance, duration, and pace records
   const includeResult = await vm.runInContext("personalBestsFromStore(mockStore, { includeExcluded: true })", server);
 
   assert.equal(defaultResult.distances.some((distance) => distance.name === "5K"), false);
-  assert.equal(defaultResult.durations.some((duration) => duration.name === "5 min"), false);
+  assert.equal(defaultResult.durations.some((duration) => duration.name === "5m"), false);
   assert.equal(defaultResult.paces.some((pace) => pace.name === "5:00/km"), false);
 
   const included5k = includeResult.distances.find((distance) => distance.name === "5K");
-  const included5min = includeResult.durations.find((duration) => duration.name === "5 min");
+  const included5min = includeResult.durations.find((duration) => duration.name === "5m");
   const includedFivePace = includeResult.paces.find((pace) => pace.name === "5:00/km");
   assert.equal(included5k.top[0].recordKey, "distance|5K|1|0|750");
   assert.equal(included5k.top[0].excluded, true);
-  assert.equal(included5min.top[0].recordKey, "duration|5 min|1|0|300");
+  assert.equal(included5min.top[0].recordKey, "duration|5m|1|0|300");
   assert.equal(included5min.top[0].excluded, true);
   assert.equal(includedFivePace.top[0].recordKey, "pace|5:00/km|1|0|900");
   assert.equal(includedFivePace.top[0].excluded, true);
@@ -1923,6 +2027,23 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
         count: 10
       }
     });
+    const targetPaces = [
+      ["3:30/km", 210],
+      ["3:45/km", 225],
+      ["4:00/km", 240],
+      ["4:15/km", 255],
+      ["4:30/km", 270],
+      ["4:45/km", 285],
+      ["5:00/km", 300],
+      ["5:13/km", 313],
+      ["5:27/km", 327],
+      ["5:40/km", 340],
+      ["5:50/km", 350],
+      ["6:00/km", 360],
+      ["6:20/km", 380],
+      ["6:40/km", 400],
+      ["7:00/km", 420]
+    ];
 
     els.personalBestPaceGrid = chartElement();
     els.personalBestPaceCaption = captionElement();
@@ -1933,22 +2054,25 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
     els.paceBestTrendChart = chartElement();
     els.paceBestTrendCaption = captionElement();
     els.paceBestTrendTargetSelect = { disabled: false, innerHTML: "" };
+    els.paceBestDistanceScaleButtons = [
+      toggleButton({ scale: "linear" }),
+      toggleButton({ scale: "log" })
+    ];
     els.paceBestTrendLimitButtons = [
       toggleButton({ limit: "5" }),
       toggleButton({ limit: "10" }),
       toggleButton({ limit: "20" })
     ];
     appState.expandedPaceBestTargets = new Set();
+    appState.paceBestDistanceScale = "log";
     appState.paceBestTrendLimit = 10;
-    appState.paceBestTrendTargetName = "5:30/km";
+    appState.paceBestTrendTargetName = "5:27/km";
     appState.personalBests = {
-      paceActivityCount: 3,
-      paceEffortCount: 30,
-      paces: [
-        paceFor("5:00/km", 300, 1500, 0),
-        paceFor("5:30/km", 330, 1800, 1),
-        paceFor("6:00/km", 360, 2100, 2)
-      ]
+      paceActivityCount: 15,
+      paceEffortCount: 150,
+      paces: targetPaces.map(([name, paceSecondsPerKm], index) => (
+        paceFor(name, paceSecondsPerKm, 1500 + index * 90, index)
+      ))
     };
 
     renderPaceBestsView();
@@ -1957,23 +2081,30 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
       recencyChart: els.paceBestRecencyChart.innerHTML,
       trendChart: els.paceBestTrendChart.innerHTML,
       trendOptions: els.paceBestTrendTargetSelect.innerHTML,
-      top10Active: els.paceBestTrendLimitButtons[1].classList.active
+      logScaleActive: els.paceBestDistanceScaleButtons[1].classList.active,
+      top10Active: els.paceBestTrendLimitButtons[1].classList.active,
+      visiblePaceAxisLabels: (els.paceBestDurationChart.innerHTML.match(/data-pace-axis-label=/g) || []).length
     });
   `, app);
 
   assert.equal(result.top10Active, true);
+  assert.equal(result.logScaleActive, true);
   assert.match(result.durationChart, /Top 1/);
   assert.match(result.durationChart, /Median/);
   assert.match(result.durationChart, />Distance \(km\)</);
   assert.match(result.durationChart, />Pace</);
   assert.match(result.durationChart, /5:00\/km/);
+  assert.match(result.durationChart, /data-y-scale="log"/);
+  assert.equal(result.visiblePaceAxisLabels, 8);
+  assert.match(result.durationChart, /data-pace-axis-label="5:00\/km"/);
+  assert.doesNotMatch(result.durationChart, /data-pace-axis-label="5:13\/km"/);
   assert.match(result.recencyChart, /D-day/);
   assert.match(result.recencyChart, /Newest/);
   assert.match(result.recencyChart, /Oldest/);
   assert.match(result.trendChart, /Selected Bests/);
   assert.match(result.trendChart, /Trend [+-]\d+\.\d km\/yr/);
   assert.match(result.trendChart, />Top 20</);
-  assert.match(result.trendOptions, /<option value="5:30\/km" selected>5:30\/km<\/option>/);
+  assert.match(result.trendOptions, /<option value="5:27\/km" selected>5:27\/km<\/option>/);
 });
 
 test("best record tables use fixed column sizing", () => {
@@ -2168,6 +2299,8 @@ test("best record types live under Personal Bests tabs", () => {
   assert.match(pbView, /personalBestPaceGrid/);
   assert.match(pbView, /Time-Limited Bests/);
   assert.match(pbView, /Pace Bests/);
+  assert.match(pbView, /class="scale-option pace-distance-scale-option active"[^>]*data-scale="linear"/);
+  assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="log"/);
 });
 
 test("personal best type tabs stay in one row", () => {
@@ -2854,10 +2987,10 @@ test("renderRiegelAnalysis shows placeholders for official best-effort distances
   `, app);
 
   assert.match(result.chart, /data-riegel-placeholder="true"[\s\S]*No Top 1 Marathon best effort yet/);
-  assert.match(result.chart, /data-riegel-placeholder="true"[\s\S]*No Top 1 50K best effort yet/);
-  assert.match(result.chart, />50</);
+  assert.match(result.chart, /data-riegel-placeholder="true"[\s\S]*No Top 1 35K best effort yet/);
+  assert.match(result.chart, />35</);
   assert.match(result.chart, /data-riegel-source-name="Marathon"/);
-  assert.match(result.chart, /data-riegel-source-name="50K"/);
+  assert.match(result.chart, /data-riegel-source-name="35K"/);
 });
 
 test("renderRiegelAnalysis can use a predicted official distance as the baseline", () => {
