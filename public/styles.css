@@ -547,6 +547,29 @@ input[type="search"] {
   margin-top: 14px;
 }
 
+.personal-best-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 0 2px;
+}
+
+.personal-best-section-heading h2 {
+  font-size: 18px;
+}
+
+.personal-best-section-heading span {
+  color: var(--muted);
+  font-size: var(--font-label);
+  font-weight: 650;
+}
+
+.time-best-heading {
+  margin-top: 0;
+}
+
 .personal-best-chart-panel {
   margin-top: 14px;
 }
@@ -802,6 +825,10 @@ table {
 
 .personal-best-table table {
   min-width: 620px;
+}
+
+.time-best-table table {
+  min-width: 760px;
 }
 
 .all-activity-table {

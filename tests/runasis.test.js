@@ -296,6 +296,62 @@ test("detailStatusFromStore treats missing raw payloads as pending when raw ids 
   });
 });
 
+test("detailStatusFromStore reports raw stream coverage when stream ids are tracked", () => {
+  const server = loadServerContext();
+  const store = {
+    activities: [
+      { id: 1, sport_type: "Run" },
+      { id: 2, sport_type: "Run" }
+    ],
+    detailsById: new Map([
+      ["1", { id: 1, best_efforts: [{ id: "effort-1" }] }],
+      ["2", { id: 2, best_efforts: [{ id: "effort-2" }] }]
+    ]),
+    rawDetailIds: new Set(["1", "2"]),
+    rawStreamIds: new Set(["2"])
+  };
+
+  assert.deepEqual(JSON.parse(JSON.stringify(server.detailStatusFromStore(store))), {
+    runCount: 2,
+    fetchedRunCount: 2,
+    failedRunCount: 0,
+    pendingRunCount: 0,
+    bestEffortActivityCount: 2,
+    bestEffortCount: 2,
+    rawRunCount: 2,
+    pendingRawRunCount: 0,
+    rawStreamRunCount: 1,
+    pendingRawStreamRunCount: 1
+  });
+});
+
+test("Strava activity fetches request all efforts and all stream keys", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockFetches = [];
+    fetch = async (url, options = {}) => {
+      mockFetches.push({ url: String(url), authorization: options.headers?.authorization || "" });
+      return {
+        ok: true,
+        async json() {
+          return {};
+        }
+      };
+    };
+  `, server);
+
+  await vm.runInContext("fetchDetailedActivity('access-token', 123)", server);
+  await vm.runInContext("fetchActivityStreams('access-token', 123)", server);
+
+  const fetches = vm.runInContext("mockFetches", server);
+  assert.match(fetches[0].url, /\/activities\/123\?include_all_efforts=true$/);
+  assert.equal(fetches[0].authorization, "Bearer access-token");
+  assert.match(fetches[1].url, /\/activities\/123\/streams\?/);
+  assert.match(fetches[1].url, /key_by_type=true/);
+  assert.match(decodeURIComponent(fetches[1].url), /keys=time,distance,latlng,altitude,velocity_smooth,heartrate,cadence,watts,temp,moving,grade_smooth/);
+});
+
 test("resolveStaticFilePath rejects public directory prefix escapes", () => {
   const server = loadServerContext();
 
@@ -477,7 +533,8 @@ test("syncActivityDetails stores raw detailed activity before sanitized detail",
         distance: 5000,
         start_date: "2026-05-01T00:00:00Z"
       }],
-      detailsById: new Map()
+      detailsById: new Map(),
+      rawStreamIds: new Set()
     };
     mockWrites = [];
     readStore = async () => mockStore;
@@ -506,6 +563,13 @@ test("syncActivityDetails stores raw detailed activity before sanitized detail",
     writeActivityDetail = async (id, detail) => {
       mockWrites.push({ kind: "sanitized", id, detail });
     };
+    fetchActivityStreams = async () => ({
+      time: { data: [0, 1], series_type: "time", original_size: 2, resolution: "high" },
+      distance: { data: [0, 5], series_type: "distance", original_size: 2, resolution: "high" }
+    });
+    writeRawActivityStream = async (id, streams) => {
+      mockWrites.push({ kind: "raw-stream", id, streams });
+    };
     writeStore = async (store) => {
       mockWrittenStore = store;
       return store;
@@ -522,13 +586,16 @@ test("syncActivityDetails stores raw detailed activity before sanitized detail",
 
   assert.deepEqual(writes.map((write) => ({ kind: write.kind, id: write.id })), [
     { kind: "raw", id: 123 },
-    { kind: "sanitized", id: 123 }
+    { kind: "sanitized", id: 123 },
+    { kind: "raw-stream", id: 123 }
   ]);
   assert.equal(writes[0].detail.map.summary_polyline, "encoded");
   assert.equal(writes[0].detail.best_efforts[0].hidden_location, "keep me raw");
   assert.equal(writes[1].detail.map, undefined);
   assert.equal(writes[1].detail.best_efforts[0].hidden_location, undefined);
+  assert.deepEqual(writes[2].streams.time.data, [0, 1]);
   assert.equal(result.summary.fetched, 1);
+  assert.equal(result.summary.rawStreamsFetched, 1);
 });
 
 test("syncActivityDetails backfills raw payloads for already sanitized details", async () => {
@@ -549,7 +616,8 @@ test("syncActivityDetails backfills raw payloads for already sanitized details",
         sport_type: "Run",
         best_efforts: [{ id: 99, name: "5K", distance: 5000, moving_time: 1500 }]
       }]]),
-      rawDetailIds: new Set()
+      rawDetailIds: new Set(),
+      rawStreamIds: new Set()
     };
     mockWrites = [];
     readStore = async () => mockStore;
@@ -569,6 +637,12 @@ test("syncActivityDetails backfills raw payloads for already sanitized details",
     writeActivityDetail = async (id, detail) => {
       mockWrites.push({ kind: "sanitized", id, detail });
     };
+    fetchActivityStreams = async () => ({
+      time: { data: [0, 1], series_type: "time", original_size: 2, resolution: "high" }
+    });
+    writeRawActivityStream = async (id, streams) => {
+      mockWrites.push({ kind: "raw-stream", id, streams });
+    };
     writeStore = async (store) => {
       mockWrittenStore = store;
       return store;
@@ -580,15 +654,77 @@ test("syncActivityDetails backfills raw payloads for already sanitized details",
   const result = vm.runInContext(`({
     writes: mockWrites,
     rawIds: Array.from(mockWrittenStore.rawDetailIds),
+    rawStreamIds: Array.from(mockWrittenStore.rawStreamIds),
     summary: mockWrittenStore.lastDetailSyncSummary
   })`, server);
   const writes = JSON.parse(JSON.stringify(result.writes));
 
-  assert.deepEqual(writes.map((write) => write.kind), ["raw", "sanitized"]);
+  assert.deepEqual(writes.map((write) => write.kind), ["raw", "sanitized", "raw-stream"]);
   assert.equal(writes[0].detail.map.summary_polyline, "encoded");
   assert.deepEqual(JSON.parse(JSON.stringify(result.rawIds)), ["123"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rawStreamIds)), ["123"]);
   assert.equal(result.summary.fetched, 0);
   assert.equal(result.summary.rawBackfilled, 1);
+  assert.equal(result.summary.rawStreamsFetched, 1);
+  assert.equal(result.summary.remaining, 0);
+});
+
+test("syncActivityDetails backfills streams without refetching existing raw details", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockStore = {
+      activities: [{
+        id: 123,
+        name: "Morning Run",
+        sport_type: "Run",
+        distance: 5000,
+        start_date: "2026-05-01T00:00:00Z"
+      }],
+      detailsById: new Map([["123", {
+        id: 123,
+        name: "Morning Run",
+        sport_type: "Run",
+        best_efforts: [{ id: 99, name: "5K", distance: 5000, moving_time: 1500 }]
+      }]]),
+      rawDetailIds: new Set(["123"]),
+      rawStreamIds: new Set()
+    };
+    mockWrites = [];
+    mockDetailFetches = 0;
+    readStore = async () => mockStore;
+    ensureAccessToken = async (store) => ({ store, accessToken: "access-token" });
+    fetchDetailedActivity = async () => {
+      mockDetailFetches += 1;
+      throw new Error("detail should not be refetched");
+    };
+    fetchActivityStreams = async () => ({
+      time: { data: [0, 1], series_type: "time", original_size: 2, resolution: "high" }
+    });
+    writeRawActivityStream = async (id, streams) => {
+      mockWrites.push({ kind: "raw-stream", id, streams });
+    };
+    writeStore = async (store) => {
+      mockWrittenStore = store;
+      return store;
+    };
+  `, server);
+
+  await vm.runInContext("syncActivityDetails({ limit: 1 })", server);
+
+  const result = vm.runInContext(`({
+    writes: mockWrites,
+    detailFetches: mockDetailFetches,
+    rawStreamIds: Array.from(mockWrittenStore.rawStreamIds),
+    summary: mockWrittenStore.lastDetailSyncSummary
+  })`, server);
+
+  assert.equal(result.detailFetches, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.writes.map((write) => write.kind))), ["raw-stream"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rawStreamIds)), ["123"]);
+  assert.equal(result.summary.fetched, 0);
+  assert.equal(result.summary.rawBackfilled, 0);
+  assert.equal(result.summary.rawStreamsFetched, 1);
   assert.equal(result.summary.remaining, 0);
 });
 
@@ -721,7 +857,14 @@ test("activity detail refresh endpoint refetches one saved run even when cached"
         best_efforts: [{ id: "new-effort", name: "5K", distance: 5000, moving_time: 1490 }]
       };
     };
+    fetchActivityStreams = async (accessToken, id) => {
+      mockFetchCalls.push({ accessToken, id, kind: "streams" });
+      return {
+        time: { data: [0, 1], series_type: "time", original_size: 2, resolution: "high" }
+      };
+    };
     writeRawActivityDetail = async (id, detail) => { mockWrittenRawDetail = { id, detail }; };
+    writeRawActivityStream = async (id, streams) => { mockWrittenRawStream = { id, streams }; };
     writeActivityDetail = async (id, detail) => { mockWrittenDetail = { id, detail }; };
     writeStore = async (store) => { mockWrittenStore = store; return store; };
   `, server);
@@ -736,19 +879,156 @@ test("activity detail refresh endpoint refetches one saved run even when cached"
   const result = vm.runInContext(`({
     fetchCalls: mockFetchCalls,
     writtenRawDetail: mockWrittenRawDetail,
+    writtenRawStream: mockWrittenRawStream,
     writtenDetail: mockWrittenDetail,
-    writtenActivities: mockWrittenStore.activities
+    writtenActivities: mockWrittenStore.activities,
+    rawStreamIds: Array.from(mockWrittenStore.rawStreamIds)
   })`, server);
 
   assert.equal(body.summary.refreshed, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(result.fetchCalls)), [{ accessToken: "access-token", id: "123" }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.fetchCalls)), [
+    { accessToken: "access-token", id: "123" },
+    { accessToken: "access-token", id: "123", kind: "streams" }
+  ]);
   assert.equal(result.writtenRawDetail.id, "123");
   assert.equal(result.writtenRawDetail.detail.best_efforts[0].id, "new-effort");
+  assert.equal(result.writtenRawStream.id, "123");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.writtenRawStream.streams.time.data)), [0, 1]);
   assert.equal(result.writtenDetail.id, "123");
   assert.equal(result.writtenDetail.detail.name, "Fixed Run");
   assert.equal(result.writtenDetail.detail.best_efforts[0].id, "new-effort");
   assert.equal(result.writtenActivities[0].name, "Fixed Run");
   assert.equal(result.writtenActivities[0].moving_time, 1490);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rawStreamIds)), ["123"]);
+});
+
+test("personalBestsFromStore computes fixed-time distance bests from streams", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockWrittenPersonalBests = null;
+    readJson = async (file, fallback) => {
+      const text = String(file);
+      if (text.endsWith("/raw-streams/1.json")) {
+        return {
+          time: { data: [0, 900, 2700, 3600] },
+          distance: { data: [0, 3000, 9000, 10000] }
+        };
+      }
+      if (text.endsWith("/raw-streams/2.json")) {
+        return {
+          time: { data: [0, 1800, 3600] },
+          distance: { data: [0, 6500, 12000] }
+        };
+      }
+      if (text.endsWith("/raw-streams/3.json")) {
+        return {
+          time: { data: [0, 120, 300, 600, 1800, 3600, 5400, 7200, 10800, 14400] },
+          distance: { data: [0, 700, 1600, 3200, 10000, 19000, 27000, 35000, 50000, 62000] }
+        };
+      }
+      return fallback;
+    };
+    writeJsonAtomic = async (file, payload) => {
+      mockWrittenPersonalBests = payload;
+    };
+  `, server);
+
+  const { result, sourceFingerprint } = await vm.runInContext(`
+    (async () => {
+      const store = {
+        activities: [
+          { id: 1, name: "Progression", sport_type: "Run", start_date: "2026-05-01T12:00:00Z" },
+          { id: 2, name: "Tempo", sport_type: "Run", start_date: "2026-05-02T12:00:00Z" },
+          { id: 3, name: "Long Run", sport_type: "Run", start_date: "2026-05-03T12:00:00Z" }
+        ],
+        detailsById: new Map(),
+        rawStreamIds: new Set(["1", "2", "3"])
+      };
+      return {
+        result: await personalBestsFromStore(store),
+        sourceFingerprint: buildPersonalBestsCacheFingerprint(store)
+      };
+    })()
+  `, server);
+
+  const durations = Object.fromEntries(result.durations.map((duration) => [duration.name, duration]));
+  assert.equal(result.durationActivityCount, 3);
+  assert.equal(result.durationEffortCount, 19);
+  assert.equal(durations["2 min"], undefined);
+  assert.equal(durations["5 min"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["5 min"].top[0].distance), 1700);
+  assert.equal(durations["10 min"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["10 min"].top[0].distance), 3400);
+  assert.equal(durations["20 min"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["20 min"].top[0].distance), 6800);
+  assert.equal(durations["30 min"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["30 min"].top[0].distance), 10000);
+  assert.equal(durations["1 hour"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["1 hour"].top[0].distance), 19000);
+  assert.equal(durations["1 hour 30 min"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["1 hour 30 min"].top[0].distance), 27000);
+  assert.equal(durations["2 hours"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["2 hours"].top[0].distance), 35000);
+  assert.equal(durations["3 hours"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["3 hours"].top[0].distance), 50000);
+  assert.equal(durations["4 hours"].top[0].activityId, 3);
+  assert.equal(Math.round(durations["4 hours"].top[0].distance), 62000);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.durationCount", server), 9);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.cache.sourceFingerprint", server), sourceFingerprint);
+});
+
+test("personalBestsFromStore reuses a fresh derived cache without rereading streams", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockStore = {
+      activities: [{ id: 1, name: "Cached Run", sport_type: "Run", start_date: "2026-05-01T12:00:00Z" }],
+      detailsById: new Map(),
+      rawStreamIds: new Set(["1"]),
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      lastSyncAt: "2026-06-01T00:00:00.000Z",
+      lastDetailSyncAt: "2026-06-01T00:00:00.000Z"
+    };
+    mockReadPaths = [];
+    mockWriteCount = 0;
+    mockCachedPersonalBests = {
+      generatedAt: "2026-06-01T01:00:00.000Z",
+      cache: {
+        version: PERSONAL_BESTS_CACHE_VERSION,
+        sourceFingerprint: buildPersonalBestsCacheFingerprint(mockStore)
+      },
+      detailActivityCount: 0,
+      effortCount: 0,
+      distanceCount: 1,
+      distances: [{ name: "Cached", count: 1, top: [] }],
+      durationActivityCount: 0,
+      durationEffortCount: 0,
+      durationCount: 0,
+      durations: []
+    };
+    readJson = async (file, fallback) => {
+      const text = String(file);
+      mockReadPaths.push(text);
+      if (text.endsWith("/derived/personal-bests.json")) return mockCachedPersonalBests;
+      if (text.includes("/raw-streams/")) throw new Error("raw streams should not be read for a fresh cache");
+      return fallback;
+    };
+    writeJsonAtomic = async () => {
+      mockWriteCount += 1;
+    };
+  `, server);
+
+  const result = await vm.runInContext("personalBestsFromStore(mockStore)", server);
+  const checks = vm.runInContext(`({
+    readPaths: mockReadPaths,
+    writeCount: mockWriteCount
+  })`, server);
+
+  assert.equal(result.generatedAt, "2026-06-01T01:00:00.000Z");
+  assert.equal(result.distances[0].name, "Cached");
+  assert.equal(checks.writeCount, 0);
+  assert.equal(checks.readPaths.filter((file) => file.includes("/raw-streams/")).length, 0);
 });
 
 test("topbar omits eyebrow copy", () => {
@@ -998,6 +1278,67 @@ test("syncActivities fetches raw details when raw backfill is pending", async ()
   assert.match(result.toastMessage, /Raw details: 2 saved/);
 });
 
+test("syncActivities fetches streams when stream backfill is pending", async () => {
+  const app = loadAppContext();
+
+  const result = await vm.runInContext(`
+    (async () => {
+      const calls = [];
+      const button = () => ({ disabled: false, textContent: "" });
+      els.connectButton = button();
+      els.syncButton = button();
+      els.clearButton = button();
+      els.stravaConfigSaveButton = button();
+      appState.status = {
+        configured: true,
+        connected: true,
+        activityDetails: { pendingRunCount: 0, pendingRawRunCount: 0, pendingRawStreamRunCount: 0 }
+      };
+      fetchJson = async (url, options = {}) => {
+        calls.push({ url, method: options.method || "GET" });
+        if (url === "/api/sync") {
+          return {
+            summary: { inserted: 0, updated: 1 },
+            status: { activityDetails: { pendingRunCount: 0, pendingRawRunCount: 0, pendingRawStreamRunCount: 2 } }
+          };
+        }
+        if (url === "/api/activity-details/sync") {
+          return {
+            summary: {
+              fetched: 0,
+              rawBackfilled: 0,
+              rawStreamsFetched: 2,
+              failed: 0,
+              streamFailed: 0,
+              remaining: 0,
+              skippedFailed: 0,
+              stoppedReason: null
+            }
+          };
+        }
+        throw new Error("Unexpected URL " + url);
+      };
+      loadData = async () => {
+        calls.push({ url: "loadData" });
+      };
+      toast = (message) => {
+        calls.push({ url: "toast", message });
+      };
+
+      await syncActivities();
+      return {
+        callUrls: calls.map((call) => call.url).join("|"),
+        detailMethod: calls[1].method,
+        toastMessage: calls.at(-1).message
+      };
+    })()
+  `, app);
+
+  assert.equal(result.callUrls, "/api/sync|/api/activity-details/sync|loadData|toast");
+  assert.equal(result.detailMethod, "POST");
+  assert.match(result.toastMessage, /Streams: 2 saved/);
+});
+
 test("clear data is disabled while background work is running", () => {
   const app = loadAppContext();
 
@@ -1132,6 +1473,167 @@ test("renderPersonalBests adds refresh buttons for source activities", () => {
   assert.match(result, /class="refresh-icon"/);
   assert.match(result, /aria-hidden="true"/);
   assert.doesNotMatch(result, />Refresh Activity</);
+});
+
+test("renderTimeBestsView renders fixed-time distance records from streams", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.personalBestDurationGrid = { innerHTML: "" };
+    els.personalBestDurationCaption = { textContent: "" };
+    appState.expandedTimeBestDurations = new Set();
+    appState.refreshingActivityId = null;
+    const timeEfforts = Array.from({ length: 4 }, (_, index) => ({
+      activityId: 456 + index,
+      activityName: "Tempo " + (index + 1),
+      startDate: "2026-05-02T12:00:00Z",
+      distanceKm: 6.5 - index * 0.1,
+      paceSecondsPerKm: 1800 / (6.5 - index * 0.1),
+      startOffset: 900
+    }));
+    appState.personalBests = {
+      detailActivityCount: 0,
+      effortCount: 0,
+      durationActivityCount: 1,
+      durationEffortCount: 4,
+      distances: [],
+      durations: [{
+        name: "30 min",
+        durationSeconds: 1800,
+        count: 4,
+        top: timeEfforts
+      }]
+    };
+
+    renderTimeBestsView();
+    ({
+      caption: els.personalBestDurationCaption.textContent,
+      durationGrid: els.personalBestDurationGrid.innerHTML
+    });
+  `, app);
+
+  assert.equal(result.caption, "1 stream activities · 4 time bests");
+  assert.match(result.durationGrid, /30 min/);
+  assert.match(result.durationGrid, /6.50 km/);
+  assert.match(result.durationGrid, /4:37\/km/);
+  assert.match(result.durationGrid, /15:00/);
+  assert.match(result.durationGrid, /data-refresh-activity-id="456"/);
+  assert.match(result.durationGrid, /data-time-best-toggle="30 min"/);
+  assert.match(result.durationGrid, /Show More/);
+  assert.doesNotMatch(result.durationGrid, /Tempo 4/);
+});
+
+test("renderTimeBestsView renders time best charts like personal best charts", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const chartElement = () => ({ innerHTML: "" });
+    const captionElement = () => ({ textContent: "" });
+    const toggleButton = (dataset) => ({
+      dataset,
+      classList: {
+        active: false,
+        toggle(className, enabled) {
+          if (className === "active") this.active = Boolean(enabled);
+        }
+      }
+    });
+    const effortsFor = (durationSeconds, baseDistanceKm, monthOffset) => Array.from({ length: 10 }, (_, index) => {
+      const distanceKm = baseDistanceKm - index * 0.05;
+      return {
+        activityId: 700 + monthOffset * 10 + index,
+        activityName: "Time Effort " + durationSeconds + " " + (index + 1),
+        startDate: new Date(Date.UTC(2025, monthOffset + index, 1)).toISOString(),
+        startDateLocal: new Date(2025, monthOffset + index, 1, 8, 0, 0).toISOString(),
+        distanceKm,
+        paceSecondsPerKm: durationSeconds / distanceKm,
+        startOffset: 300 + index * 10
+      };
+    });
+    const durationFor = (name, durationSeconds, baseDistanceKm, monthOffset) => ({
+      name,
+      durationSeconds,
+      count: 10,
+      top: effortsFor(durationSeconds, baseDistanceKm, monthOffset),
+      median: {
+        distanceKm: baseDistanceKm - 0.25,
+        paceSecondsPerKm: durationSeconds / (baseDistanceKm - 0.25),
+        count: 10
+      }
+    });
+
+    els.personalBestDurationGrid = chartElement();
+    els.personalBestDurationCaption = captionElement();
+    els.timeBestDistanceChart = chartElement();
+    els.timeBestDistanceChartCaption = captionElement();
+    els.timeBestRecencyChart = chartElement();
+    els.timeBestRecencyChartCaption = captionElement();
+    els.timeBestTrendChart = chartElement();
+    els.timeBestTrendCaption = captionElement();
+    els.timeBestTrendDurationSelect = { disabled: false, innerHTML: "" };
+    els.timeBestScaleButtons = [
+      toggleButton({ scale: "linear" }),
+      toggleButton({ scale: "log" })
+    ];
+    els.timeBestTrendLimitButtons = [
+      toggleButton({ limit: "5" }),
+      toggleButton({ limit: "10" }),
+      toggleButton({ limit: "20" })
+    ];
+    appState.expandedTimeBestDurations = new Set();
+    appState.refreshingActivityId = null;
+    appState.timeBestScale = "log";
+    appState.timeBestTrendLimit = 10;
+    appState.timeBestTrendDurationName = "30 min";
+    appState.personalBests = {
+      durationActivityCount: 3,
+      durationEffortCount: 30,
+      distances: [],
+      durations: [
+        durationFor("20 min", 1200, 4.4, 0),
+        durationFor("30 min", 1800, 6.5, 1),
+        durationFor("1 hour", 3600, 12.4, 2)
+      ]
+    };
+
+    renderTimeBestsView();
+    ({
+      distanceChart: els.timeBestDistanceChart.innerHTML,
+      recencyChart: els.timeBestRecencyChart.innerHTML,
+      trendChart: els.timeBestTrendChart.innerHTML,
+      trendOptions: els.timeBestTrendDurationSelect.innerHTML,
+      logScaleActive: els.timeBestScaleButtons[1].classList.active,
+      top10Active: els.timeBestTrendLimitButtons[1].classList.active
+    });
+  `, app);
+
+  assert.equal(result.logScaleActive, true);
+  assert.equal(result.top10Active, true);
+  assert.match(result.distanceChart, /Top 1/);
+  assert.match(result.distanceChart, /Median/);
+  assert.match(result.distanceChart, /Pace/);
+  assert.match(result.distanceChart, /\/km/);
+  assert.match(result.distanceChart, />Time</);
+  assert.doesNotMatch(result.distanceChart, /2m/);
+  assert.match(result.distanceChart, /20m/);
+  assert.match(result.recencyChart, /D-day/);
+  assert.match(result.recencyChart, /Newest/);
+  assert.match(result.recencyChart, /Oldest/);
+  assert.match(result.trendChart, /Selected Bests/);
+  assert.match(result.trendChart, /Trend [+-]\d+:\d{2}\/yr/);
+  assert.doesNotMatch(result.trendChart, /km\/yr/);
+  assert.match(result.trendChart, />Top 20</);
+  assert.match(result.trendOptions, /<option value="30 min" selected>30 min<\/option>/);
+});
+
+test("time bests live in their own top-level view", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const pbView = html.match(/<section class="analysis-view hidden" id="pbView"[\s\S]*?<\/section>/)?.[0] || "";
+  const timeView = html.match(/<section class="analysis-view hidden" id="timeView"[\s\S]*?<\/section>/)?.[0] || "";
+
+  assert.doesNotMatch(pbView, /personalBestDurationGrid/);
+  assert.match(timeView, /personalBestDurationGrid/);
+  assert.match(timeView, /Time-Limited Bests/);
 });
 
 test("renderRiegelAnalysis leaves redundant secondary analysis text out of the summary and chart caption", () => {
@@ -1270,12 +1772,15 @@ test("Riegel baseline is selected from chart bars instead of a dropdown", () => 
     els.allActivityTable = fakeElement();
     els.activityListView = fakeElement();
     els.personalBestTrendDistanceSelect = fakeElement();
+    els.timeBestTrendDurationSelect = fakeElement();
     els.personalBestGrid = fakeElement();
     els.riegelExponentInput = fakeElement();
     els.kpiCards = [];
     els.viewTabs = [];
     els.personalBestScaleButtons = [];
+    els.timeBestScaleButtons = [];
     els.personalBestTrendLimitButtons = [];
+    els.timeBestTrendLimitButtons = [];
     els.allActivitySortButtons = [];
     els.riegelFiveKScaleButtons = [];
     els.riegelFiveKSeriesButtons = [];
@@ -1293,6 +1798,7 @@ test("all activities is a dashboard drill-down, not a peer top-level tab", () =>
 
   assert.doesNotMatch(topTabs, /data-view="activities"/);
   assert.doesNotMatch(topTabs, />Activities</);
+  assert.match(topTabs, /data-view="time"[\s\S]*>Time Bests</);
   assert.match(recentPanel, /id="openActivityListButton"/);
   assert.match(html, /id="activityListView"/);
   assert.match(html, /id="backActivityListButton"/);
