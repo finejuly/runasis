@@ -855,12 +855,15 @@ async function refreshActivityDetail(activityId) {
 
   setActivityRefreshing(id);
   try {
-    await fetchJson("/api/activity-details/refresh", {
+    const result = await fetchJson("/api/activity-details/refresh", {
       method: "POST",
       body: JSON.stringify({ activityId: id })
     });
     await loadData();
-    toast("Activity refreshed.");
+    const streamFailed = Number(result.summary?.streamFailed || 0);
+    toast(streamFailed
+      ? "Activity refreshed. Stream refresh failed; sync will retry."
+      : "Activity refreshed.");
   } catch (error) {
     toast(error.message || "Could not refresh activity.");
   } finally {
@@ -1867,70 +1870,16 @@ function renderPersonalBests() {
       : "No data";
   }
 
-  if (!distances.length) {
-    els.personalBestGrid.innerHTML = `<div class="chart-empty">No best effort data</div>`;
-    return;
-  }
-
-  els.personalBestGrid.innerHTML = distances.map((distance) => {
-    const topEfforts = distance.top || [];
-    const isExpanded = appState.expandedPersonalBestDistances.has(distance.name);
-    const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
-    const visibleEfforts = topEfforts.slice(0, visibleLimit);
-    const rows = visibleEfforts.length ? visibleEfforts.map((effort, index) => {
-      const activityName = effort.activityName || "Untitled";
-      const exclusionButton = renderRecordExclusionButton(effort, activityName);
-      return `
-        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
-          <td>${index + 1}</td>
-          <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
-          <td>${formatClockDuration(effort.movingTime)}</td>
-          <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
-          <td class="activity-name">${escapeHtml(activityName)}</td>
-          <td class="record-actions">${exclusionButton}</td>
-        </tr>
-      `;
-    }).join("") : `<tr><td colspan="6">No best efforts</td></tr>`;
-    const hasMore = topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT;
-    const toggleLabel = isExpanded ? "Show Less" : "Show More";
-    const toggleMeta = isExpanded
-      ? `Showing top ${visibleEfforts.length}`
-      : `Showing top ${PERSONAL_BEST_DEFAULT_LIMIT}`;
-    const toggle = hasMore ? `
-      <div class="personal-best-more-row">
-        <span>${toggleMeta}</span>
-        <button class="button ghost personal-best-more" type="button" data-personal-best-toggle="${escapeHtml(distance.name)}">
-          ${toggleLabel}
-        </button>
-      </div>
-    ` : "";
-
-    return `
-      <article class="records-panel personal-best-panel">
-        <div class="panel-title">
-          <h2>${escapeHtml(distance.name)}</h2>
-          <span>${formatInteger(distance.count || 0)} best efforts</span>
-        </div>
-        <div class="table-wrap personal-best-table">
-          <table>
-            ${renderBestRecordColgroup("distance")}
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Date</th>
-                <th>Best Time</th>
-                <th>Pace</th>
-                <th>Activity</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        ${toggle}
-      </article>
-    `;
-  }).join("");
+  els.personalBestGrid.innerHTML = renderBestRecordPanels({
+    groups: distances,
+    type: "distance",
+    expandedSet: appState.expandedPersonalBestDistances,
+    toggleAttribute: "personal-best-toggle",
+    emptyText: "No best effort data",
+    noRecordsText: "No best efforts",
+    tableClass: "",
+    countLabel: (distance) => `${formatInteger(distance.count || 0)} best efforts`
+  });
 }
 
 function renderTimeBestsView() {
@@ -1957,60 +1906,73 @@ function renderTimeLimitedBests(durations, payload = {}) {
       : "No stream data";
   }
 
-  if (!durations.length) {
-    els.personalBestDurationGrid.innerHTML = `<div class="chart-empty">No time-limited best data</div>`;
-    return;
+  els.personalBestDurationGrid.innerHTML = renderBestRecordPanels({
+    groups: durations,
+    type: "time",
+    expandedSet: appState.expandedTimeBestDurations,
+    toggleAttribute: "time-best-toggle",
+    emptyText: "No time-limited best data",
+    noRecordsText: "No time bests",
+    tableClass: "time-best-table",
+    countLabel: (duration) => `${formatInteger(duration.count || 0)} ${Number(duration.count || 0) === 1 ? "window" : "windows"}`
+  });
+}
+
+function renderPaceLimitedBests(paces, payload = {}) {
+  if (!els.personalBestPaceGrid) return;
+  if (els.personalBestPaceCaption) {
+    els.personalBestPaceCaption.textContent = paces.length
+      ? `${formatInteger(payload.paceActivityCount || 0)} stream activities · ${formatInteger(payload.paceEffortCount || 0)} pace bests`
+      : "No stream data";
   }
 
-  els.personalBestDurationGrid.innerHTML = durations.map((duration) => {
-    const topEfforts = duration.top || [];
-    const isExpanded = appState.expandedTimeBestDurations.has(duration.name);
+  els.personalBestPaceGrid.innerHTML = renderBestRecordPanels({
+    groups: paces,
+    type: "pace",
+    expandedSet: appState.expandedPaceBestTargets,
+    toggleAttribute: "pace-best-toggle",
+    emptyText: "No pace best data",
+    noRecordsText: "No pace bests",
+    tableClass: "pace-best-table",
+    countLabel: (pace) => `${formatInteger(pace.count || 0)} ${Number(pace.count || 0) === 1 ? "segment" : "segments"}`
+  });
+}
+
+function renderBestRecordPanels({ groups, type, expandedSet, toggleAttribute, emptyText, noRecordsText, tableClass, countLabel }) {
+  if (!groups.length) return `<div class="chart-empty">${emptyText}</div>`;
+  const columns = getBestRecordColumns(type);
+  const colspan = columns.length + 2;
+  const tableClasses = ["personal-best-table", tableClass].filter(Boolean).join(" ");
+
+  return groups.map((group) => {
+    const topEfforts = group.top || [];
+    const isExpanded = expandedSet.has(group.name);
     const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
     const visibleEfforts = topEfforts.slice(0, visibleLimit);
-    const rows = visibleEfforts.map((effort, index) => {
-      const activityName = effort.activityName || "Untitled";
-      const exclusionButton = renderRecordExclusionButton(effort, activityName);
-      return `
-        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
-          <td>${index + 1}</td>
-          <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
-          <td>${formatNumber(Number(effort.distanceKm || 0), 2)} km</td>
-          <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
-          <td class="activity-name">${escapeHtml(activityName)}</td>
-          <td class="record-actions">${exclusionButton}</td>
-        </tr>
-      `;
-    }).join("") || `<tr><td colspan="6">No time bests</td></tr>`;
-    const hasMore = topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT;
-    const toggleLabel = isExpanded ? "Show Less" : "Show More";
-    const toggleMeta = isExpanded
-      ? `Showing top ${visibleEfforts.length}`
-      : `Showing top ${PERSONAL_BEST_DEFAULT_LIMIT}`;
-    const toggle = hasMore ? `
-      <div class="personal-best-more-row">
-        <span>${toggleMeta}</span>
-        <button class="button ghost personal-best-more" type="button" data-time-best-toggle="${escapeHtml(duration.name)}">
-          ${toggleLabel}
-        </button>
-      </div>
-    ` : "";
+    const rows = visibleEfforts.length
+      ? visibleEfforts.map((effort, index) => renderBestRecordRow(effort, index, columns)).join("")
+      : `<tr><td colspan="${colspan}">${noRecordsText}</td></tr>`;
+    const toggle = renderBestRecordMoreToggle({
+      hasMore: topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT,
+      isExpanded,
+      visibleCount: visibleEfforts.length,
+      toggleAttribute,
+      name: group.name
+    });
 
     return `
       <article class="records-panel personal-best-panel">
         <div class="panel-title">
-          <h2>${escapeHtml(duration.name)}</h2>
-          <span>${formatInteger(duration.count || 0)} ${Number(duration.count || 0) === 1 ? "window" : "windows"}</span>
+          <h2>${escapeHtml(group.name)}</h2>
+          <span>${countLabel(group)}</span>
         </div>
-        <div class="table-wrap personal-best-table time-best-table">
+        <div class="table-wrap ${tableClasses}">
           <table>
-            ${renderBestRecordColgroup("time")}
+            ${renderBestRecordColgroup(type)}
             <thead>
               <tr>
                 <th>#</th>
-                <th>Date</th>
-                <th>Distance</th>
-                <th>Pace</th>
-                <th>Activity</th>
+                ${columns.map((column) => `<th>${column.header}</th>`).join("")}
                 <th>Actions</th>
               </tr>
             </thead>
@@ -2023,80 +1985,80 @@ function renderTimeLimitedBests(durations, payload = {}) {
   }).join("");
 }
 
-function renderPaceLimitedBests(paces, payload = {}) {
-  if (!els.personalBestPaceGrid) return;
-  if (els.personalBestPaceCaption) {
-    els.personalBestPaceCaption.textContent = paces.length
-      ? `${formatInteger(payload.paceActivityCount || 0)} stream activities · ${formatInteger(payload.paceEffortCount || 0)} pace bests`
-      : "No stream data";
-  }
-
-  if (!paces.length) {
-    els.personalBestPaceGrid.innerHTML = `<div class="chart-empty">No pace best data</div>`;
-    return;
-  }
-
-  els.personalBestPaceGrid.innerHTML = paces.map((pace) => {
-    const topEfforts = pace.top || [];
-    const isExpanded = appState.expandedPaceBestTargets.has(pace.name);
-    const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
-    const visibleEfforts = topEfforts.slice(0, visibleLimit);
-    const rows = visibleEfforts.map((effort, index) => {
-      const activityName = effort.activityName || "Untitled";
-      const exclusionButton = renderRecordExclusionButton(effort, activityName);
-      return `
-        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
-          <td>${index + 1}</td>
-          <td>${formatDate(effort.startDateLocal || effort.startDate)}</td>
-          <td>${formatNumber(Number(effort.distanceKm || 0), 2)} km</td>
-          <td>${formatClockDuration(effort.durationSeconds || effort.movingTime)}</td>
-          <td>${formatPaceWithUnit(effort.paceSecondsPerKm)}</td>
-          <td class="activity-name">${escapeHtml(activityName)}</td>
-          <td class="record-actions">${exclusionButton}</td>
-        </tr>
-      `;
-    }).join("") || `<tr><td colspan="7">No pace bests</td></tr>`;
-    const hasMore = topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT;
-    const toggleLabel = isExpanded ? "Show Less" : "Show More";
-    const toggleMeta = isExpanded
-      ? `Showing top ${visibleEfforts.length}`
-      : `Showing top ${PERSONAL_BEST_DEFAULT_LIMIT}`;
-    const toggle = hasMore ? `
+function renderBestRecordMoreToggle({ hasMore, isExpanded, visibleCount, toggleAttribute, name }) {
+  if (!hasMore) return "";
+  const toggleLabel = isExpanded ? "Show Less" : "Show More";
+  const toggleMeta = isExpanded
+    ? `Showing top ${visibleCount}`
+    : `Showing top ${PERSONAL_BEST_DEFAULT_LIMIT}`;
+  return `
       <div class="personal-best-more-row">
         <span>${toggleMeta}</span>
-        <button class="button ghost personal-best-more" type="button" data-pace-best-toggle="${escapeHtml(pace.name)}">
+        <button class="button ghost personal-best-more" type="button" data-${toggleAttribute}="${escapeHtml(name)}">
           ${toggleLabel}
         </button>
       </div>
-    ` : "";
-
-    return `
-      <article class="records-panel personal-best-panel">
-        <div class="panel-title">
-          <h2>${escapeHtml(pace.name)}</h2>
-          <span>${formatInteger(pace.count || 0)} ${Number(pace.count || 0) === 1 ? "segment" : "segments"}</span>
-        </div>
-        <div class="table-wrap personal-best-table pace-best-table">
-          <table>
-            ${renderBestRecordColgroup("pace")}
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Date</th>
-                <th>Distance</th>
-                <th>Time</th>
-                <th>Pace</th>
-                <th>Activity</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        ${toggle}
-      </article>
     `;
-  }).join("");
+}
+
+function renderBestRecordRow(effort, index, columns) {
+  const activityName = effort.activityName || "Untitled";
+  const exclusionButton = renderRecordExclusionButton(effort, activityName);
+  return `
+        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
+          <td>${index + 1}</td>
+          ${columns.map((column) => {
+            const classAttribute = column.className ? ` class="${column.className}"` : "";
+            return `<td${classAttribute}>${column.render(effort, activityName)}</td>`;
+          }).join("")}
+          <td class="record-actions">${exclusionButton}</td>
+        </tr>
+      `;
+}
+
+function getBestRecordColumns(type) {
+  const activityColumn = {
+    header: "Activity",
+    className: "activity-name",
+    render: (effort, activityName) => escapeHtml(activityName)
+  };
+  const dateColumn = {
+    header: "Date",
+    render: (effort) => formatDate(effort.startDateLocal || effort.startDate)
+  };
+  const distanceColumn = {
+    header: "Distance",
+    render: (effort) => `${formatNumber(Number(effort.distanceKm || 0), 2)} km`
+  };
+  const paceColumn = {
+    header: "Pace",
+    render: (effort) => formatPaceWithUnit(effort.paceSecondsPerKm)
+  };
+
+  if (type === "pace") {
+    return [
+      dateColumn,
+      distanceColumn,
+      {
+        header: "Time",
+        render: (effort) => formatClockDuration(effort.durationSeconds || effort.movingTime)
+      },
+      paceColumn,
+      activityColumn
+    ];
+  }
+  if (type === "time") {
+    return [dateColumn, distanceColumn, paceColumn, activityColumn];
+  }
+  return [
+    dateColumn,
+    {
+      header: "Best Time",
+      render: (effort) => formatClockDuration(effort.movingTime)
+    },
+    paceColumn,
+    activityColumn
+  ];
 }
 
 function renderPaceBestDurationChart() {

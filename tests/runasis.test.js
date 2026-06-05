@@ -843,6 +843,7 @@ test("activity detail refresh endpoint refetches one saved run even when cached"
       }]])
     };
     mockFetchCalls = [];
+    mockWrittenRawStream = undefined;
     readStore = async () => mockStore;
     ensureAccessToken = async (store) => ({ store, accessToken: "access-token" });
     fetchDetailedActivity = async (accessToken, id) => {
@@ -900,6 +901,86 @@ test("activity detail refresh endpoint refetches one saved run even when cached"
   assert.equal(result.writtenActivities[0].name, "Fixed Run");
   assert.equal(result.writtenActivities[0].moving_time, 1490);
   assert.deepEqual(JSON.parse(JSON.stringify(result.rawStreamIds)), ["123"]);
+});
+
+test("activity detail refresh marks streams pending when stream refresh fails", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockStore = {
+      activities: [{
+        id: 123,
+        name: "Old Run",
+        sport_type: "Run",
+        distance: 4900,
+        moving_time: 1510,
+        start_date: "2026-05-01T00:00:00Z"
+      }],
+      detailsById: new Map([["123", {
+        id: 123,
+        name: "Old Run",
+        sport_type: "Run",
+        details_fetched_at: "2026-05-01T00:00:00.000Z"
+      }]]),
+      rawDetailIds: new Set(["123"]),
+      rawStreamIds: new Set(["123"])
+    };
+    mockFetchCalls = [];
+    mockWrittenRawStream = undefined;
+    readStore = async () => mockStore;
+    ensureAccessToken = async (store) => ({ store, accessToken: "access-token" });
+    fetchDetailedActivity = async (accessToken, id) => {
+      mockFetchCalls.push({ accessToken, id });
+      return {
+        id: 123,
+        name: "Fixed Run",
+        sport_type: "Run",
+        distance: 5000,
+        moving_time: 1490,
+        start_date: "2026-05-01T00:00:00Z",
+        best_efforts: [{ id: "new-effort", name: "5K", distance: 5000, moving_time: 1490 }]
+      };
+    };
+    fetchActivityStreams = async (accessToken, id) => {
+      mockFetchCalls.push({ accessToken, id, kind: "streams" });
+      const error = new Error("temporary stream outage");
+      error.statusCode = 503;
+      throw error;
+    };
+    writeRawActivityDetail = async (id, detail) => { mockWrittenRawDetail = { id, detail }; };
+    writeRawActivityStream = async (id, streams) => { mockWrittenRawStream = { id, streams }; };
+    writeActivityDetail = async (id, detail) => { mockWrittenDetail = { id, detail }; };
+    writeStore = async (store) => { mockWrittenStore = store; return store; };
+  `, server);
+
+  const response = await callApi(server, "/api/activity-details/refresh", "POST", {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ activityId: 123 })
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = JSON.parse(response.body);
+  const result = vm.runInContext(`({
+    fetchCalls: mockFetchCalls,
+    writtenRawDetail: mockWrittenRawDetail,
+    writtenRawStream: mockWrittenRawStream,
+    writtenDetail: mockWrittenDetail,
+    rawStreamIds: Array.from(mockWrittenStore.rawStreamIds)
+  })`, server);
+
+  assert.equal(body.summary.refreshed, 1);
+  assert.equal(body.summary.streamFailed, 1);
+  assert.equal(body.summary.streamPending, true);
+  assert.match(body.summary.streamErrors[0].message, /temporary stream outage/);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.fetchCalls)), [
+    { accessToken: "access-token", id: "123" },
+    { accessToken: "access-token", id: "123", kind: "streams" }
+  ]);
+  assert.equal(result.writtenRawDetail.id, "123");
+  assert.equal(result.writtenRawDetail.detail.best_efforts[0].id, "new-effort");
+  assert.equal(result.writtenRawStream, undefined);
+  assert.equal(result.writtenDetail.detail.name, "Fixed Run");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rawStreamIds)), []);
 });
 
 test("personalBestsFromStore computes fixed-time distance bests from streams", async () => {
@@ -1743,6 +1824,53 @@ test("syncActivities fetches streams when stream backfill is pending", async () 
   assert.equal(result.callUrls, "/api/sync|/api/activity-details/sync|loadData|toast");
   assert.equal(result.detailMethod, "POST");
   assert.match(result.toastMessage, /Streams: 2 saved/);
+});
+
+test("refreshActivityDetail warns when stream refresh remains pending", async () => {
+  const app = loadAppContext();
+
+  const result = await vm.runInContext(`
+    (async () => {
+      const calls = [];
+      const button = () => ({ disabled: false, textContent: "" });
+      els.connectButton = button();
+      els.syncButton = button();
+      els.clearButton = button();
+      els.stravaConfigSaveButton = button();
+      els.excludedRecordsToggleButtons = [];
+      appState.status = { connected: true };
+      fetchJson = async (url, options = {}) => {
+        calls.push({ url, method: options.method || "GET", body: options.body || "" });
+        if (url === "/api/activity-details/refresh") {
+          return {
+            summary: {
+              refreshed: 1,
+              rawStreamsFetched: 0,
+              streamFailed: 1,
+              streamPending: true
+            }
+          };
+        }
+        throw new Error("Unexpected URL " + url);
+      };
+      loadData = async () => {
+        calls.push({ url: "loadData" });
+      };
+      toast = (message) => {
+        calls.push({ url: "toast", message });
+      };
+
+      await refreshActivityDetail("123");
+      return {
+        calls,
+        refreshingActivityId: appState.refreshingActivityId
+      };
+    })()
+  `, app);
+
+  assert.equal(result.refreshingActivityId, null);
+  assert.equal(result.calls[0].url, "/api/activity-details/refresh");
+  assert.match(result.calls.find((call) => call.url === "toast").message, /Stream refresh failed/);
 });
 
 test("clear data is disabled while background work is running", () => {

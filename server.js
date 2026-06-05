@@ -1031,46 +1031,27 @@ async function computePersonalBestsFromStore(store, sourceFingerprint) {
 }
 
 async function distanceBestsFromStore(store) {
-  const groups = new Map(PERSONAL_BEST_DISTANCE_TARGETS.map((target) => [target.name, []]));
-  const activityById = activityMapFromStore(store);
-  let activityCount = 0;
-  let effortCount = 0;
-
-  for (const rawId of rawStreamIdsFromStore(store)) {
-    const id = String(rawId);
-    const activity = activityById.get(id);
-    if (!activity || !isRun(activity)) continue;
-
-    const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
-    const efforts = distanceBestEffortsForActivity(activity, streams);
-    if (!efforts.length) continue;
-
-    activityCount += 1;
-    for (const effort of efforts) {
-      const group = groups.get(effort.name);
-      if (!group) continue;
-      effortCount += 1;
-      group.push(effort);
-    }
-  }
-
-  const distances = PERSONAL_BEST_DISTANCE_TARGETS
-    .map((target) => {
-      const sorted = (groups.get(target.name) || []).sort(comparePersonalBestEfforts);
-      const medianEffort = summarizeMedianPersonalBestEffort(sorted);
-      return {
-        name: target.name,
-        distance: target.distance,
-        distanceKm: round(target.distance / 1000, 3),
-        count: sorted.length,
-        median: medianEffort,
-        top: sorted
-      };
+  const result = await groupedStreamBestsFromStore(store, {
+    targets: PERSONAL_BEST_DISTANCE_TARGETS,
+    computeEfforts: distanceBestEffortsForActivity,
+    compareEfforts: comparePersonalBestEfforts,
+    summarizeEfforts: summarizeMedianPersonalBestEffort,
+    mapGroup: (target, sorted, medianEffort) => ({
+      name: target.name,
+      distance: target.distance,
+      distanceKm: round(target.distance / 1000, 3),
+      count: sorted.length,
+      median: medianEffort,
+      top: sorted
     })
-    .filter((distance) => distance.count > 0)
-    .sort(compareBestEffortGroups);
+  });
+  const distances = result.groups.sort(compareBestEffortGroups);
 
-  return { activityCount, effortCount, distances };
+  return {
+    activityCount: result.activityCount,
+    effortCount: result.effortCount,
+    distances
+  };
 }
 
 function activityMapFromStore(store) {
@@ -1133,44 +1114,25 @@ function distanceBestEffortsForActivity(activity, streams) {
 }
 
 async function timeBestsFromStore(store) {
-  const groups = new Map(TIME_BEST_TARGETS.map((target) => [target.name, []]));
-  const activityById = activityMapFromStore(store);
-  let activityCount = 0;
-  let effortCount = 0;
-
-  for (const rawId of rawStreamIdsFromStore(store)) {
-    const id = String(rawId);
-    const activity = activityById.get(id);
-    if (!activity || !isRun(activity)) continue;
-
-    const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
-    const efforts = timeBestEffortsForActivity(activity, streams);
-    if (!efforts.length) continue;
-
-    activityCount += 1;
-    for (const effort of efforts) {
-      const group = groups.get(effort.name);
-      if (!group) continue;
-      effortCount += 1;
-      group.push(effort);
-    }
-  }
-
-  const durations = TIME_BEST_TARGETS
-    .map((target) => {
-      const sorted = (groups.get(target.name) || []).sort(compareTimeBestEfforts);
-      const medianEffort = summarizeMedianTimeBestEffort(sorted);
-      return {
-        name: target.name,
-        durationSeconds: target.durationSeconds,
-        count: sorted.length,
-        median: medianEffort,
-        top: sorted
-      };
+  const result = await groupedStreamBestsFromStore(store, {
+    targets: TIME_BEST_TARGETS,
+    computeEfforts: timeBestEffortsForActivity,
+    compareEfforts: compareTimeBestEfforts,
+    summarizeEfforts: summarizeMedianTimeBestEffort,
+    mapGroup: (target, sorted, medianEffort) => ({
+      name: target.name,
+      durationSeconds: target.durationSeconds,
+      count: sorted.length,
+      median: medianEffort,
+      top: sorted
     })
-    .filter((duration) => duration.count > 0);
+  });
 
-  return { activityCount, effortCount, durations };
+  return {
+    activityCount: result.activityCount,
+    effortCount: result.effortCount,
+    durations: result.groups
+  };
 }
 
 function timeBestEffortsForActivity(activity, streams) {
@@ -1202,7 +1164,29 @@ function timeBestEffortsForActivity(activity, streams) {
 }
 
 async function paceBestsFromStore(store) {
-  const groups = new Map(PACE_BEST_TARGETS.map((target) => [target.name, []]));
+  const result = await groupedStreamBestsFromStore(store, {
+    targets: PACE_BEST_TARGETS,
+    computeEfforts: paceBestEffortsForActivity,
+    compareEfforts: comparePaceBestEfforts,
+    summarizeEfforts: summarizeMedianPaceBestEffort,
+    mapGroup: (target, sorted, medianEffort) => ({
+      name: target.name,
+      paceSecondsPerKm: target.paceSecondsPerKm,
+      count: sorted.length,
+      median: medianEffort,
+      top: sorted
+    })
+  });
+
+  return {
+    activityCount: result.activityCount,
+    effortCount: result.effortCount,
+    paces: result.groups
+  };
+}
+
+async function groupedStreamBestsFromStore(store, { targets, computeEfforts, compareEfforts, summarizeEfforts, mapGroup }) {
+  const groups = new Map(targets.map((target) => [target.name, []]));
   const activityById = activityMapFromStore(store);
   let activityCount = 0;
   let effortCount = 0;
@@ -1213,7 +1197,7 @@ async function paceBestsFromStore(store) {
     if (!activity || !isRun(activity)) continue;
 
     const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
-    const efforts = paceBestEffortsForActivity(activity, streams);
+    const efforts = computeEfforts(activity, streams) || [];
     if (!efforts.length) continue;
 
     activityCount += 1;
@@ -1225,21 +1209,14 @@ async function paceBestsFromStore(store) {
     }
   }
 
-  const paces = PACE_BEST_TARGETS
+  const bestGroups = targets
     .map((target) => {
-      const sorted = (groups.get(target.name) || []).sort(comparePaceBestEfforts);
-      const medianEffort = summarizeMedianPaceBestEffort(sorted);
-      return {
-        name: target.name,
-        paceSecondsPerKm: target.paceSecondsPerKm,
-        count: sorted.length,
-        median: medianEffort,
-        top: sorted
-      };
+      const sorted = (groups.get(target.name) || []).sort(compareEfforts);
+      return mapGroup(target, sorted, summarizeEfforts(sorted));
     })
-    .filter((pace) => pace.count > 0);
+    .filter((group) => group.count > 0);
 
-  return { activityCount, effortCount, paces };
+  return { activityCount, effortCount, groups: bestGroups };
 }
 
 function paceBestEffortsForActivity(activity, streams) {
@@ -2130,13 +2107,18 @@ async function refreshActivityDetail(activityId) {
   const rawStreamIds = new Set(store.rawStreamIds || []);
   detailsById.set(id, sanitized);
   rawDetailIds.add(id);
-  if (rawStreamsFetched) rawStreamIds.add(id);
+  if (rawStreamsFetched) {
+    rawStreamIds.add(id);
+  } else if (streamError) {
+    rawStreamIds.delete(id);
+  }
   const merged = mergeActivities(store.activities, [sanitized]);
   const summary = {
     activityId: id,
     refreshed: 1,
     rawStreamsFetched,
     streamFailed: streamError ? 1 : 0,
+    streamPending: Boolean(streamError),
     streamErrors: streamError ? [streamError] : [],
     syncedAt
   };
