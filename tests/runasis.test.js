@@ -1057,7 +1057,7 @@ test("personalBestsFromStore computes standard distance bests from streams", asy
   assert.equal(vm.runInContext("mockWrittenPersonalBests.distanceCount", server), 8);
 });
 
-test("personalBestsFromStore computes fixed-pace duration bests from streams", async () => {
+test("personalBestsFromStore computes fixed-pace distance bests from streams", async () => {
   const server = loadServerContext();
 
   vm.runInContext(`
@@ -1066,14 +1066,14 @@ test("personalBestsFromStore computes fixed-pace duration bests from streams", a
       const text = String(file);
       if (text.endsWith("/raw-streams/1.json")) {
         return {
-          time: { data: [0, 600, 1200, 1800] },
-          distance: { data: [0, 2000, 4000, 5000] }
+          time: { data: [0, 1800, 3600, 5100] },
+          distance: { data: [0, 6000, 6000, 13000] }
         };
       }
       if (text.endsWith("/raw-streams/2.json")) {
         return {
-          time: { data: [0, 900, 1500] },
-          distance: { data: [0, 3000, 5000] }
+          time: { data: [0, 1200] },
+          distance: { data: [0, 4000] }
         };
       }
       return fallback;
@@ -1100,13 +1100,13 @@ test("personalBestsFromStore computes fixed-pace duration bests from streams", a
   assert.equal(result.paceCount, 3);
   assert.equal(result.paceEffortCount, 6);
   assert.equal(paces["5:00/km"].paceSecondsPerKm, 300);
-  assert.equal(paces["5:00/km"].top[0].activityId, 2);
+  assert.equal(paces["5:00/km"].top[0].activityId, 1);
   assert.equal(Math.round(paces["5:00/km"].top[0].durationSeconds), 1500);
-  assert.equal(Math.round(paces["5:00/km"].top[0].distance), 5000);
-  assert.equal(paces["5:00/km"].top[0].recordKey, "pace|5:00/km|2|0|1500");
+  assert.equal(Math.round(paces["5:00/km"].top[0].distance), 7000);
+  assert.equal(paces["5:00/km"].top[0].recordKey, "pace|5:00/km|1|3600|5100");
   assert.equal(paces["6:00/km"].top[0].activityId, 1);
-  assert.equal(Math.round(paces["6:00/km"].top[0].durationSeconds), 1800);
-  assert.equal(Math.round(paces["6:00/km"].top[0].distance), 5000);
+  assert.equal(Math.round(paces["6:00/km"].top[0].durationSeconds), 1500);
+  assert.equal(Math.round(paces["6:00/km"].top[0].distance), 7000);
   assert.equal(vm.runInContext("mockWrittenPersonalBests.paceCount", server), 3);
   assert.equal(vm.runInContext("mockWrittenPersonalBests.paces[0].top.length", server), 2);
 });
@@ -1833,7 +1833,7 @@ test("renderTimeBestsView renders fixed-time distance records from streams", () 
   assert.doesNotMatch(result.durationGrid, /Tempo 4/);
 });
 
-test("renderPaceBestsView renders fixed-pace duration records from streams", () => {
+test("renderPaceBestsView renders fixed-pace distance records from streams", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
@@ -1874,8 +1874,8 @@ test("renderPaceBestsView renders fixed-pace duration records from streams", () 
   assert.match(result.paceGrid, /5.00 km/);
   assert.match(result.paceGrid, /data-record-exclusion-key="pace\|5:00\/km\|800\|0\|1500"/);
   assert.match(result.paceGrid, /class="record-exclusion-icon"/);
-  assert.match(result.paceGrid, /<th[^>]*>#<\/th>\s*<th[^>]*>Date<\/th>\s*<th[^>]*>Time<\/th>\s*<th[^>]*>Distance<\/th>\s*<th[^>]*>Pace<\/th>\s*<th[^>]*>Activity<\/th>\s*<th[^>]*>Actions<\/th>/);
-  assert.match(result.paceGrid, /<td>1<\/td>\s*<td>05\/03\/2026<\/td>\s*<td>25:00<\/td>\s*<td>5.00 km<\/td>\s*<td>5:00\/km<\/td>\s*<td class="activity-name">Pace Run 1<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
+  assert.match(result.paceGrid, /<th[^>]*>#<\/th>\s*<th[^>]*>Date<\/th>\s*<th[^>]*>Distance<\/th>\s*<th[^>]*>Time<\/th>\s*<th[^>]*>Pace<\/th>\s*<th[^>]*>Activity<\/th>\s*<th[^>]*>Actions<\/th>/);
+  assert.match(result.paceGrid, /<td>1<\/td>\s*<td>05\/03\/2026<\/td>\s*<td>5.00 km<\/td>\s*<td>25:00<\/td>\s*<td>5:00\/km<\/td>\s*<td class="activity-name">Pace Run 1<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
   assert.match(result.paceGrid, /data-pace-best-toggle="5:00\/km"/);
   assert.match(result.paceGrid, /Show More/);
   assert.doesNotMatch(result.paceGrid, /Pace Run 4/);
@@ -1964,14 +1964,14 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
   assert.equal(result.top10Active, true);
   assert.match(result.durationChart, /Top 1/);
   assert.match(result.durationChart, /Median/);
-  assert.match(result.durationChart, />Time</);
+  assert.match(result.durationChart, />Distance \(km\)</);
   assert.match(result.durationChart, />Pace</);
   assert.match(result.durationChart, /5:00\/km/);
   assert.match(result.recencyChart, /D-day/);
   assert.match(result.recencyChart, /Newest/);
   assert.match(result.recencyChart, /Oldest/);
   assert.match(result.trendChart, /Selected Bests/);
-  assert.match(result.trendChart, /Trend [+-]\d+:\d{2}\/yr/);
+  assert.match(result.trendChart, /Trend [+-]\d+\.\d km\/yr/);
   assert.match(result.trendChart, />Top 20</);
   assert.match(result.trendOptions, /<option value="5:30\/km" selected>5:30\/km<\/option>/);
 });

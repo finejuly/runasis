@@ -34,7 +34,7 @@ const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
-const PERSONAL_BESTS_CACHE_VERSION = 6;
+const PERSONAL_BESTS_CACHE_VERSION = 7;
 const EXCLUDED_RECORDS_VERSION = 1;
 const ACTIVITY_STREAM_KEYS = [
   "time",
@@ -1226,7 +1226,7 @@ function paceBestEffortsForActivity(activity, streams) {
 
   return PACE_BEST_TARGETS
     .map((target) => {
-      const best = findLongestDurationForPace(series, target.paceSecondsPerKm);
+      const best = findLongestDistanceForPace(series, target.paceSecondsPerKm);
       if (!best || best.duration <= 0 || best.distance <= 0) return null;
       const distanceKm = best.distance / 1000;
       return {
@@ -1270,7 +1270,7 @@ function buildTimeDistanceSeries(streams) {
   return series.length >= 2 ? series : null;
 }
 
-function findLongestDurationForPace(series, paceSecondsPerKm) {
+function findLongestDistanceForPace(series, paceSecondsPerKm) {
   const targetPace = Number(paceSecondsPerKm);
   if (!Number.isFinite(targetPace) || targetPace <= 0) return null;
   const speedMetersPerSecond = 1000 / targetPace;
@@ -1284,7 +1284,7 @@ function findLongestDurationForPace(series, paceSecondsPerKm) {
   if (scored.length < 2) return null;
 
   const sortedScores = Array.from(new Set(scored.map((point) => point.score))).sort((a, b) => a - b);
-  const tree = createMinFenwickTree(sortedScores.length);
+  const tree = createPaceStartFenwickTree(sortedScores.length, scored);
   let best = null;
 
   for (let index = 0; index < scored.length; index += 1) {
@@ -1296,10 +1296,13 @@ function findLongestDurationForPace(series, paceSecondsPerKm) {
       const duration = point.time - start.time;
       const distance = point.distance - start.distance;
       if (duration > 0 && distance > 0 && distance >= speedMetersPerSecond * duration) {
+        const pace = duration / (distance / 1000);
+        const bestPace = best ? best.duration / (best.distance / 1000) : Infinity;
         if (!best ||
-          duration > best.duration ||
-          (duration === best.duration && distance > best.distance) ||
-          (duration === best.duration && distance === best.distance && start.time < best.startOffset)
+          distance > best.distance ||
+          (distance === best.distance && pace < bestPace) ||
+          (distance === best.distance && pace === bestPace && duration > best.duration) ||
+          (distance === best.distance && pace === bestPace && duration === best.duration && start.time < best.startOffset)
         ) {
           best = {
             duration,
@@ -1318,20 +1321,30 @@ function findLongestDurationForPace(series, paceSecondsPerKm) {
   return best;
 }
 
-function createMinFenwickTree(size) {
-  const values = Array(size + 1).fill(Infinity);
+function createPaceStartFenwickTree(size, points) {
+  const values = Array(size + 1).fill(null);
+  const isBetterStart = (nextIndex, currentIndex) => {
+    if (currentIndex === null) return true;
+    const next = points[nextIndex];
+    const current = points[currentIndex];
+    return next.distance < current.distance ||
+      (next.distance === current.distance && next.time < current.time) ||
+      (next.distance === current.distance && next.time === current.time && nextIndex < currentIndex);
+  };
+
   return {
     update(index, value) {
       for (let cursor = index; cursor <= size; cursor += cursor & -cursor) {
-        values[cursor] = Math.min(values[cursor], value);
+        if (isBetterStart(value, values[cursor])) values[cursor] = value;
       }
     },
     query(index) {
-      let best = Infinity;
+      let best = null;
       for (let cursor = Math.min(index, size); cursor > 0; cursor -= cursor & -cursor) {
-        best = Math.min(best, values[cursor]);
+        const value = values[cursor];
+        if (value !== null && isBetterStart(value, best)) best = value;
       }
-      return Number.isFinite(best) ? best : null;
+      return best;
     }
   };
 }
@@ -1502,9 +1515,9 @@ function compareTimeBestEfforts(a, b) {
 }
 
 function comparePaceBestEfforts(a, b) {
-  return b.durationSeconds - a.durationSeconds ||
-    b.distance - a.distance ||
+  return b.distance - a.distance ||
     a.paceSecondsPerKm - b.paceSecondsPerKm ||
+    b.durationSeconds - a.durationSeconds ||
     new Date(a.startDate || 0) - new Date(b.startDate || 0);
 }
 
