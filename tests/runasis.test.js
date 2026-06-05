@@ -2184,7 +2184,7 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
     els.paceBestTrendTargetSelect = { disabled: false, innerHTML: "" };
     els.paceBestDistanceScaleButtons = [
       toggleButton({ scale: "linear" }),
-      toggleButton({ scale: "log" })
+      toggleButton({ scale: "sqrt" })
     ];
     els.paceBestTrendLimitButtons = [
       toggleButton({ limit: "5" }),
@@ -2192,7 +2192,7 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
       toggleButton({ limit: "20" })
     ];
     appState.expandedPaceBestTargets = new Set();
-    appState.paceBestDistanceScale = "log";
+    appState.paceBestDistanceScale = "sqrt";
     appState.paceBestTrendLimit = 10;
     appState.paceBestTrendTargetName = "5:27/km";
     appState.personalBests = {
@@ -2209,20 +2209,20 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
       recencyChart: els.paceBestRecencyChart.innerHTML,
       trendChart: els.paceBestTrendChart.innerHTML,
       trendOptions: els.paceBestTrendTargetSelect.innerHTML,
-      logScaleActive: els.paceBestDistanceScaleButtons[1].classList.active,
+      sqrtScaleActive: els.paceBestDistanceScaleButtons[1].classList.active,
       top10Active: els.paceBestTrendLimitButtons[1].classList.active,
       visiblePaceAxisLabels: (els.paceBestDurationChart.innerHTML.match(/data-pace-axis-label=/g) || []).length
     });
   `, app);
 
   assert.equal(result.top10Active, true);
-  assert.equal(result.logScaleActive, true);
+  assert.equal(result.sqrtScaleActive, true);
   assert.match(result.durationChart, /Top 1/);
   assert.match(result.durationChart, /Median/);
   assert.match(result.durationChart, />Distance \(km\)</);
   assert.match(result.durationChart, />Pace</);
   assert.match(result.durationChart, /5:00\/km/);
-  assert.match(result.durationChart, /data-y-scale="log"/);
+  assert.match(result.durationChart, /data-y-scale="sqrt"/);
   assert.equal(result.visiblePaceAxisLabels, 8);
   assert.match(result.durationChart, /data-pace-axis-label="5:00\/km"/);
   assert.doesNotMatch(result.durationChart, /data-pace-axis-label="5:13\/km"/);
@@ -2428,7 +2428,8 @@ test("best record types live under Personal Bests tabs", () => {
   assert.match(pbView, /Time-Limited Bests/);
   assert.match(pbView, /Pace Bests/);
   assert.match(pbView, /class="scale-option pace-distance-scale-option active"[^>]*data-scale="linear"/);
-  assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="log"/);
+  assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="sqrt"[\s\S]*>Sqrt</);
+  assert.doesNotMatch(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="log"[\s\S]*>Log</);
 });
 
 test("personal best type tabs stay in one row", () => {
