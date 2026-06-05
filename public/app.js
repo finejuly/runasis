@@ -10,6 +10,7 @@ const PERSONAL_BEST_DEFAULT_LIMIT = 3;
 const PERSONAL_BEST_EXPANDED_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT_OPTIONS = new Set([5, 10, 20]);
+const PERSONAL_BEST_TABS = new Set(["distance", "time"]);
 const RECENT_ACTIVITY_LIMIT = 5;
 const REPOSITORY_URL = "";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -83,6 +84,7 @@ const appState = {
   timeBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   timeBestScale: "log",
   currentView: "dashboard",
+  personalBestTab: "distance",
   personalBestScale: "linear",
   riegelFiveKScale: "linear",
   riegelFiveKSeries: "top1",
@@ -172,6 +174,7 @@ function cacheElements() {
     "dashboardView",
     "activityListView",
     "pbView",
+    "personalBestDistanceView",
     "timeView",
     "analysisView",
     "analysisRankControl",
@@ -237,6 +240,7 @@ function cacheElements() {
     els[id] = document.getElementById(id);
   }
   els.viewTabs = Array.from(document.querySelectorAll(".view-tab"));
+  els.personalBestTabOptions = Array.from(document.querySelectorAll(".personal-best-tab-option"));
   els.kpiCards = Array.from(document.querySelectorAll(".dashboard-kpi-card"));
   els.allActivitySortButtons = Array.from(document.querySelectorAll("[data-activity-sort]"));
   els.personalBestScaleButtons = Array.from(document.querySelectorAll(".pb-scale-option"));
@@ -363,10 +367,13 @@ function bindEvents() {
 
   for (const tab of els.viewTabs) {
     tab.addEventListener("click", () => {
-      appState.currentView = tab.dataset.view;
-      appState.activityListOpen = false;
-      setActiveViewTab(appState.currentView);
-      render();
+      selectView(tab.dataset.view);
+    });
+  }
+
+  for (const tab of els.personalBestTabOptions || []) {
+    tab.addEventListener("click", () => {
+      selectPersonalBestTab(tab.dataset.personalBestTab);
     });
   }
 
@@ -477,6 +484,30 @@ function bindEvents() {
       handleRiegelChartSourceClick(event);
     }
   });
+}
+
+function selectView(view) {
+  if (view === "time") {
+    appState.currentView = "pb";
+    appState.personalBestTab = "time";
+  } else {
+    appState.currentView = view || "dashboard";
+  }
+  appState.activityListOpen = false;
+  setActiveViewTab(appState.currentView);
+  render();
+}
+
+function selectPersonalBestTab(tab) {
+  appState.currentView = "pb";
+  appState.personalBestTab = normalizePersonalBestTab(tab);
+  appState.activityListOpen = false;
+  setActiveViewTab("pb");
+  render();
+}
+
+function normalizePersonalBestTab(tab) {
+  return PERSONAL_BEST_TABS.has(tab) ? tab : "distance";
 }
 
 function openRiegelInfoDialog() {
@@ -879,14 +910,7 @@ function render() {
   renderView();
   updateExcludedRecordsToggleButtons();
   if (appState.currentView === "pb") {
-    renderPersonalBestChart();
-    renderPersonalBestRecencyChart();
-    renderPersonalBestTrendChart();
-    renderPersonalBests();
-    return;
-  }
-  if (appState.currentView === "time") {
-    renderTimeBestsView();
+    renderPersonalBestTab();
     return;
   }
   if (appState.currentView === "analysis") {
@@ -1052,17 +1076,21 @@ function getSelectedDashboardMetric() {
 }
 
 function setActiveViewTab(view) {
+  const activeView = view === "time" ? "pb" : view;
   for (const item of els.viewTabs || []) {
-    item.classList.toggle("active", item.dataset.view === view);
+    item.classList.toggle("active", item.dataset.view === activeView);
   }
 }
 
 function renderView() {
   const showActivityList = appState.currentView === "dashboard" && appState.activityListOpen;
+  const showPersonalBests = appState.currentView === "pb";
+  const personalBestTab = normalizePersonalBestTab(appState.personalBestTab);
   els.dashboardView.classList.toggle("hidden", appState.currentView !== "dashboard" || showActivityList);
   els.activityListView.classList.toggle("hidden", !showActivityList);
-  els.pbView.classList.toggle("hidden", appState.currentView !== "pb");
-  els.timeView.classList.toggle("hidden", appState.currentView !== "time");
+  els.pbView.classList.toggle("hidden", !showPersonalBests);
+  els.personalBestDistanceView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "distance");
+  els.timeView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "time");
   els.analysisView.classList.toggle("hidden", appState.currentView !== "analysis");
   els.analysisRankControl.classList.toggle("hidden", appState.currentView !== "analysis");
 }
@@ -1733,6 +1761,27 @@ function handleAllActivityAction(event) {
   const refreshButton = event.target.closest("[data-refresh-activity-id]");
   if (!refreshButton || !els.allActivityTable.contains(refreshButton)) return;
   refreshActivityDetail(refreshButton.dataset.refreshActivityId);
+}
+
+function renderPersonalBestTab() {
+  const tab = normalizePersonalBestTab(appState.personalBestTab);
+  appState.personalBestTab = tab;
+  updatePersonalBestTabControls(tab);
+  if (tab === "time") {
+    renderTimeBestsView();
+    return;
+  }
+
+  renderPersonalBestChart();
+  renderPersonalBestRecencyChart();
+  renderPersonalBestTrendChart();
+  renderPersonalBests();
+}
+
+function updatePersonalBestTabControls(tab = normalizePersonalBestTab(appState.personalBestTab)) {
+  for (const button of els.personalBestTabOptions || []) {
+    button.classList.toggle("active", button.dataset.personalBestTab === tab);
+  }
 }
 
 function renderPersonalBests() {
@@ -4072,16 +4121,14 @@ function setDetailSyncing(syncing) {
 function setActivityRefreshing(activityId) {
   appState.refreshingActivityId = activityId ? String(activityId) : null;
   updateActionButtons();
-  if (appState.currentView === "pb") renderPersonalBests();
-  if (appState.currentView === "time") renderTimeBestsView();
+  if (appState.currentView === "pb") renderPersonalBestTab();
   if (appState.currentView === "dashboard" && appState.activityListOpen) renderAllActivities();
 }
 
 function setRecordExcluding(recordKey) {
   appState.excludingRecordKey = recordKey ? String(recordKey) : null;
   updateActionButtons();
-  if (appState.currentView === "pb") renderPersonalBests();
-  if (appState.currentView === "time") renderTimeBestsView();
+  if (appState.currentView === "pb") renderPersonalBestTab();
 }
 
 function setConfigSaving(configSaving) {

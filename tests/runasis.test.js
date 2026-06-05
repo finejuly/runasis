@@ -1863,14 +1863,19 @@ test("renderTimeBestsView renders time best charts like personal best charts", (
   assert.match(result.trendOptions, /<option value="30 min" selected>30 min<\/option>/);
 });
 
-test("time bests live in their own top-level view", () => {
+test("best record types live under Personal Bests tabs", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const pbView = html.match(/<section class="analysis-view hidden" id="pbView"[\s\S]*?<\/section>/)?.[0] || "";
-  const timeView = html.match(/<section class="analysis-view hidden" id="timeView"[\s\S]*?<\/section>/)?.[0] || "";
+  const topTabs = html.match(/<div class="view-tabs"[\s\S]*?<\/div>/)?.[0] || "";
 
-  assert.doesNotMatch(pbView, /personalBestDurationGrid/);
-  assert.match(timeView, /personalBestDurationGrid/);
-  assert.match(timeView, /Time-Limited Bests/);
+  assert.doesNotMatch(topTabs, /data-view="time"/);
+  assert.doesNotMatch(topTabs, />Time Bests</);
+  assert.match(pbView, /data-personal-best-tab="distance"[\s\S]*>Distance</);
+  assert.match(pbView, /data-personal-best-tab="time"[\s\S]*>Time</);
+  assert.match(pbView, /id="personalBestDistanceView"/);
+  assert.match(pbView, /id="timeView"/);
+  assert.match(pbView, /personalBestDurationGrid/);
+  assert.match(pbView, /Time-Limited Bests/);
 });
 
 test("renderRiegelAnalysis leaves redundant secondary analysis text out of the summary and chart caption", () => {
@@ -2035,7 +2040,9 @@ test("all activities is a dashboard drill-down, not a peer top-level tab", () =>
 
   assert.doesNotMatch(topTabs, /data-view="activities"/);
   assert.doesNotMatch(topTabs, />Activities</);
-  assert.match(topTabs, /data-view="time"[\s\S]*>Time Bests</);
+  assert.doesNotMatch(topTabs, /data-view="time"/);
+  assert.doesNotMatch(topTabs, />Time Bests</);
+  assert.match(topTabs, /data-view="pb"[\s\S]*>Personal Bests</);
   assert.match(recentPanel, /id="openActivityListButton"/);
   assert.match(html, /id="activityListView"/);
   assert.match(html, /id="backActivityListButton"/);
