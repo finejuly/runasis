@@ -83,7 +83,7 @@ const appState = {
   personalBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   timeBestTrendDurationName: null,
   timeBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
-  timeBestScale: "log",
+  timeBestScale: "linear",
   paceBestDistanceScale: "linear",
   paceBestTrendTargetName: null,
   paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
@@ -291,6 +291,31 @@ function configureRepositoryLink(repositoryUrl = REPOSITORY_URL) {
   els.repositoryLink.removeAttribute("aria-disabled");
 }
 
+function normalizePersonalBestScaleSelection(scale) {
+  return scale === "log" ? "log" : "linear";
+}
+
+function setPersonalBestScaleSelection(scale) {
+  const nextScale = normalizePersonalBestScaleSelection(scale);
+  appState.personalBestScale = nextScale;
+  appState.timeBestScale = nextScale;
+  appState.paceBestDistanceScale = nextScale;
+  return nextScale;
+}
+
+function updatePersonalBestScaleControls(scale = appState.personalBestScale) {
+  const activeScale = normalizePersonalBestScaleSelection(scale);
+  for (const button of els.personalBestScaleButtons || []) {
+    button.classList.toggle("active", button.dataset.scale === activeScale);
+  }
+  for (const button of els.timeBestScaleButtons || []) {
+    button.classList.toggle("active", button.dataset.scale === activeScale);
+  }
+  for (const button of els.paceBestDistanceScaleButtons || []) {
+    button.classList.toggle("active", button.dataset.scale === activeScale);
+  }
+}
+
 function loadPreferences() {
   const savedExponent = readSavedRiegelExponent();
   appState.riegelCustomExponent = isValidRiegelExponent(savedExponent) ? savedExponent : DEFAULT_RIEGEL_EXPONENT;
@@ -399,7 +424,7 @@ function bindEvents() {
 
   for (const button of els.personalBestScaleButtons) {
     button.addEventListener("click", () => {
-      appState.personalBestScale = button.dataset.scale === "log" ? "log" : "linear";
+      setPersonalBestScaleSelection(button.dataset.scale);
       renderPersonalBestChart();
       renderPersonalBestRecencyChart();
     });
@@ -407,7 +432,7 @@ function bindEvents() {
 
   for (const button of els.timeBestScaleButtons || []) {
     button.addEventListener("click", () => {
-      appState.timeBestScale = button.dataset.scale === "linear" ? "linear" : "log";
+      setPersonalBestScaleSelection(button.dataset.scale);
       renderTimeBestDistanceChart();
       renderTimeBestRecencyChart();
     });
@@ -415,7 +440,7 @@ function bindEvents() {
 
   for (const button of els.paceBestDistanceScaleButtons || []) {
     button.addEventListener("click", () => {
-      appState.paceBestDistanceScale = button.dataset.scale === "sqrt" ? "sqrt" : "linear";
+      setPersonalBestScaleSelection(button.dataset.scale);
       renderPaceBestDurationChart();
     });
   }
@@ -2063,9 +2088,7 @@ function getBestRecordColumns(type) {
 
 function renderPaceBestDurationChart() {
   if (!els.paceBestDurationChart) return;
-  for (const button of els.paceBestDistanceScaleButtons || []) {
-    button.classList.toggle("active", button.dataset.scale === appState.paceBestDistanceScale);
-  }
+  updatePersonalBestScaleControls(appState.paceBestDistanceScale);
   const series = buildPaceBestDurationSeries();
   const distanceValues = series.flatMap((item) => item.points.map((point) => point.distanceKm));
   const paceValues = series.flatMap((item) => item.points.map((point) => point.targetPaceSecondsPerKm));
@@ -2080,29 +2103,29 @@ function renderPaceBestDurationChart() {
   const padding = { top: 24, right: 28, bottom: 58, left: 70 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const paceDomain = buildLinearDomain(paceValues, 15);
+  const paceDomain = buildLogPaceAxisDomain(paceValues);
   const positiveDistanceValues = distanceValues.filter((distanceKm) => Number.isFinite(distanceKm) && distanceKm > 0);
   const minDistance = Math.min(...positiveDistanceValues);
   const maxDistance = Math.max(...positiveDistanceValues);
-  const useSqrtScale = (
-    appState.paceBestDistanceScale === "sqrt" &&
+  const useLogDistanceScale = (
+    appState.paceBestDistanceScale === "log" &&
     Number.isFinite(minDistance) &&
     Number.isFinite(maxDistance) &&
     maxDistance > 0
   );
-  const distanceDomain = useSqrtScale
-    ? buildSqrtDistanceAxisDomain(distanceValues)
+  const distanceDomain = useLogDistanceScale
+    ? buildLogDistanceAxisDomain(distanceValues)
     : buildDistanceAxisDomain(distanceValues);
-  const x = (pace) => padding.left + ((pace - paceDomain.min) / paceDomain.spread) * chartWidth;
+  const x = (pace) => padding.left + ((paceDomain.logMax - Math.log(pace)) / paceDomain.logSpread) * chartWidth;
   const y = (distanceKm) => {
-    if (!useSqrtScale) return padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
+    if (!useLogDistanceScale) return padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
     const clampedDistance = Math.max(distanceKm, distanceDomain.min);
-    return padding.top + ((distanceDomain.sqrtMax - Math.sqrt(clampedDistance)) / distanceDomain.sqrtSpread) * chartHeight;
+    return padding.top + ((distanceDomain.logMax - Math.log(clampedDistance)) / distanceDomain.logSpread) * chartHeight;
   };
   const xTicks = getPaceBestTicks();
   const xLabelIndexes = getPaceBestAxisLabelIndexes(xTicks.length);
-  const yTicks = useSqrtScale
-    ? getSqrtDistanceAxisTicks(distanceDomain.min, distanceDomain.max)
+  const yTicks = useLogDistanceScale
+    ? getLogDistanceAxisTicks(distanceDomain.min, distanceDomain.max)
     : [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
 
   const grid = [
@@ -2152,7 +2175,7 @@ function renderPaceBestDurationChart() {
   }).join("");
 
   els.paceBestDurationChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median distance by target pace" data-y-scale="${useSqrtScale ? "sqrt" : "linear"}">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, and top 10 distance by target pace" data-x-scale="log" data-y-scale="${useLogDistanceScale ? "log" : "linear"}">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
       <text class="axis-label" x="10" y="16">Distance (km)</text>
@@ -2201,19 +2224,23 @@ function renderPaceBestRecencyChart() {
   const padding = { top: 24, right: 28, bottom: 58, left: 70 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const paceDomain = buildLinearDomain(paceValues, 15);
+  const paceDomain = buildLogPaceAxisDomain(paceValues);
   const yMax = Math.ceil(maxDaysAgo / 90) * 90 || 90;
-  const x = (pace) => padding.left + ((pace - paceDomain.min) / paceDomain.spread) * chartWidth;
+  const x = (pace) => padding.left + ((paceDomain.logMax - Math.log(pace)) / paceDomain.logSpread) * chartWidth;
   const y = (daysAgo) => padding.top + (daysAgo / yMax) * chartHeight;
   const xTicks = getPaceBestTicks();
+  const xLabelIndexes = getPaceBestAxisLabelIndexes(xTicks.length);
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio));
 
   const grid = [
-    ...xTicks.map((pace) => {
+    ...xTicks.map((pace, index) => {
       const tickX = x(pace.paceSecondsPerKm);
+      const label = xLabelIndexes.has(index)
+        ? `<text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle" data-pace-recency-axis-label="${escapeHtml(pace.name)}">${escapeHtml(pace.name)}</text>`
+        : "";
       return `
         <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
-        <text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle">${escapeHtml(pace.name)}</text>
+        ${label}
       `;
     }),
     ...yTicks.map((tick) => {
@@ -2262,7 +2289,7 @@ function renderPaceBestRecencyChart() {
   `;
 
   els.paceBestRecencyChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, and top 10 pace best timing by target pace">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, and top 10 pace best timing by target pace" data-x-scale="log">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
       <text class="axis-label" x="10" y="16">D-day</text>
@@ -2369,9 +2396,7 @@ function renderPaceBestTrendChart() {
 
 function renderTimeBestDistanceChart() {
   if (!els.timeBestDistanceChart) return;
-  for (const button of els.timeBestScaleButtons || []) {
-    button.classList.toggle("active", button.dataset.scale === appState.timeBestScale);
-  }
+  updatePersonalBestScaleControls(appState.timeBestScale);
   const durations = appState.personalBests?.durations || [];
   const series = buildTimeBestDistanceSeries();
   const values = series.flatMap((item) => item.points.map((point) => point.paceSecondsPerKm));
@@ -3569,9 +3594,7 @@ function predictRiegelTime(sourceTime, sourceDistanceKm, targetDistanceKm, expon
 }
 
 function renderPersonalBestChart() {
-  for (const button of els.personalBestScaleButtons) {
-    button.classList.toggle("active", button.dataset.scale === appState.personalBestScale);
-  }
+  updatePersonalBestScaleControls(appState.personalBestScale);
 
   const distances = appState.personalBests?.distances || [];
   const series = buildPersonalBestSeries();
@@ -4222,7 +4245,7 @@ function formatTimeBestPaceTooltip(series, point) {
 
 function buildPaceBestDurationSeries() {
   const paces = appState.personalBests?.paces || [];
-  return getPersonalBestPaceSeriesDefinitions().map((item) => ({
+  return getPersonalBestSeriesDefinitions().map((item) => ({
     ...item,
     points: paces
       .map((pace) => {
@@ -4451,43 +4474,6 @@ function buildDistanceAxisDomain(values) {
   return { min: 0, max, spread: Math.max(max, step) };
 }
 
-function buildSqrtDistanceAxisDomain(values) {
-  const distances = values.filter((value) => Number.isFinite(value) && value >= 0);
-  if (!distances.length) {
-    const min = 0;
-    const max = 1;
-    return {
-      min,
-      max,
-      sqrtMin: 0,
-      sqrtMax: 1,
-      sqrtSpread: 1
-    };
-  }
-
-  const rawMax = Math.max(...distances);
-  const step = rawMax <= 10 ? 1 : rawMax <= 50 ? 5 : 10;
-  const min = 0;
-  const max = Math.max(Math.ceil(rawMax / step) * step, step);
-  return {
-    min,
-    max,
-    sqrtMin: 0,
-    sqrtMax: Math.sqrt(max),
-    sqrtSpread: Math.max(Math.sqrt(max), 0.0001)
-  };
-}
-
-function getSqrtDistanceAxisTicks(minDistance, maxDistance) {
-  const min = Math.max(Number(minDistance) || 0, 0);
-  const max = Math.max(Number(maxDistance) || min, min * 1.1);
-  const sqrtMin = Math.sqrt(min);
-  const sqrtSpread = Math.max(Math.sqrt(max) - sqrtMin, 0.0001);
-  return Array.from({ length: 5 }, (_, index) => (
-    (sqrtMin + sqrtSpread * (index / 4)) ** 2
-  ));
-}
-
 function buildPaceAxisDomain(values) {
   const paces = values.filter((value) => Number.isFinite(value));
   if (!paces.length) return { min: 0, max: 30, spread: 30 };
@@ -4499,6 +4485,66 @@ function buildPaceAxisDomain(values) {
   const max = Math.ceil((rawMax + padding) / 15) * 15;
   const spread = Math.max(max - min, 30);
   return { min, max: min + spread, spread };
+}
+
+function buildLogPaceAxisDomain(values) {
+  const paces = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (!paces.length) {
+    const min = 60;
+    const max = 600;
+    const logMin = Math.log(min);
+    const logMax = Math.log(max);
+    return { min, max, logMin, logMax, logSpread: logMax - logMin };
+  }
+
+  const rawLogMin = Math.log(Math.min(...paces));
+  const rawLogMax = Math.log(Math.max(...paces));
+  const rawLogSpread = Math.max(rawLogMax - rawLogMin, 0.0001);
+  const padding = Math.max(rawLogSpread * 0.12, 0.03);
+  const logMin = rawLogMin - padding;
+  const logMax = rawLogMax + padding;
+  return {
+    min: Math.exp(logMin),
+    max: Math.exp(logMax),
+    logMin,
+    logMax,
+    logSpread: Math.max(logMax - logMin, 0.0001)
+  };
+}
+
+function buildLogDistanceAxisDomain(values) {
+  const distances = values.filter((value) => Number.isFinite(value) && value > 0);
+  if (!distances.length) {
+    const min = 0.1;
+    const max = 1;
+    const logMin = Math.log(min);
+    const logMax = Math.log(max);
+    return { min, max, logMin, logMax, logSpread: logMax - logMin };
+  }
+
+  const rawLogMin = Math.log(Math.min(...distances));
+  const rawLogMax = Math.log(Math.max(...distances));
+  const rawLogSpread = Math.max(rawLogMax - rawLogMin, 0.0001);
+  const padding = Math.max(rawLogSpread * 0.12, 0.08);
+  const logMin = rawLogMin - padding;
+  const logMax = rawLogMax + padding;
+  return {
+    min: Math.exp(logMin),
+    max: Math.exp(logMax),
+    logMin,
+    logMax,
+    logSpread: Math.max(logMax - logMin, 0.0001)
+  };
+}
+
+function getLogDistanceAxisTicks(minDistance, maxDistance) {
+  const min = Math.max(Number(minDistance) || 0.1, 0.0001);
+  const max = Math.max(Number(maxDistance) || min * 10, min * 1.1);
+  const logMin = Math.log(min);
+  const logSpread = Math.max(Math.log(max) - logMin, 0.0001);
+  return Array.from({ length: 5 }, (_, index) => (
+    Math.exp(logMin + logSpread * (index / 4))
+  ));
 }
 
 function groupByWeek(activities, metric, range = getDashboardDateRange(activities)) {
@@ -4657,7 +4703,10 @@ function formatDistanceTrendRate(kmPerYear) {
 
 function formatDistanceAxisTick(km) {
   if (!Number.isFinite(km)) return "-";
-  const digits = Math.abs(km) < 10 && !Number.isInteger(km) ? 1 : 0;
+  const absolute = Math.abs(km);
+  const digits = absolute > 0 && absolute < 0.1
+    ? 2
+    : absolute < 10 && !Number.isInteger(km) ? 1 : 0;
   return `${formatNumber(km, digits)} km`;
 }
 
