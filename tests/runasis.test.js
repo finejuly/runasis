@@ -142,6 +142,12 @@ test("formatPace carries rounded seconds into minutes", () => {
   assert.equal(app.formatPace(359.6), "6:00");
 });
 
+test("formatDistanceAxisTick keeps sub-kilometer log ticks positive", () => {
+  const app = loadAppContext();
+
+  assert.equal(app.formatDistanceAxisTick(0.023), "0.02 km");
+});
+
 test("numeric dashboard ranges end yesterday when there is no run today", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-05-31T12:00:00");
@@ -1974,6 +1980,78 @@ test("renderPersonalBestChart keeps the panel caption empty", () => {
   assert.doesNotMatch(html, /Top 1 · Top 3 · Top 10 · Median/);
 });
 
+test("personal best scale controls share one linear/log selection", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const toggleButton = (dataset) => ({
+      dataset,
+      classList: {
+        active: false,
+        toggle(className, enabled) {
+          if (className === "active") this.active = Boolean(enabled);
+        }
+      }
+    });
+    const buttonStates = () => ({
+      distance: els.personalBestScaleButtons.map((button) => button.classList.active),
+      time: els.timeBestScaleButtons.map((button) => button.classList.active),
+      pace: els.paceBestDistanceScaleButtons.map((button) => button.classList.active)
+    });
+
+    els.personalBestScaleButtons = [
+      toggleButton({ scale: "linear" }),
+      toggleButton({ scale: "log" })
+    ];
+    els.timeBestScaleButtons = [
+      toggleButton({ scale: "linear" }),
+      toggleButton({ scale: "log" })
+    ];
+    els.paceBestDistanceScaleButtons = [
+      toggleButton({ scale: "linear" }),
+      toggleButton({ scale: "log" })
+    ];
+    appState.personalBestScale = "linear";
+    appState.timeBestScale = "linear";
+    appState.paceBestDistanceScale = "linear";
+
+    setPersonalBestScaleSelection("log");
+    updatePersonalBestScaleControls();
+    const afterLog = {
+      states: {
+        distance: appState.personalBestScale,
+        time: appState.timeBestScale,
+        pace: appState.paceBestDistanceScale
+      },
+      buttons: buttonStates()
+    };
+
+    setPersonalBestScaleSelection("linear");
+    updatePersonalBestScaleControls();
+    const afterLinear = {
+      states: {
+        distance: appState.personalBestScale,
+        time: appState.timeBestScale,
+        pace: appState.paceBestDistanceScale
+      },
+      buttons: buttonStates()
+    };
+
+    ({ afterLog, afterLinear });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    afterLog: {
+      states: { distance: "log", time: "log", pace: "log" },
+      buttons: { distance: [false, true], time: [false, true], pace: [false, true] }
+    },
+    afterLinear: {
+      states: { distance: "linear", time: "linear", pace: "linear" },
+      buttons: { distance: [true, false], time: [true, false], pace: [true, false] }
+    }
+  });
+});
+
 test("renderPersonalBests adds exclusion buttons for source records", () => {
   const app = loadAppContext();
 
@@ -2184,7 +2262,7 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
     els.paceBestTrendTargetSelect = { disabled: false, innerHTML: "" };
     els.paceBestDistanceScaleButtons = [
       toggleButton({ scale: "linear" }),
-      toggleButton({ scale: "sqrt" })
+      toggleButton({ scale: "log" })
     ];
     els.paceBestTrendLimitButtons = [
       toggleButton({ limit: "5" }),
@@ -2192,7 +2270,7 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
       toggleButton({ limit: "20" })
     ];
     appState.expandedPaceBestTargets = new Set();
-    appState.paceBestDistanceScale = "sqrt";
+    appState.paceBestDistanceScale = "log";
     appState.paceBestTrendLimit = 10;
     appState.paceBestTrendTargetName = "5:27/km";
     appState.personalBests = {
@@ -2209,24 +2287,56 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
       recencyChart: els.paceBestRecencyChart.innerHTML,
       trendChart: els.paceBestTrendChart.innerHTML,
       trendOptions: els.paceBestTrendTargetSelect.innerHTML,
-      sqrtScaleActive: els.paceBestDistanceScaleButtons[1].classList.active,
+      logScaleActive: els.paceBestDistanceScaleButtons[1].classList.active,
       top10Active: els.paceBestTrendLimitButtons[1].classList.active,
-      visiblePaceAxisLabels: (els.paceBestDurationChart.innerHTML.match(/data-pace-axis-label=/g) || []).length
+      visiblePaceAxisLabels: (els.paceBestDurationChart.innerHTML.match(/data-pace-axis-label=/g) || []).length,
+      visibleRecencyPaceAxisLabels: (els.paceBestRecencyChart.innerHTML.match(/data-pace-recency-axis-label=/g) || []).length
     });
   `, app);
 
   assert.equal(result.top10Active, true);
-  assert.equal(result.sqrtScaleActive, true);
+  assert.equal(result.logScaleActive, true);
   assert.match(result.durationChart, /Top 1/);
-  assert.match(result.durationChart, /Median/);
+  assert.doesNotMatch(result.durationChart, /Median/);
+  assert.doesNotMatch(result.durationChart, /median distance by target pace/);
   assert.match(result.durationChart, />Distance \(km\)</);
   assert.match(result.durationChart, />Pace</);
   assert.match(result.durationChart, /5:00\/km/);
-  assert.match(result.durationChart, /data-y-scale="sqrt"/);
+  assert.match(result.durationChart, /data-x-scale="log"/);
+  assert.match(result.durationChart, /data-y-scale="log"/);
   assert.equal(result.visiblePaceAxisLabels, 8);
   assert.match(result.durationChart, /data-pace-axis-label="5:00\/km"/);
   assert.doesNotMatch(result.durationChart, /data-pace-axis-label="5:13\/km"/);
+  const paceAxisLabelX = (chart, attribute, label) => {
+    const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = chart.match(new RegExp(`<text[^>]*x="([\\d.]+)"[^>]*${attribute}="${escapedLabel}"`));
+    return Number(match?.[1]);
+  };
+  const fastPaceX = paceAxisLabelX(result.durationChart, "data-pace-axis-label", "3:30/km");
+  const fiveMinutePaceX = paceAxisLabelX(result.durationChart, "data-pace-axis-label", "5:00/km");
+  const slowPaceX = paceAxisLabelX(result.durationChart, "data-pace-axis-label", "7:00/km");
+  assert.ok(Number.isFinite(fastPaceX));
+  assert.ok(Number.isFinite(fiveMinutePaceX));
+  assert.ok(Number.isFinite(slowPaceX));
+  assert.ok(fastPaceX > slowPaceX, "faster target paces should appear to the right of slower target paces");
+  const linearFiveMinutePaceX = slowPaceX + ((fastPaceX - slowPaceX) * ((420 - 300) / (420 - 210)));
+  assert.ok(fiveMinutePaceX < linearFiveMinutePaceX - 20, "pace axis should use log spacing by default");
+  assert.doesNotMatch(result.durationChart, />0 km</);
+  assert.doesNotMatch(result.durationChart, />0\.0 km</);
   assert.match(result.recencyChart, /D-day/);
+  assert.match(result.recencyChart, /data-x-scale="log"/);
+  assert.equal(result.visibleRecencyPaceAxisLabels, 8);
+  assert.match(result.recencyChart, /data-pace-recency-axis-label="5:00\/km"/);
+  assert.doesNotMatch(result.recencyChart, /data-pace-recency-axis-label="5:13\/km"/);
+  const recencyFastPaceX = paceAxisLabelX(result.recencyChart, "data-pace-recency-axis-label", "3:30/km");
+  const recencyFiveMinutePaceX = paceAxisLabelX(result.recencyChart, "data-pace-recency-axis-label", "5:00/km");
+  const recencySlowPaceX = paceAxisLabelX(result.recencyChart, "data-pace-recency-axis-label", "7:00/km");
+  assert.ok(Number.isFinite(recencyFastPaceX));
+  assert.ok(Number.isFinite(recencyFiveMinutePaceX));
+  assert.ok(Number.isFinite(recencySlowPaceX));
+  assert.ok(recencyFastPaceX > recencySlowPaceX, "faster target paces should appear to the right on the timing chart");
+  const recencyLinearFiveMinutePaceX = recencySlowPaceX + ((recencyFastPaceX - recencySlowPaceX) * ((420 - 300) / (420 - 210)));
+  assert.ok(recencyFiveMinutePaceX < recencyLinearFiveMinutePaceX - 20, "timing chart pace axis should use log spacing");
   assert.match(result.recencyChart, /Newest/);
   assert.match(result.recencyChart, /Oldest/);
   assert.match(result.trendChart, /Selected Bests/);
@@ -2428,8 +2538,8 @@ test("best record types live under Personal Bests tabs", () => {
   assert.match(pbView, /Time-Limited Bests/);
   assert.match(pbView, /Pace Bests/);
   assert.match(pbView, /class="scale-option pace-distance-scale-option active"[^>]*data-scale="linear"/);
-  assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="sqrt"[\s\S]*>Sqrt</);
-  assert.doesNotMatch(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="log"[\s\S]*>Log</);
+  assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="log"[\s\S]*>Log</);
+  assert.doesNotMatch(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="sqrt"[\s\S]*>Sqrt</);
 });
 
 test("personal best type tabs stay in one row", () => {
