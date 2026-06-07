@@ -1096,6 +1096,7 @@ test("best effort target lists match configured distance, time, and pace records
     "1K",
     "1 mile",
     "2K",
+    "2 mile",
     "5K",
     "5 mile",
     "10K",
@@ -1199,7 +1200,7 @@ test("personalBestsFromStore computes standard distance bests from streams", asy
   const distances = Object.fromEntries(result.distances.map((distance) => [distance.name, distance]));
 
   assert.equal(result.detailActivityCount, 2);
-  assert.equal(result.distanceCount, 11);
+  assert.equal(result.distanceCount, 12);
   assert.deepEqual(JSON.parse(JSON.stringify(result.distances.map((distance) => distance.name))), [
     "100m",
     "200m",
@@ -1208,17 +1209,19 @@ test("personalBestsFromStore computes standard distance bests from streams", asy
     "1K",
     "1 mile",
     "2K",
+    "2 mile",
     "5K",
     "5 mile",
     "10K",
     "15K"
   ]);
-  assert.equal(result.effortCount, 22);
+  assert.equal(result.effortCount, 24);
   assert.equal(Math.round(distances["100m"].top[0].movingTime), 18);
   assert.equal(Math.round(distances["200m"].top[0].movingTime), 36);
   assert.equal(distances["1K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["1K"].top[0].movingTime), 180);
   assert.equal(Math.round(distances["2K"].top[0].movingTime), 360);
+  assert.equal(Math.round(distances["2 mile"].top[0].movingTime), 579);
   assert.equal(distances["5K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["5K"].top[0].movingTime), 900);
   assert.equal(distances["5K"].top[0].effortId, null);
@@ -1227,7 +1230,7 @@ test("personalBestsFromStore computes standard distance bests from streams", asy
   assert.equal(Math.round(distances["10K"].top[0].movingTime), 1800);
   assert.equal(distances["15K"].top[0].activityId, 2);
   assert.equal(Math.round(distances["15K"].top[0].movingTime), 2700);
-  assert.equal(vm.runInContext("mockWrittenPersonalBests.distanceCount", server), 11);
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.distanceCount", server), 12);
 });
 
 test("personalBestsFromStore computes fixed-pace distance bests from streams", async () => {
