@@ -34,7 +34,7 @@ const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
-const PERSONAL_BESTS_CACHE_VERSION = 8;
+const PERSONAL_BESTS_CACHE_VERSION = 9;
 const EXCLUDED_RECORDS_VERSION = 1;
 const ACTIVITY_STREAM_KEYS = [
   "time",
@@ -91,6 +91,7 @@ const PERSONAL_BEST_DISTANCE_TARGETS = [
   { name: "1K", distance: 1000 },
   { name: "1 mile", distance: 1609.344 },
   { name: "2K", distance: 2000 },
+  { name: "2 mile", distance: 3218.688 },
   { name: "5K", distance: 5000 },
   { name: "5 mile", distance: 8046.72 },
   { name: "10K", distance: 10000 },
