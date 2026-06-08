@@ -2416,14 +2416,16 @@ function renderTimeBestDistanceChart() {
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const paceDomain = buildPaceAxisDomain(values);
-  const xMin = useLogScale ? minDuration : 0;
-  const xMax = useLogScale ? maxDuration : Math.max(maxDuration, durations.at(-1)?.durationSeconds || maxDuration);
-  const logMin = useLogScale ? Math.log(xMin) : 0;
-  const logSpread = useLogScale ? Math.max(Math.log(xMax) - logMin, 0.0001) : 1;
-  const x = (durationSeconds) => {
-    if (!useLogScale) return padding.left + (durationSeconds / xMax) * chartWidth;
-    return padding.left + ((Math.log(durationSeconds) - logMin) / logSpread) * chartWidth;
-  };
+  const xScale = buildLinearLogXAxisScale({
+    useLogScale,
+    minValue: minDuration,
+    maxValue: maxDuration,
+    linearMax: Math.max(maxDuration, durations.at(-1)?.durationSeconds || maxDuration),
+    start: padding.left,
+    width: chartWidth
+  });
+  const xMax = xScale.max;
+  const x = (durationSeconds) => xScale.position(durationSeconds);
   const y = (pace) => padding.top + ((pace - paceDomain.min) / paceDomain.spread) * chartHeight;
   const xTicks = getTimeBestDurationTicks({ useLogScale, minDuration, maxDuration, xMax, durations });
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => paceDomain.min + ratio * paceDomain.spread);
@@ -2526,15 +2528,17 @@ function renderTimeBestRecencyChart() {
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const useLogScale = appState.timeBestScale === "log" && minDuration > 0 && maxDuration > minDuration;
-  const xMin = useLogScale ? minDuration : 0;
-  const xMax = useLogScale ? maxDuration : Math.max(maxDuration, durations.at(-1)?.durationSeconds || maxDuration);
-  const logMin = useLogScale ? Math.log(xMin) : 0;
-  const logSpread = useLogScale ? Math.max(Math.log(xMax) - logMin, 0.0001) : 1;
   const yMax = Math.ceil(maxDaysAgo / 90) * 90 || 90;
-  const x = (durationSeconds) => {
-    if (!useLogScale) return padding.left + (durationSeconds / xMax) * chartWidth;
-    return padding.left + ((Math.log(durationSeconds) - logMin) / logSpread) * chartWidth;
-  };
+  const xScale = buildLinearLogXAxisScale({
+    useLogScale,
+    minValue: minDuration,
+    maxValue: maxDuration,
+    linearMax: Math.max(maxDuration, durations.at(-1)?.durationSeconds || maxDuration),
+    start: padding.left,
+    width: chartWidth
+  });
+  const xMax = xScale.max;
+  const x = (durationSeconds) => xScale.position(durationSeconds);
   const y = (daysAgo) => padding.top + (daysAgo / yMax) * chartHeight;
   const xTicks = getTimeBestDurationTicks({ useLogScale, minDuration, maxDuration, xMax, durations });
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio));
@@ -3085,17 +3089,19 @@ function renderRiegelEquivalentChart(seriesRows, source) {
   const useLogScale = appState.riegelFiveKScale === "log" && minDistance > 0 && maxDistance > minDistance;
   els.riegelFiveKChartCaption.textContent = "";
 
-  const xMin = useLogScale ? minDistance : 0;
-  const xMax = useLogScale ? maxDistance : Math.ceil(maxDistance / 5) * 5;
-  const logMin = useLogScale ? Math.log(xMin) : 0;
-  const logSpread = useLogScale ? Math.max(Math.log(xMax) - logMin, 0.0001) : 1;
+  const xScale = buildLinearLogXAxisScale({
+    useLogScale,
+    minValue: minDistance,
+    maxValue: maxDistance,
+    linearMax: Math.ceil(maxDistance / 5) * 5,
+    start: padding.left,
+    width: chartWidth
+  });
+  const xMax = xScale.max;
   const paceDomainValues = paceDomainPoints.map((point) => point.paceSecondsPerKm);
   if (Number.isFinite(expectedPace)) paceDomainValues.push(expectedPace);
   const paceDomain = buildPaceAxisDomain(paceDomainValues);
-  const x = (distanceKm) => {
-    if (!useLogScale) return padding.left + (distanceKm / xMax) * chartWidth;
-    return padding.left + ((Math.log(distanceKm) - logMin) / logSpread) * chartWidth;
-  };
+  const x = (distanceKm) => xScale.position(distanceKm);
   const y = (pace) => padding.top + ((pace - paceDomain.min) / paceDomain.spread) * chartHeight;
   const clampY = (pace) => Math.max(padding.top, Math.min(height - padding.bottom - 2, y(pace)));
   const xTicks = getDistanceTicks({ useLogScale, minDistance, maxDistance, xMax });
@@ -3274,10 +3280,15 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   const minDistance = Math.min(...points.map((point) => point.distanceKm));
   const maxDistance = Math.max(...points.map((point) => point.distanceKm));
   const useLogScale = appState.riegelFiveKScale === "log" && minDistance > 0 && maxDistance > minDistance;
-  const xMax = useLogScale ? maxDistance : Math.ceil(maxDistance / 5) * 5;
-  const xMin = useLogScale ? minDistance : 0;
-  const logMin = useLogScale ? Math.log(xMin) : 0;
-  const logSpread = useLogScale ? Math.max(Math.log(xMax) - logMin, 0.0001) : 1;
+  const xScale = buildLinearLogXAxisScale({
+    useLogScale,
+    minValue: minDistance,
+    maxValue: maxDistance,
+    linearMax: Math.ceil(maxDistance / 5) * 5,
+    start: padding.left,
+    width: chartWidth
+  });
+  const xMax = xScale.max;
   const paceDomain = buildPaceAxisDomain(points.flatMap((point) => (
     point.hasCurrent
       ? [point.paceSecondsPerKm, point.actualPaceSecondsPerKm]
@@ -3287,10 +3298,7 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   const gapSpread = maxGap * 2;
   const showGapLabels = comparisonPoints.length <= 6;
 
-  const x = (distanceKm) => {
-    if (!useLogScale) return padding.left + (distanceKm / xMax) * chartWidth;
-    return padding.left + ((Math.log(distanceKm) - logMin) / logSpread) * chartWidth;
-  };
+  const x = (distanceKm) => xScale.position(distanceKm);
   const yPace = (pace) => pacePanel.top + ((pace - paceDomain.min) / paceDomain.spread) * pacePanel.height;
   const clampGap = (paceGap) => Math.max(-maxGap, Math.min(maxGap, paceGap));
   const yGap = (paceGap) => gapPanel.top + ((maxGap + clampGap(paceGap)) / gapSpread) * gapPanel.height;
@@ -3619,15 +3627,16 @@ function renderPersonalBestChart() {
   const minPace = Math.floor(Math.min(...values) / 15) * 15;
   const maxPace = Math.ceil(Math.max(...values) / 15) * 15;
   const paceSpread = Math.max(maxPace - minPace, 30);
-  const xMin = useLogScale ? minDistance : 0;
-  const xMax = useLogScale ? maxDistance : Math.ceil(maxDistance / 5) * 5;
-  const logMin = useLogScale ? Math.log(xMin) : 0;
-  const logSpread = useLogScale ? Math.max(Math.log(xMax) - logMin, 0.0001) : 1;
-
-  const x = (distanceKm) => {
-    if (!useLogScale) return padding.left + (distanceKm / xMax) * chartWidth;
-    return padding.left + ((Math.log(distanceKm) - logMin) / logSpread) * chartWidth;
-  };
+  const xScale = buildLinearLogXAxisScale({
+    useLogScale,
+    minValue: minDistance,
+    maxValue: maxDistance,
+    linearMax: Math.ceil(maxDistance / 5) * 5,
+    start: padding.left,
+    width: chartWidth
+  });
+  const xMax = xScale.max;
+  const x = (distanceKm) => xScale.position(distanceKm);
   const y = (pace) => padding.top + ((pace - minPace) / paceSpread) * chartHeight;
   const xTicks = getDistanceTicks({ useLogScale, minDistance, maxDistance, xMax });
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => minPace + ratio * paceSpread);
@@ -3729,16 +3738,18 @@ function renderPersonalBestRecencyChart() {
   const padding = { top: 24, right: 28, bottom: 48, left: 62 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const xMin = useLogScale ? minDistance : 0;
-  const xMax = useLogScale ? maxDistance : Math.ceil(maxDistance / 5) * 5;
-  const logMin = useLogScale ? Math.log(xMin) : 0;
-  const logSpread = useLogScale ? Math.max(Math.log(xMax) - logMin, 0.0001) : 1;
+  const xScale = buildLinearLogXAxisScale({
+    useLogScale,
+    minValue: minDistance,
+    maxValue: maxDistance,
+    linearMax: Math.ceil(maxDistance / 5) * 5,
+    start: padding.left,
+    width: chartWidth
+  });
+  const xMax = xScale.max;
   const yMax = Math.ceil(maxDaysAgo / 90) * 90 || 90;
 
-  const x = (distanceKm) => {
-    if (!useLogScale) return padding.left + (distanceKm / xMax) * chartWidth;
-    return padding.left + ((Math.log(distanceKm) - logMin) / logSpread) * chartWidth;
-  };
+  const x = (distanceKm) => xScale.position(distanceKm);
   const y = (daysAgo) => padding.top + (daysAgo / yMax) * chartHeight;
   const xTicks = getDistanceTicks({ useLogScale, minDistance, maxDistance, xMax });
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio));
@@ -4409,6 +4420,23 @@ function formatTimeBestTick(duration) {
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   const hours = seconds / 3600;
   return Number.isInteger(hours) ? `${hours}h` : `${formatNumber(hours, 1)}h`;
+}
+
+function buildLinearLogXAxisScale({ useLogScale, minValue, maxValue, linearMax, start, width }) {
+  const min = useLogScale ? minValue : 0;
+  const max = useLogScale ? maxValue : linearMax;
+  const logMin = useLogScale ? Math.log(min) : 0;
+  const logSpread = useLogScale ? Math.max(Math.log(max) - logMin, 0.0001) : 1;
+  return {
+    min,
+    max,
+    logMin,
+    logSpread,
+    position(value) {
+      if (!useLogScale) return start + (value / max) * width;
+      return start + ((Math.log(value) - logMin) / logSpread) * width;
+    }
+  };
 }
 
 function getPersonalBestSeriesDefinitions() {
