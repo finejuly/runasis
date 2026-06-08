@@ -148,6 +148,63 @@ test("formatDistanceAxisTick keeps sub-kilometer log ticks positive", () => {
   assert.equal(app.formatDistanceAxisTick(0.023), "0.02 km");
 });
 
+test("buildLinearLogXAxisScale maps linear and log values consistently", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const round = (value) => Math.round(value * 1000) / 1000;
+    const linear = buildLinearLogXAxisScale({
+      useLogScale: false,
+      minValue: 1,
+      maxValue: 10,
+      linearMax: 10,
+      start: 10,
+      width: 90
+    });
+    const log = buildLinearLogXAxisScale({
+      useLogScale: true,
+      minValue: 1,
+      maxValue: 100,
+      linearMax: 100,
+      start: 10,
+      width: 90
+    });
+    ({
+      linear: {
+        min: linear.min,
+        max: linear.max,
+        atStart: round(linear.position(0)),
+        atMiddle: round(linear.position(5)),
+        atEnd: round(linear.position(10))
+      },
+      log: {
+        min: log.min,
+        max: log.max,
+        atStart: round(log.position(1)),
+        atMiddle: round(log.position(10)),
+        atEnd: round(log.position(100))
+      }
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    linear: {
+      min: 0,
+      max: 10,
+      atStart: 10,
+      atMiddle: 55,
+      atEnd: 100
+    },
+    log: {
+      min: 1,
+      max: 100,
+      atStart: 10,
+      atMiddle: 55,
+      atEnd: 100
+    }
+  });
+});
+
 test("numeric dashboard ranges end yesterday when there is no run today", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-05-31T12:00:00");
