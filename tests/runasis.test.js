@@ -425,6 +425,18 @@ test("resolveStaticFilePath rejects public directory prefix escapes", () => {
   );
 });
 
+test("malformed static URL paths return a client error", async () => {
+  const server = loadServerContext();
+
+  const res = await callRequest(server, {
+    url: "/%E0%A4%A",
+    headers: { host: "localhost:3000" }
+  });
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body, "Malformed URL path");
+});
+
 test("upsertEnvText creates Strava env entries and preserves other values", () => {
   const server = loadServerContext();
   const text = [
