@@ -13,9 +13,9 @@ const PERSONAL_BEST_TREND_LIMIT_OPTIONS = new Set([5, 10, 20]);
 const PERSONAL_BEST_TABS = new Set(["distance", "time", "pace"]);
 const ANALYSIS_TABS = new Set(["distance", "time", "pace"]);
 const ANALYSIS_TAB_CONTEXT = {
-  distance: "Distance compares race bests against the selected baseline. A positive gap means your current best beats the model for that distance.",
-  time: "Time compares fixed-duration bests by distance covered. A positive gap means you covered more distance than expected.",
-  pace: "Pace compares how far each target pace was held. Out of range means the estimate goes beyond your observed runs."
+  distance: "Pace by Distance compares race bests across target distances. A positive gap means your pace beats the expected result.",
+  time: "Pace by Time compares fixed-duration bests by pace. Faster than expected means you covered more distance.",
+  pace: "Distance by Pace compares how far each target pace was held. Out of range means it exceeds your observed runs."
 };
 const RECENT_ACTIVITY_LIMIT = 5;
 const REPOSITORY_URL = "";
@@ -270,7 +270,6 @@ function cacheElements() {
     "paceRiegelSummaryGrid",
     "paceRiegelChart",
     "paceRiegelTable",
-    "recordHistoryTable",
     "trainingScheduleList",
     "chartTooltip",
     "toast"
@@ -2897,7 +2896,7 @@ function renderRiegelAnalysis() {
     if (els.riegelExpectedPaceChartCaption) els.riegelExpectedPaceChartCaption.textContent = "";
     if (els.riegelExpectedPaceChart) renderEmpty(els.riegelExpectedPaceChart, "No expected pace data");
     els.riegelEquivalentChartTitle.textContent = "Baseline Prediction";
-    if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = "Riegel Projection";
+    if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = "Pace by Distance Comparison";
     renderEmpty(els.riegelFiveKChart, "No baseline prediction data");
     els.riegelProjectionTable.innerHTML = `<tr><td colspan="5">No best effort data available for analysis</td></tr>`;
     return null;
@@ -2906,7 +2905,7 @@ function renderRiegelAnalysis() {
   updateRiegelExponentControls(analysis.riegelExponent);
   appState.activeRiegelSourceDistanceName = analysis.source.name;
   els.riegelEquivalentChartTitle.textContent = `${analysis.source.name} Prediction`;
-  if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = `Riegel Projection · ${analysis.source.name}`;
+  if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = `Pace by Distance Comparison · ${analysis.source.name}`;
   const expectedTargetCards = (analysis.expectedTargetRecords || []).map((target) => {
     const predictedTime = Number.isFinite(target.predictedTime) ? formatClockDuration(target.predictedTime) : "-";
     const predictedPace = Number.isFinite(target.predictedPaceSecondsPerKm)
@@ -3230,17 +3229,17 @@ function renderTimeRiegelAnalysis() {
   if (els.timeRiegelSummaryGrid) {
     els.timeRiegelSummaryGrid.innerHTML = renderRiegelGapSummaryCards(analysis, "Time");
   }
-  renderExpectedDistanceChart(els.timeRiegelChart, analysis.rows, {
-    ariaLabel: "Time best expected distance compared with current distance",
+  renderExpectedPaceByTimeChart(els.timeRiegelChart, analysis.rows, {
+    ariaLabel: "Pace by Time expected pace compared with current pace",
     targetLabel: "Time"
   });
   els.timeRiegelTable.innerHTML = analysis.rows.map((row) => `
     <tr>
       <td>${escapeHtml(row.name)}</td>
-      <td>${formatDistanceKm(row.actualDistanceKm || row.distanceKm)}</td>
-      <td>${formatDistanceKm(row.expectedDistanceKm)}</td>
-      <td>${formatSignedDistanceGap(row.gapKm)}</td>
       <td>${formatPaceWithUnit(row.paceSecondsPerKm)}</td>
+      <td>${formatPaceWithUnit(row.expectedPaceSecondsPerKm)}</td>
+      <td>${formatPaceGapLabel(row.paceSecondsPerKm - row.expectedPaceSecondsPerKm)}</td>
+      <td>${formatDistanceKm(row.actualDistanceKm || row.distanceKm)}</td>
     </tr>
   `).join("");
   return analysis;
@@ -3370,6 +3369,72 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
   `;
 }
 
+function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel }) {
+  const points = (rows || []).filter((row) => (
+    row.name &&
+    Number.isFinite(row.paceSecondsPerKm) &&
+    Number.isFinite(row.expectedPaceSecondsPerKm)
+  ));
+  if (!points.length) return renderEmpty(container, "No pace comparison data");
+
+  const width = 980;
+  const height = 318;
+  const padding = { top: 36, right: 28, bottom: 72, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const paceDomain = buildPaceAxisDomain(points.flatMap((point) => [point.paceSecondsPerKm, point.expectedPaceSecondsPerKm]));
+  const y = (paceSecondsPerKm) => padding.top + ((paceSecondsPerKm - paceDomain.min) / paceDomain.spread) * chartHeight;
+  const groupWidth = chartWidth / points.length;
+  const barWidth = Math.max(8, Math.min(26, groupWidth * 0.28));
+  const baselineY = y(paceDomain.max);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => paceDomain.min + paceDomain.spread * ratio);
+
+  const grid = yTicks.map((tick) => {
+    const tickY = y(tick);
+    return `
+      <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="#d9dfd7"></line>
+      <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatPace(tick)}</text>
+    `;
+  }).join("");
+  const labels = points.map((point, index) => {
+    const centerX = padding.left + groupWidth * index + groupWidth / 2;
+    const labelY = height - 34;
+    return `<text class="axis-label" x="${centerX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${centerX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
+  }).join("");
+  const bars = points.map((point, index) => {
+    const centerX = padding.left + groupWidth * index + groupWidth / 2;
+    const expectedY = y(point.expectedPaceSecondsPerKm);
+    const actualY = y(point.paceSecondsPerKm);
+    const paceGap = point.paceSecondsPerKm - point.expectedPaceSecondsPerKm;
+    const gapColor = point.status === "strength" ? "#24724f" : point.status === "weakness" ? "#b24b3f" : "#6f786f";
+    return `
+      <rect x="${(centerX - barWidth - 2).toFixed(1)}" y="${expectedY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - expectedY).toFixed(1)}" fill="#3266a8" opacity="0.72" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatPaceWithUnit(point.expectedPaceSecondsPerKm)}`)}"></rect>
+      <rect x="${(centerX + 2).toFixed(1)}" y="${actualY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - actualY).toFixed(1)}" fill="${gapColor}" opacity="0.86" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatPaceWithUnit(point.paceSecondsPerKm)}\nGap ${formatPaceGapLabel(paceGap)}`)}"></rect>
+    `;
+  }).join("");
+  const legend = `
+    <g transform="translate(${padding.left}, 18)">
+      <rect x="0" y="-8" width="16" height="10" fill="#3266a8" opacity="0.72"></rect>
+      <text class="axis-label" x="24" y="1">Expected</text>
+    </g>
+    <g transform="translate(${padding.left + 120}, 18)">
+      <rect x="0" y="-8" width="16" height="10" fill="#24724f" opacity="0.86"></rect>
+      <text class="axis-label" x="24" y="1">Current</text>
+    </g>
+  `;
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(ariaLabel)}">
+      ${grid}
+      ${legend}
+      ${bars}
+      ${labels}
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">${escapeHtml(targetLabel)}</text>
+      <text class="axis-label" x="10" y="16">Pace</text>
+    </svg>
+  `;
+}
+
 function buildAnalysisProfile(existing = {}) {
   const distanceAnalysis = existing.distanceAnalysis === undefined ? buildRiegelAnalysis() : existing.distanceAnalysis;
   const timeAnalysis = existing.timeAnalysis === undefined ? buildTimeRiegelAnalysis() : existing.timeAnalysis;
@@ -3392,7 +3457,6 @@ function buildAnalysisProfile(existing = {}) {
       profileCard("Weakness", weakness, "No clear weakness yet"),
       profileCard("Improve", improve, "Collect more comparable records")
     ],
-    history: buildRecordHistory(),
     schedule: buildTrainingSchedule(improve)
   };
 }
@@ -3435,47 +3499,6 @@ function timePaceAnalysisSignals(analysis, label) {
     }));
 }
 
-function buildRecordHistory() {
-  const records = [];
-  for (const distance of appState.personalBests?.distances || []) {
-    for (const effort of distance.top || []) {
-      records.push({
-        type: "Distance",
-        name: distance.name,
-        date: effort.startDateLocal || effort.startDate || null,
-        result: formatClockDuration(effort.movingTime),
-        pace: formatPaceWithUnit(effort.paceSecondsPerKm),
-        activityName: effort.activityName || "Untitled"
-      });
-    }
-  }
-  for (const duration of appState.personalBests?.durations || []) {
-    for (const effort of duration.top || []) {
-      records.push({
-        type: "Time",
-        name: duration.name,
-        date: effort.startDateLocal || effort.startDate || null,
-        result: formatDistanceKm(effort.distanceKm),
-        pace: formatPaceWithUnit(effort.paceSecondsPerKm),
-        activityName: effort.activityName || "Untitled"
-      });
-    }
-  }
-  for (const pace of appState.personalBests?.paces || []) {
-    for (const effort of pace.top || []) {
-      records.push({
-        type: "Pace",
-        name: pace.name,
-        date: effort.startDateLocal || effort.startDate || null,
-        result: formatClockDuration(effort.durationSeconds || effort.movingTime),
-        pace: formatPaceWithUnit(effort.paceSecondsPerKm || pace.paceSecondsPerKm),
-        activityName: effort.activityName || "Untitled"
-      });
-    }
-  }
-  return records.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
-}
-
 function buildTrainingSchedule(improveSignal = null) {
   const target = improveSignal?.name || "Current limiter";
   return [
@@ -3495,20 +3518,6 @@ function renderAnalysisProfile(profile) {
         <small>${escapeHtml(card.detail)}</small>
       </article>
     `).join("");
-  }
-  if (els.recordHistoryTable) {
-    els.recordHistoryTable.innerHTML = profile.history.length
-      ? profile.history.map((record) => `
-        <tr>
-          <td>${escapeHtml(record.type)}</td>
-          <td>${escapeHtml(record.name)}</td>
-          <td>${formatDate(record.date)}</td>
-          <td>${escapeHtml(record.result)}</td>
-          <td>${escapeHtml(record.pace)}</td>
-          <td class="activity-name">${escapeHtml(record.activityName)}</td>
-        </tr>
-      `).join("")
-      : `<tr><td colspan="6">No record history available</td></tr>`;
   }
   if (els.trainingScheduleList) {
     els.trainingScheduleList.innerHTML = profile.schedule.map((item) => `

@@ -2,7 +2,9 @@
 .env*
 !.env.example
 .superpowers/
+.agents/
 obsidian/
+docs/loop/
 data/*.json
 data/**/*.json
 data/strava/

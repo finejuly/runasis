@@ -75,7 +75,10 @@
         </div>
       </section>
 
-      <div id="dashboardView">
+      <div id="dashboardView" role="region" aria-labelledby="dashboardViewTitle">
+        <div class="view-section-heading">
+          <h2 id="dashboardViewTitle">Dashboard</h2>
+        </div>
         <div class="kpi-summary-heading">
           <div>
             <h2>Key Metrics</h2>
@@ -228,7 +231,10 @@
         </article>
       </section>
 
-      <section class="analysis-view hidden" id="pbView" aria-label="Personal bests">
+      <section class="analysis-view hidden" id="pbView" aria-labelledby="personalBestsViewTitle">
+        <div class="view-section-heading">
+          <h2 id="personalBestsViewTitle">Personal Bests</h2>
+        </div>
         <div class="personal-best-tabs scale-toggle" role="group" aria-label="Personal best type">
           <button class="scale-option personal-best-tab-option active" type="button" data-personal-best-tab="distance">Distance</button>
           <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="time">Time</button>
@@ -383,15 +389,15 @@
         </div>
       </section>
 
-      <section class="analysis-view hidden" id="analysisView" aria-label="Running analysis">
+      <section class="analysis-view hidden" id="analysisView" aria-labelledby="analysisViewTitle">
         <div class="analysis-heading">
           <div class="panel-title">
             <div class="title-with-help">
-              <h2>Riegel Analysis</h2>
-              <button class="help-button" id="riegelInfoButton" type="button" aria-label="About Riegel Analysis" aria-haspopup="dialog">?</button>
+              <h2 id="analysisViewTitle">Training Analysis</h2>
+              <button class="help-button" id="riegelInfoButton" type="button" aria-label="About the Riegel analysis model" aria-haspopup="dialog">?</button>
             </div>
             <div class="panel-actions">
-              <div class="scale-toggle exponent-mode-toggle" role="group" aria-label="Riegel exponent mode">
+              <div class="scale-toggle exponent-mode-toggle" role="group" aria-label="Analysis model">
                 <button class="scale-option riegel-exponent-mode-option" type="button" data-mode="default">Default</button>
                 <button class="scale-option riegel-exponent-mode-option active" type="button" data-mode="median">Median</button>
                 <button class="scale-option riegel-exponent-mode-option" type="button" data-mode="custom">Custom</button>
@@ -404,19 +410,22 @@
           </div>
         </div>
         <div class="personal-best-tabs analysis-tabs scale-toggle" role="group" aria-label="Analysis type">
-          <button class="scale-option analysis-tab-option active" type="button" data-analysis-tab="distance">Distance</button>
-          <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="time">Time</button>
-          <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="pace">Pace</button>
+          <button class="scale-option analysis-tab-option active" type="button" data-analysis-tab="distance">Pace by Distance</button>
+          <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="time">Pace by Time</button>
+          <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="pace">Distance by Pace</button>
         </div>
         <p class="analysis-context" id="analysisTabContext" aria-live="polite"></p>
 
         <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Training profile" id="analysisProfileGrid"></section>
 
         <div class="analysis-subview" id="analysisDistanceView">
+          <div class="analysis-subview-heading">
+            <h3>Pace by Distance</h3>
+          </div>
           <section class="kpi-grid analysis-kpi-grid" aria-label="Riegel summary" id="riegelSummaryGrid"></section>
           <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
-              <h2>Expected vs Current by Distance</h2>
+              <h2>Expected vs Current Pace by Distance</h2>
               <div class="panel-actions">
                 <span id="riegelExpectedPaceChartCaption"></span>
                 <div class="scale-toggle" role="group" aria-label="Expected vs current x-axis scale">
@@ -447,8 +456,8 @@
             <article class="records-panel analysis-panel analysis-panel--full-row">
               <div class="panel-title">
                 <div class="title-with-help">
-                  <h2 id="riegelProjectionTitle">Riegel Projection</h2>
-                  <button class="help-button" id="riegelProjectionInfoButton" type="button" aria-label="About Riegel Projection" aria-haspopup="dialog">?</button>
+                  <h2 id="riegelProjectionTitle">Pace by Distance Comparison</h2>
+                  <button class="help-button" id="riegelProjectionInfoButton" type="button" aria-label="About pace by distance comparison" aria-haspopup="dialog">?</button>
                 </div>
               </div>
               <div class="table-wrap">
@@ -470,26 +479,29 @@
         </div>
 
         <div class="analysis-subview hidden" id="analysisTimeView">
+          <div class="analysis-subview-heading">
+            <h3>Pace by Time</h3>
+          </div>
           <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
-              <h2>Expected vs Current by Time</h2>
+              <h2>Expected vs Current Pace by Time</h2>
             </div>
-            <div class="chart-box personal-best-chart expected-gap-chart" id="timeRiegelChart" aria-label="Expected distance compared with current time bests chart"></div>
+            <div class="chart-box personal-best-chart expected-gap-chart" id="timeRiegelChart" aria-label="Expected pace compared with current time bests chart"></div>
           </article>
           <section class="analysis-grid">
             <article class="records-panel analysis-panel analysis-panel--full-row">
               <div class="panel-title">
-                <h2>Time Comparison</h2>
+                <h2>Pace by Time Comparison</h2>
               </div>
               <div class="table-wrap">
                 <table>
                   <thead>
                     <tr>
                       <th>Time</th>
-                      <th>Current Distance</th>
-                      <th>Expected Distance</th>
-                      <th>Gap</th>
-                      <th>Pace</th>
+                      <th>Current Pace</th>
+                      <th>Expected Pace</th>
+                      <th>Pace Gap</th>
+                      <th>Distance</th>
                     </tr>
                   </thead>
                   <tbody id="timeRiegelTable"></tbody>
@@ -500,16 +512,19 @@
         </div>
 
         <div class="analysis-subview hidden" id="analysisPaceView">
+          <div class="analysis-subview-heading">
+            <h3>Distance by Pace</h3>
+          </div>
           <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
-              <h2>Expected vs Current by Pace</h2>
+              <h2>Expected vs Current Distance by Pace</h2>
             </div>
             <div class="chart-box personal-best-chart expected-gap-chart" id="paceRiegelChart" aria-label="Expected distance compared with current pace bests chart"></div>
           </article>
           <section class="analysis-grid">
             <article class="records-panel analysis-panel analysis-panel--full-row">
               <div class="panel-title">
-                <h2>Pace Comparison</h2>
+                <h2>Distance by Pace Comparison</h2>
               </div>
               <div class="table-wrap">
                 <table>
@@ -530,26 +545,6 @@
         </div>
 
         <section class="analysis-grid analysis-support-grid">
-          <article class="records-panel analysis-panel analysis-panel--full-row">
-            <div class="panel-title">
-              <h2>Record History</h2>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Type</th>
-                    <th>Target</th>
-                    <th>Date</th>
-                    <th>Result</th>
-                    <th>Pace</th>
-                    <th>Activity</th>
-                  </tr>
-                </thead>
-                <tbody id="recordHistoryTable"></tbody>
-              </table>
-            </div>
-          </article>
           <article class="records-panel analysis-panel analysis-panel--full-row">
             <div class="panel-title">
               <h2>Training Schedule</h2>
@@ -608,7 +603,7 @@
     <div class="modal-backdrop hidden" id="riegelProjectionInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelProjectionInfoTitle">
       <div class="confirm-dialog info-dialog">
         <div class="info-dialog-header">
-          <h2 id="riegelProjectionInfoTitle">Riegel Projection</h2>
+          <h2 id="riegelProjectionInfoTitle">Pace by Distance Comparison</h2>
           <button class="button ghost" id="riegelProjectionInfoCloseButton" type="button">Close</button>
         </div>
         <p>This table estimates each target distance from the selected baseline best using the current Riegel exponent.</p>

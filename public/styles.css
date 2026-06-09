@@ -532,12 +532,32 @@ input[type="search"] {
   margin-top: 14px;
 }
 
+.view-section-heading {
+  margin: 14px 2px 10px;
+}
+
+.view-section-heading h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
 .analysis-heading {
   min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   padding: 18px;
+}
+
+.analysis-subview-heading {
+  margin: 16px 2px 10px;
+}
+
+.analysis-subview-heading h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
 }
 
 .personal-best-grid {
