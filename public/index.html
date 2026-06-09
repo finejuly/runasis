@@ -403,58 +403,158 @@
             </div>
           </div>
         </div>
-        <section class="kpi-grid analysis-kpi-grid" aria-label="Riegel summary" id="riegelSummaryGrid"></section>
-        <article class="chart-panel personal-best-chart-panel">
-          <div class="panel-title">
-            <h2>Expected vs Current by Distance</h2>
-            <div class="panel-actions">
-              <span id="riegelExpectedPaceChartCaption"></span>
-              <div class="scale-toggle" role="group" aria-label="Expected vs current x-axis scale">
-                <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
-                <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
+        <div class="personal-best-tabs analysis-tabs scale-toggle" role="group" aria-label="Analysis type">
+          <button class="scale-option analysis-tab-option active" type="button" data-analysis-tab="distance">Distance</button>
+          <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="time">Time</button>
+          <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="pace">Pace</button>
+        </div>
+        <p class="analysis-context" id="analysisTabContext" aria-live="polite"></p>
+
+        <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Training profile" id="analysisProfileGrid"></section>
+
+        <div class="analysis-subview" id="analysisDistanceView">
+          <section class="kpi-grid analysis-kpi-grid" aria-label="Riegel summary" id="riegelSummaryGrid"></section>
+          <article class="chart-panel personal-best-chart-panel">
+            <div class="panel-title">
+              <h2>Expected vs Current by Distance</h2>
+              <div class="panel-actions">
+                <span id="riegelExpectedPaceChartCaption"></span>
+                <div class="scale-toggle" role="group" aria-label="Expected vs current x-axis scale">
+                  <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
+                  <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="chart-box personal-best-chart expected-gap-chart" id="riegelExpectedPaceChart" aria-label="Expected records compared with current records chart"></div>
-        </article>
-        <article class="chart-panel personal-best-chart-panel">
-          <div class="panel-title">
-            <div class="title-with-help">
-              <h2 id="riegelEquivalentChartTitle">Baseline Prediction</h2>
-              <button class="help-button" id="riegelEquivalentInfoButton" type="button" aria-label="About baseline prediction" aria-haspopup="dialog">?</button>
-            </div>
-            <div class="panel-actions">
-              <span id="riegelFiveKChartCaption"></span>
-              <div class="scale-toggle" role="group" aria-label="X-axis scale">
-                <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
-                <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
-              </div>
-            </div>
-          </div>
-          <div class="chart-box personal-best-chart" id="riegelFiveKChart" aria-label="Baseline prediction by predictor distance chart"></div>
-        </article>
-        <section class="analysis-grid">
-          <article class="records-panel analysis-panel analysis-panel--full-row">
+            <div class="chart-box personal-best-chart expected-gap-chart" id="riegelExpectedPaceChart" aria-label="Expected records compared with current records chart"></div>
+          </article>
+          <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
               <div class="title-with-help">
-                <h2 id="riegelProjectionTitle">Riegel Projection</h2>
-                <button class="help-button" id="riegelProjectionInfoButton" type="button" aria-label="About Riegel Projection" aria-haspopup="dialog">?</button>
+                <h2 id="riegelEquivalentChartTitle">Baseline Prediction</h2>
+                <button class="help-button" id="riegelEquivalentInfoButton" type="button" aria-label="About baseline prediction" aria-haspopup="dialog">?</button>
               </div>
+              <div class="panel-actions">
+                <span id="riegelFiveKChartCaption"></span>
+                <div class="scale-toggle" role="group" aria-label="X-axis scale">
+                  <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
+                  <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
+                </div>
+              </div>
+            </div>
+            <div class="chart-box personal-best-chart" id="riegelFiveKChart" aria-label="Baseline prediction by predictor distance chart"></div>
+          </article>
+          <section class="analysis-grid">
+            <article class="records-panel analysis-panel analysis-panel--full-row">
+              <div class="panel-title">
+                <div class="title-with-help">
+                  <h2 id="riegelProjectionTitle">Riegel Projection</h2>
+                  <button class="help-button" id="riegelProjectionInfoButton" type="button" aria-label="About Riegel Projection" aria-haspopup="dialog">?</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Distance</th>
+                      <th>Selected Best</th>
+                      <th>Projection</th>
+                      <th>Diff</th>
+                      <th>Pace</th>
+                    </tr>
+                  </thead>
+                  <tbody id="riegelProjectionTable"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        </div>
+
+        <div class="analysis-subview hidden" id="analysisTimeView">
+          <article class="chart-panel personal-best-chart-panel">
+            <div class="panel-title">
+              <h2>Expected vs Current by Time</h2>
+            </div>
+            <div class="chart-box personal-best-chart expected-gap-chart" id="timeRiegelChart" aria-label="Expected distance compared with current time bests chart"></div>
+          </article>
+          <section class="analysis-grid">
+            <article class="records-panel analysis-panel analysis-panel--full-row">
+              <div class="panel-title">
+                <h2>Time Comparison</h2>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Current Distance</th>
+                      <th>Expected Distance</th>
+                      <th>Gap</th>
+                      <th>Pace</th>
+                    </tr>
+                  </thead>
+                  <tbody id="timeRiegelTable"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        </div>
+
+        <div class="analysis-subview hidden" id="analysisPaceView">
+          <article class="chart-panel personal-best-chart-panel">
+            <div class="panel-title">
+              <h2>Expected vs Current by Pace</h2>
+            </div>
+            <div class="chart-box personal-best-chart expected-gap-chart" id="paceRiegelChart" aria-label="Expected distance compared with current pace bests chart"></div>
+          </article>
+          <section class="analysis-grid">
+            <article class="records-panel analysis-panel analysis-panel--full-row">
+              <div class="panel-title">
+                <h2>Pace Comparison</h2>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Pace</th>
+                      <th>Current Distance</th>
+                      <th>Expected Distance</th>
+                      <th>Gap</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody id="paceRiegelTable"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        </div>
+
+        <section class="analysis-grid analysis-support-grid">
+          <article class="records-panel analysis-panel analysis-panel--full-row">
+            <div class="panel-title">
+              <h2>Record History</h2>
             </div>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Distance</th>
-                    <th>Selected Best</th>
-                    <th>Projection</th>
-                    <th>Diff</th>
+                    <th>Type</th>
+                    <th>Target</th>
+                    <th>Date</th>
+                    <th>Result</th>
                     <th>Pace</th>
+                    <th>Activity</th>
                   </tr>
                 </thead>
-                <tbody id="riegelProjectionTable"></tbody>
+                <tbody id="recordHistoryTable"></tbody>
               </table>
             </div>
+          </article>
+          <article class="records-panel analysis-panel analysis-panel--full-row">
+            <div class="panel-title">
+              <h2>Training Schedule</h2>
+            </div>
+            <ol class="training-schedule-list" id="trainingScheduleList"></ol>
           </article>
         </section>
       </section>
