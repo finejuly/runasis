@@ -2885,6 +2885,119 @@ test("expected vs current chart exposes the shared x-axis scale toggle", () => {
   assert.match(panel, /class="scale-option riegel-scale-option"[^>]*data-scale="log"/);
 });
 
+test("Riegel scale controls keep shared active state across both charts", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const fakeElement = (values = {}) => ({
+      value: "",
+      checked: false,
+      classList: { add() {}, remove() {}, toggle() {} },
+      addEventListener(type, handler) { this["on" + type] = handler; },
+      ...values
+    });
+    const makeButton = (scale, active = false) => {
+      const classes = new Set(active ? ["active"] : []);
+      return {
+        dataset: { scale },
+        classList: {
+          toggle(name, force) {
+            if (force) classes.add(name);
+            else classes.delete(name);
+          },
+          contains(name) {
+            return classes.has(name);
+          }
+        },
+        addEventListener(type, handler) { this["on" + type] = handler; },
+        click() { this.onclick(); }
+      };
+    };
+    const linearExpectedButton = makeButton("linear", true);
+    const logExpectedButton = makeButton("log");
+    const linearBaselineButton = makeButton("linear", true);
+    const logBaselineButton = makeButton("log");
+
+    els.setupForm = fakeElement();
+    els.connectButton = fakeElement();
+    els.syncButton = fakeElement();
+    els.clearButton = fakeElement();
+    els.openActivityListButton = fakeElement();
+    els.backActivityListButton = fakeElement();
+    els.rangeSelect = fakeElement();
+    els.allActivitySearchInput = fakeElement();
+    els.allActivityRunOnlyInput = fakeElement();
+    els.allActivityDetailStatusSelect = fakeElement();
+    els.allActivityTable = fakeElement();
+    els.activityListView = fakeElement();
+    els.personalBestTrendDistanceSelect = fakeElement();
+    els.timeBestTrendDurationSelect = fakeElement();
+    els.personalBestGrid = fakeElement();
+    els.personalBestDurationGrid = fakeElement();
+    els.personalBestPaceGrid = fakeElement();
+    els.riegelExponentInput = fakeElement({ value: "1.000" });
+    els.kpiCards = [];
+    els.viewTabs = [];
+    els.personalBestTabOptions = [];
+    els.personalBestScaleButtons = [];
+    els.timeBestScaleButtons = [];
+    els.paceBestDistanceScaleButtons = [];
+    els.personalBestTrendLimitButtons = [];
+    els.timeBestTrendLimitButtons = [];
+    els.paceBestTrendLimitButtons = [];
+    els.allActivitySortButtons = [];
+    els.excludedRecordsToggleButtons = [];
+    els.riegelFiveKScaleButtons = [
+      linearExpectedButton,
+      logExpectedButton,
+      linearBaselineButton,
+      logBaselineButton
+    ];
+    els.riegelFiveKSeriesButtons = [{ dataset: { series: "top1" }, classList: { toggle() {} }, addEventListener() {} }];
+    els.riegelExponentModeButtons = [];
+    els.riegelSummaryGrid = { innerHTML: "" };
+    els.riegelEquivalentChartTitle = { textContent: "" };
+    els.riegelExpectedPaceChartCaption = { textContent: "old expected caption" };
+    els.riegelExpectedPaceChart = { innerHTML: "" };
+    els.riegelFiveKChartCaption = { textContent: "old baseline caption" };
+    els.riegelFiveKChart = { innerHTML: "" };
+    els.riegelProjectionTable = { innerHTML: "" };
+
+    appState.riegelFiveKScale = "linear";
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelSourceDistanceName = "5K";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1;
+    appState.personalBests = {
+      distances: [
+        { name: "5K", distanceKm: 5, top: [{ movingTime: 1500, paceSecondsPerKm: 300 }] },
+        { name: "10K", distanceKm: 10, top: [{ movingTime: 3150, paceSecondsPerKm: 315 }] },
+        { name: "20K", distanceKm: 20, top: [{ movingTime: 6900, paceSecondsPerKm: 345 }] }
+      ]
+    };
+
+    bindEvents();
+    logBaselineButton.click();
+
+    ({
+      selectedScale: appState.riegelFiveKScale,
+      activeStates: [
+        linearExpectedButton.classList.contains("active"),
+        logExpectedButton.classList.contains("active"),
+        linearBaselineButton.classList.contains("active"),
+        logBaselineButton.classList.contains("active")
+      ],
+      baselineChart: els.riegelFiveKChart.innerHTML,
+      expectedChart: els.riegelExpectedPaceChart.innerHTML
+    });
+  `, app);
+
+  assert.equal(result.selectedScale, "log");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.activeStates)), [false, true, false, true]);
+  assert.match(result.baselineChart, /data-riegel-distance-scale="log"/);
+  assert.match(result.expectedChart, /data-riegel-distance-scale="log"/);
+});
+
 test("renderRiegelAnalysis calculates median exponent from the full distance range", () => {
   const app = loadAppContext();
 
