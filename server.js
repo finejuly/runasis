@@ -2295,7 +2295,14 @@ async function serveStatic(req, res, url) {
 }
 
 function resolveStaticFilePath(urlPathname) {
-  const pathname = decodeURIComponent(urlPathname === "/" ? "/index.html" : urlPathname);
+  let pathname;
+  try {
+    pathname = decodeURIComponent(urlPathname === "/" ? "/index.html" : urlPathname);
+  } catch {
+    const error = new Error("Malformed URL path");
+    error.statusCode = 400;
+    throw error;
+  }
   const filePath = path.normalize(path.join(PUBLIC_DIR, pathname));
   const relative = path.relative(PUBLIC_DIR, filePath);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
