@@ -1,0 +1,7 @@
+interface:
+  display_name: "Runasis Triage"
+  short_description: "Find safe Runasis triage suggestions"
+  default_prompt: "Use $runasis-triage to run a read-mostly Runasis repo triage and update docs/loop/state.md plus obsidian/Triage notes in Korean."
+
+policy:
+  allow_implicit_invocation: true
