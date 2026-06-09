@@ -3163,7 +3163,7 @@ function renderRiegelEquivalentChart(seriesRows, source) {
   })() : "";
 
   els.riegelFiveKChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(`${selectedSeries.label} Riegel ${source.name} prediction chart by predictor distance`)}">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(`${selectedSeries.label} Riegel ${source.name} prediction chart by predictor distance`)}" data-riegel-distance-scale="${escapeHtml(appState.riegelFiveKScale)}">
       ${grid}
       ${bars}
       ${expectedRecordLine}
