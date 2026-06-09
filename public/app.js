@@ -11,6 +11,12 @@ const PERSONAL_BEST_EXPANDED_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT_OPTIONS = new Set([5, 10, 20]);
 const PERSONAL_BEST_TABS = new Set(["distance", "time", "pace"]);
+const ANALYSIS_TABS = new Set(["distance", "time", "pace"]);
+const ANALYSIS_TAB_CONTEXT = {
+  distance: "Pace by Distance compares race bests across target distances. A positive gap means your pace beats the expected result.",
+  time: "Pace by Time compares fixed-duration bests by pace. Faster than expected means you covered more distance.",
+  pace: "Distance by Pace compares how far each target pace was held. Out of range means it exceeds your observed runs."
+};
 const RECENT_ACTIVITY_LIMIT = 5;
 const REPOSITORY_URL = "";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -89,6 +95,7 @@ const appState = {
   paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   currentView: "dashboard",
   personalBestTab: "distance",
+  analysisTab: "distance",
   personalBestScale: "linear",
   riegelFiveKScale: "linear",
   riegelFiveKSeries: "top1",
@@ -186,6 +193,10 @@ function cacheElements() {
     "timeView",
     "paceView",
     "analysisView",
+    "analysisDistanceView",
+    "analysisTimeView",
+    "analysisPaceView",
+    "analysisProfileGrid",
     "analysisRankControl",
     "openActivityListButton",
     "backActivityListButton",
@@ -252,6 +263,14 @@ function cacheElements() {
     "riegelFiveKChartCaption",
     "riegelProjectionTitle",
     "riegelProjectionTable",
+    "analysisTabContext",
+    "timeRiegelSummaryGrid",
+    "timeRiegelChart",
+    "timeRiegelTable",
+    "paceRiegelSummaryGrid",
+    "paceRiegelChart",
+    "paceRiegelTable",
+    "trainingScheduleList",
     "chartTooltip",
     "toast"
   ]) {
@@ -259,6 +278,7 @@ function cacheElements() {
   }
   els.viewTabs = Array.from(document.querySelectorAll(".view-tab"));
   els.personalBestTabOptions = Array.from(document.querySelectorAll(".personal-best-tab-option"));
+  els.analysisTabOptions = Array.from(document.querySelectorAll(".analysis-tab-option"));
   els.kpiCards = Array.from(document.querySelectorAll(".dashboard-kpi-card"));
   els.allActivitySortButtons = Array.from(document.querySelectorAll("[data-activity-sort]"));
   els.personalBestScaleButtons = Array.from(document.querySelectorAll(".pb-scale-option"));
@@ -422,6 +442,12 @@ function bindEvents() {
     });
   }
 
+  for (const tab of els.analysisTabOptions || []) {
+    tab.addEventListener("click", () => {
+      selectAnalysisTab(tab.dataset.analysisTab);
+    });
+  }
+
   for (const button of els.personalBestScaleButtons) {
     button.addEventListener("click", () => {
       setPersonalBestScaleSelection(button.dataset.scale);
@@ -493,7 +519,7 @@ function bindEvents() {
   for (const button of els.riegelFiveKSeriesButtons) {
     button.addEventListener("click", () => {
       appState.riegelFiveKSeries = button.dataset.series || "top1";
-      renderRiegelAnalysis();
+      renderAnalysisView();
     });
   }
 
@@ -501,7 +527,7 @@ function bindEvents() {
     button.addEventListener("click", () => {
       appState.riegelExponentMode = normalizeRiegelExponentMode(button.dataset.mode) || DEFAULT_RIEGEL_EXPONENT_MODE;
       saveRiegelExponentMode(appState.riegelExponentMode);
-      renderRiegelAnalysis();
+      renderAnalysisView();
     });
   }
 
@@ -518,7 +544,7 @@ function bindEvents() {
     saveRiegelExponent(value);
     saveRiegelExponentMode("custom");
     updateRiegelExponentControls(value);
-    renderRiegelAnalysis();
+    renderAnalysisView();
   });
 
   els.riegelExponentInput.addEventListener("blur", () => {
@@ -575,8 +601,40 @@ function selectPersonalBestTab(tab) {
   render();
 }
 
+function selectAnalysisTab(tab) {
+  appState.currentView = "analysis";
+  appState.analysisTab = normalizeAnalysisTab(tab);
+  appState.activityListOpen = false;
+  setActiveViewTab("analysis");
+  render();
+}
+
 function normalizePersonalBestTab(tab) {
   return PERSONAL_BEST_TABS.has(tab) ? tab : "distance";
+}
+
+function normalizeAnalysisTab(tab) {
+  return ANALYSIS_TABS.has(tab) ? tab : "distance";
+}
+
+function getAnalysisTabContext(tab) {
+  return ANALYSIS_TAB_CONTEXT[normalizeAnalysisTab(tab)];
+}
+
+function updateAnalysisSubviewVisibility(activeTab = appState.analysisTab) {
+  const normalizedTab = normalizeAnalysisTab(activeTab);
+
+  for (const tab of els.analysisTabOptions || []) {
+    tab.classList.toggle("active", tab.dataset.analysisTab === normalizedTab);
+  }
+  els.analysisDistanceView?.classList.toggle("hidden", normalizedTab !== "distance");
+  els.analysisTimeView?.classList.toggle("hidden", normalizedTab !== "time");
+  els.analysisPaceView?.classList.toggle("hidden", normalizedTab !== "pace");
+}
+
+function renderAnalysisTabContext(activeTab = appState.analysisTab) {
+  if (!els.analysisTabContext) return;
+  els.analysisTabContext.textContent = getAnalysisTabContext(activeTab);
 }
 
 function openRiegelInfoDialog() {
@@ -986,7 +1044,7 @@ function render() {
     return;
   }
   if (appState.currentView === "analysis") {
-    renderRiegelAnalysis();
+    renderAnalysisView();
     return;
   }
   if (appState.activityListOpen) {
@@ -1158,6 +1216,7 @@ function renderView() {
   const showActivityList = appState.currentView === "dashboard" && appState.activityListOpen;
   const showPersonalBests = appState.currentView === "pb";
   const personalBestTab = normalizePersonalBestTab(appState.personalBestTab);
+  const analysisTab = normalizeAnalysisTab(appState.analysisTab);
   els.dashboardView.classList.toggle("hidden", appState.currentView !== "dashboard" || showActivityList);
   els.activityListView.classList.toggle("hidden", !showActivityList);
   els.pbView.classList.toggle("hidden", !showPersonalBests);
@@ -1165,7 +1224,13 @@ function renderView() {
   els.timeView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "time");
   els.paceView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "pace");
   els.analysisView.classList.toggle("hidden", appState.currentView !== "analysis");
+  els.analysisDistanceView?.classList.toggle("hidden", appState.currentView !== "analysis" || analysisTab !== "distance");
+  els.analysisTimeView?.classList.toggle("hidden", appState.currentView !== "analysis" || analysisTab !== "time");
+  els.analysisPaceView?.classList.toggle("hidden", appState.currentView !== "analysis" || analysisTab !== "pace");
   els.analysisRankControl.classList.toggle("hidden", appState.currentView !== "analysis");
+  for (const button of els.analysisTabOptions || []) {
+    button.classList.toggle("active", button.dataset.analysisTab === analysisTab);
+  }
 }
 
 function renderCharts(activities) {
@@ -2810,6 +2875,18 @@ async function handlePersonalBestToggle(event) {
   renderPaceBestsView();
 }
 
+function renderAnalysisView() {
+  const activeTab = normalizeAnalysisTab(appState.analysisTab);
+  appState.analysisTab = activeTab;
+  updateAnalysisSubviewVisibility(activeTab);
+  renderAnalysisTabContext(activeTab);
+
+  const distanceAnalysis = activeTab === "distance" ? renderRiegelAnalysis() : buildRiegelAnalysis();
+  const timeAnalysis = activeTab === "time" ? renderTimeRiegelAnalysis() : buildTimeRiegelAnalysis();
+  const paceAnalysis = activeTab === "pace" ? renderPaceRiegelAnalysis() : buildPaceRiegelAnalysis();
+  renderAnalysisProfile(buildAnalysisProfile({ distanceAnalysis, timeAnalysis, paceAnalysis }));
+}
+
 function renderRiegelAnalysis() {
   const analysis = buildRiegelAnalysis();
   if (!analysis) {
@@ -2819,16 +2896,16 @@ function renderRiegelAnalysis() {
     if (els.riegelExpectedPaceChartCaption) els.riegelExpectedPaceChartCaption.textContent = "";
     if (els.riegelExpectedPaceChart) renderEmpty(els.riegelExpectedPaceChart, "No expected pace data");
     els.riegelEquivalentChartTitle.textContent = "Baseline Prediction";
-    if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = "Riegel Projection";
+    if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = "Pace by Distance Comparison";
     renderEmpty(els.riegelFiveKChart, "No baseline prediction data");
     els.riegelProjectionTable.innerHTML = `<tr><td colspan="5">No best effort data available for analysis</td></tr>`;
-    return;
+    return null;
   }
 
   updateRiegelExponentControls(analysis.riegelExponent);
   appState.activeRiegelSourceDistanceName = analysis.source.name;
   els.riegelEquivalentChartTitle.textContent = `${analysis.source.name} Prediction`;
-  if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = `Riegel Projection · ${analysis.source.name}`;
+  if (els.riegelProjectionTitle) els.riegelProjectionTitle.textContent = `Pace by Distance Comparison · ${analysis.source.name}`;
   const expectedTargetCards = (analysis.expectedTargetRecords || []).map((target) => {
     const predictedTime = Number.isFinite(target.predictedTime) ? formatClockDuration(target.predictedTime) : "-";
     const predictedPace = Number.isFinite(target.predictedPaceSecondsPerKm)
@@ -2864,30 +2941,14 @@ function renderRiegelAnalysis() {
       <td>${formatPaceWithUnit(row.predictedPaceSecondsPerKm)}</td>
     </tr>
   `).join("");
+  return analysis;
 }
 
 function buildRiegelAnalysis() {
   const selectedSeries = getSelectedRiegelSeries();
   const pbByName = getPersonalBestByName(selectedSeries.index);
 
-  const ordered = getRiegelExponentSources(selectedSeries.index);
-  const exponentRowsBase = [];
-  for (let index = 0; index < ordered.length - 1; index += 1) {
-    const from = ordered[index];
-    const to = ordered[index + 1];
-    if (to.distanceKm <= from.distanceKm) continue;
-    exponentRowsBase.push({
-      fromName: from.name,
-      toName: to.name,
-      fromKm: from.distanceKm,
-      toKm: to.distanceKm,
-      fromTime: from.time,
-      toTime: to.time,
-      exponent: Math.log(to.time / from.time) / Math.log(to.distanceKm / from.distanceKm)
-    });
-  }
-
-  const medianRows = exponentRowsBase;
+  const medianRows = buildRiegelExponentRows(selectedSeries.index);
   const medianExponent = median(medianRows.map((row) => row.exponent));
   const riegelExponent = getRiegelExponent(medianExponent);
   appState.riegelExponent = riegelExponent;
@@ -2959,8 +3020,510 @@ function buildRiegelAnalysis() {
     expectedPaceSeries,
     expectedTargetRecords,
     equivalentRows,
-    medianExponent
+    medianExponent,
+    exponentRows: medianRows
   };
+}
+
+function buildRiegelExponentRows(rankIndex = 0) {
+  const ordered = getRiegelExponentSources(rankIndex);
+  const rows = [];
+  for (let fromIndex = 0; fromIndex < ordered.length - 1; fromIndex += 1) {
+    const from = ordered[fromIndex];
+    for (let toIndex = fromIndex + 1; toIndex < ordered.length; toIndex += 1) {
+      const to = ordered[toIndex];
+      if (to.distanceKm <= from.distanceKm || to.time <= from.time) continue;
+      const exponent = Math.log(to.time / from.time) / Math.log(to.distanceKm / from.distanceKm);
+      if (!Number.isFinite(exponent) || exponent <= 0) continue;
+      rows.push({
+        fromName: from.name,
+        toName: to.name,
+        fromKm: from.distanceKm,
+        toKm: to.distanceKm,
+        fromTime: from.time,
+        toTime: to.time,
+        exponent
+      });
+    }
+  }
+  return rows;
+}
+
+function getActiveRiegelExponent(rankIndex = getSelectedRiegelSeries().index) {
+  const medianExponent = median(buildRiegelExponentRows(rankIndex).map((row) => row.exponent));
+  return getRiegelExponent(medianExponent);
+}
+
+function buildTimeRiegelAnalysis(rankIndex = getSelectedRiegelSeries().index) {
+  const riegelExponent = getActiveRiegelExponent(rankIndex);
+  const sources = getTimeRiegelSources(rankIndex);
+  const rows = sources
+    .map((target) => {
+      const predictedDistances = sources
+        .filter((source) => source.name !== target.name)
+        .map((source) => predictRiegelDistanceForTime(
+          source.distanceKm,
+          source.durationSeconds,
+          target.durationSeconds,
+          riegelExponent
+        ))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const expectedDistanceKm = median(predictedDistances);
+      if (!Number.isFinite(expectedDistanceKm) || expectedDistanceKm <= 0) return null;
+      const gapKm = target.distanceKm - expectedDistanceKm;
+      return {
+        ...target,
+        actualDistanceKm: target.distanceKm,
+        expectedDistanceKm,
+        expectedPaceSecondsPerKm: target.durationSeconds / expectedDistanceKm,
+        gapKm,
+        status: classifyDistanceGap(gapKm)
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    riegelExponent,
+    sources,
+    rows,
+    strongest: strongestDistanceGap(rows),
+    weakest: weakestDistanceGap(rows)
+  };
+}
+
+function buildPaceRiegelAnalysis(rankIndex = getSelectedRiegelSeries().index) {
+  const riegelExponent = getActiveRiegelExponent(rankIndex);
+  const sources = getPaceRiegelSources(rankIndex);
+  const maxObservedDistanceKm = Math.max(0, ...sources.map((source) => source.distanceKm));
+  const rows = sources
+    .map((target) => {
+      const predictedDistances = sources
+        .filter((source) => source.name !== target.name)
+        .map((source) => predictRiegelDistanceForPace(
+          source.durationSeconds,
+          source.distanceKm,
+          target.targetPaceSecondsPerKm,
+          riegelExponent
+        ))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      const expectedDistanceKm = median(predictedDistances);
+      if (!Number.isFinite(expectedDistanceKm) || expectedDistanceKm <= 0) return null;
+      const gapKm = target.distanceKm - expectedDistanceKm;
+      const outOfRange = maxObservedDistanceKm > 0 && expectedDistanceKm > maxObservedDistanceKm * 1.5;
+      return {
+        ...target,
+        actualDistanceKm: target.distanceKm,
+        expectedDistanceKm,
+        expectedDurationSeconds: target.targetPaceSecondsPerKm * expectedDistanceKm,
+        gapKm,
+        outOfRange,
+        status: outOfRange ? "neutral" : classifyDistanceGap(gapKm)
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    riegelExponent,
+    sources,
+    rows,
+    strongest: strongestDistanceGap(rows),
+    weakest: weakestDistanceGap(rows)
+  };
+}
+
+function getTimeRiegelSources(rankIndex = 0) {
+  return (appState.personalBests?.durations || [])
+    .map((duration) => {
+      const effort = duration.top?.[rankIndex];
+      const durationSeconds = Number(duration.durationSeconds || effort?.durationSeconds || 0);
+      const distanceKm = Number(effort?.distanceKm || 0);
+      const paceSecondsPerKm = Number(effort?.paceSecondsPerKm || (durationSeconds && distanceKm ? durationSeconds / distanceKm : 0));
+      if (!duration.name || durationSeconds <= 0 || distanceKm <= 0 || paceSecondsPerKm <= 0) return null;
+      return {
+        name: duration.name,
+        durationSeconds,
+        distanceKm,
+        paceSecondsPerKm,
+        startDate: effort.startDate,
+        startDateLocal: effort.startDateLocal,
+        activityName: effort.activityName
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.durationSeconds - b.durationSeconds || a.name.localeCompare(b.name));
+}
+
+function getPaceRiegelSources(rankIndex = 0) {
+  return (appState.personalBests?.paces || [])
+    .map((pace) => {
+      const effort = pace.top?.[rankIndex];
+      const targetPaceSecondsPerKm = Number(pace.paceSecondsPerKm || effort?.targetPaceSecondsPerKm || 0);
+      const durationSeconds = Number(effort?.durationSeconds || effort?.movingTime || 0);
+      const distanceKm = Number(effort?.distanceKm || 0);
+      const paceSecondsPerKm = Number(effort?.paceSecondsPerKm || targetPaceSecondsPerKm || 0);
+      if (!pace.name || targetPaceSecondsPerKm <= 0 || durationSeconds <= 0 || distanceKm <= 0) return null;
+      return {
+        name: pace.name,
+        targetPaceSecondsPerKm,
+        durationSeconds,
+        distanceKm,
+        paceSecondsPerKm,
+        startDate: effort.startDate,
+        startDateLocal: effort.startDateLocal,
+        activityName: effort.activityName
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.targetPaceSecondsPerKm - b.targetPaceSecondsPerKm || a.name.localeCompare(b.name));
+}
+
+function predictRiegelDistanceForTime(sourceDistanceKm, sourceTime, targetTime, exponent) {
+  if (!Number.isFinite(sourceDistanceKm) || !Number.isFinite(sourceTime) || !Number.isFinite(targetTime) || !isValidRiegelExponent(exponent)) {
+    return null;
+  }
+  if (sourceDistanceKm <= 0 || sourceTime <= 0 || targetTime <= 0) return null;
+  return sourceDistanceKm * Math.pow(targetTime / sourceTime, 1 / exponent);
+}
+
+function predictRiegelDistanceForPace(sourceTime, sourceDistanceKm, targetPaceSecondsPerKm, exponent) {
+  if (!Number.isFinite(sourceTime) || !Number.isFinite(sourceDistanceKm) || !Number.isFinite(targetPaceSecondsPerKm) || !Number.isFinite(exponent)) {
+    return null;
+  }
+  if (sourceTime <= 0 || sourceDistanceKm <= 0 || targetPaceSecondsPerKm <= 0 || exponent <= 1) return null;
+  return Math.pow(
+    (targetPaceSecondsPerKm * Math.pow(sourceDistanceKm, exponent)) / sourceTime,
+    1 / (exponent - 1)
+  );
+}
+
+function classifyDistanceGap(gapKm, toleranceKm = 0.05) {
+  if (!Number.isFinite(gapKm) || Math.abs(gapKm) <= toleranceKm) return "neutral";
+  return gapKm > 0 ? "strength" : "weakness";
+}
+
+function strongestDistanceGap(rows) {
+  return (rows || [])
+    .filter((row) => row.status === "strength")
+    .sort((a, b) => Math.abs(b.gapKm) - Math.abs(a.gapKm))[0] || null;
+}
+
+function weakestDistanceGap(rows) {
+  return (rows || [])
+    .filter((row) => row.status === "weakness")
+    .sort((a, b) => Math.abs(b.gapKm) - Math.abs(a.gapKm))[0] || null;
+}
+
+function renderTimeRiegelAnalysis() {
+  const analysis = buildTimeRiegelAnalysis();
+  if (!els.timeRiegelChart || !els.timeRiegelTable) return analysis;
+
+  if (!analysis.rows.length) {
+    if (els.timeRiegelSummaryGrid) {
+      els.timeRiegelSummaryGrid.innerHTML = `<article class="kpi-card"><span>Time</span><strong>-</strong><small>No comparable time bests</small></article>`;
+    }
+    renderEmpty(els.timeRiegelChart, "No time comparison data");
+    els.timeRiegelTable.innerHTML = `<tr><td colspan="5">No comparable time bests available</td></tr>`;
+    return analysis;
+  }
+
+  if (els.timeRiegelSummaryGrid) {
+    els.timeRiegelSummaryGrid.innerHTML = renderRiegelGapSummaryCards(analysis, "Time");
+  }
+  renderExpectedPaceByTimeChart(els.timeRiegelChart, analysis.rows, {
+    ariaLabel: "Pace by Time expected pace compared with current pace",
+    targetLabel: "Time"
+  });
+  els.timeRiegelTable.innerHTML = analysis.rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.name)}</td>
+      <td>${formatPaceWithUnit(row.paceSecondsPerKm)}</td>
+      <td>${formatPaceWithUnit(row.expectedPaceSecondsPerKm)}</td>
+      <td>${formatPaceGapLabel(row.paceSecondsPerKm - row.expectedPaceSecondsPerKm)}</td>
+      <td>${formatDistanceKm(row.actualDistanceKm || row.distanceKm)}</td>
+    </tr>
+  `).join("");
+  return analysis;
+}
+
+function renderPaceRiegelAnalysis() {
+  const analysis = buildPaceRiegelAnalysis();
+  if (!els.paceRiegelChart || !els.paceRiegelTable) return analysis;
+
+  if (!analysis.rows.length) {
+    if (els.paceRiegelSummaryGrid) {
+      els.paceRiegelSummaryGrid.innerHTML = `<article class="kpi-card"><span>Pace</span><strong>-</strong><small>No comparable pace bests</small></article>`;
+    }
+    renderEmpty(els.paceRiegelChart, "No pace comparison data");
+    els.paceRiegelTable.innerHTML = `<tr><td colspan="5">No comparable pace bests available</td></tr>`;
+    return analysis;
+  }
+
+  if (els.paceRiegelSummaryGrid) {
+    els.paceRiegelSummaryGrid.innerHTML = renderRiegelGapSummaryCards(analysis, "Pace");
+  }
+  renderExpectedDistanceChart(els.paceRiegelChart, analysis.rows, {
+    ariaLabel: "Pace best expected distance compared with current distance",
+    targetLabel: "Pace"
+  });
+  els.paceRiegelTable.innerHTML = analysis.rows.map((row) => {
+    const expectedDistance = row.outOfRange ? "Out of range" : formatDistanceKm(row.expectedDistanceKm);
+    const gap = row.outOfRange ? "-" : formatSignedDistanceGap(row.gapKm);
+    return `
+      <tr>
+        <td>${escapeHtml(row.name)}</td>
+        <td>${formatDistanceKm(row.distanceKm)}</td>
+        <td>${escapeHtml(expectedDistance)}</td>
+        <td>${gap}</td>
+        <td>${formatClockDuration(row.durationSeconds)}</td>
+      </tr>
+    `;
+  }).join("");
+  return analysis;
+}
+
+function renderRiegelGapSummaryCards(analysis, label) {
+  const strength = analysis.strongest;
+  const weakness = analysis.weakest;
+  return `
+    <article class="kpi-card">
+      <span>${escapeHtml(label)} Strength</span>
+      <strong>${strength ? escapeHtml(strength.name) : "-"}</strong>
+      <small>${strength ? formatSignedDistanceGap(strength.gapKm) : "No clear strength"}</small>
+    </article>
+    <article class="kpi-card">
+      <span>${escapeHtml(label)} Weakness</span>
+      <strong>${weakness ? escapeHtml(weakness.name) : "-"}</strong>
+      <small>${weakness ? formatSignedDistanceGap(weakness.gapKm) : "No clear weakness"}</small>
+    </article>
+    <article class="kpi-card kpi-card--value-only">
+      <span>${escapeHtml(label)} Exponent</span>
+      <strong>${formatRiegelExponent(analysis.riegelExponent)}</strong>
+    </article>
+  `;
+}
+
+function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }) {
+  const points = (rows || []).filter((row) => (
+    row.name &&
+    !row.outOfRange &&
+    Number.isFinite(row.distanceKm) &&
+    Number.isFinite(row.expectedDistanceKm)
+  ));
+  if (!points.length) return renderEmpty(container, "No comparison data");
+
+  const width = 980;
+  const height = 318;
+  const padding = { top: 36, right: 28, bottom: 72, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const maxDistance = Math.max(...points.flatMap((point) => [point.distanceKm, point.expectedDistanceKm]), 1);
+  const yDomain = buildDistanceAxisDomain([maxDistance]);
+  const y = (distanceKm) => padding.top + ((yDomain.max - distanceKm) / yDomain.spread) * chartHeight;
+  const groupWidth = chartWidth / points.length;
+  const barWidth = Math.max(8, Math.min(26, groupWidth * 0.28));
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => yDomain.max * ratio);
+
+  const grid = yTicks.map((tick) => {
+    const tickY = y(tick);
+    return `
+      <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="#d9dfd7"></line>
+      <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatNumber(tick, tick < 10 && tick % 1 ? 1 : 0)} km</text>
+    `;
+  }).join("");
+  const labels = points.map((point, index) => {
+    const centerX = padding.left + groupWidth * index + groupWidth / 2;
+    const labelY = height - 34;
+    return `<text class="axis-label" x="${centerX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${centerX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
+  }).join("");
+  const bars = points.map((point, index) => {
+    const centerX = padding.left + groupWidth * index + groupWidth / 2;
+    const expectedY = y(point.expectedDistanceKm);
+    const actualY = y(point.distanceKm);
+    const baselineY = y(0);
+    const gapColor = point.status === "strength" ? "#24724f" : point.status === "weakness" ? "#b24b3f" : "#6f786f";
+    return `
+      <rect x="${(centerX - barWidth - 2).toFixed(1)}" y="${expectedY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - expectedY).toFixed(1)}" fill="#3266a8" opacity="0.72" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatDistanceKm(point.expectedDistanceKm)}`)}"></rect>
+      <rect x="${(centerX + 2).toFixed(1)}" y="${actualY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - actualY).toFixed(1)}" fill="${gapColor}" opacity="0.86" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatDistanceKm(point.distanceKm)}\nGap ${formatSignedDistanceGapPlain(point.gapKm)}`)}"></rect>
+    `;
+  }).join("");
+  const legend = `
+    <g transform="translate(${padding.left}, 18)">
+      <rect x="0" y="-8" width="16" height="10" fill="#3266a8" opacity="0.72"></rect>
+      <text class="axis-label" x="24" y="1">Expected</text>
+    </g>
+    <g transform="translate(${padding.left + 120}, 18)">
+      <rect x="0" y="-8" width="16" height="10" fill="#24724f" opacity="0.86"></rect>
+      <text class="axis-label" x="24" y="1">Current</text>
+    </g>
+  `;
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(ariaLabel)}">
+      ${grid}
+      ${legend}
+      ${bars}
+      ${labels}
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">${escapeHtml(targetLabel)}</text>
+      <text class="axis-label" x="10" y="16">Distance</text>
+    </svg>
+  `;
+}
+
+function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel }) {
+  const points = (rows || []).filter((row) => (
+    row.name &&
+    Number.isFinite(row.paceSecondsPerKm) &&
+    Number.isFinite(row.expectedPaceSecondsPerKm)
+  ));
+  if (!points.length) return renderEmpty(container, "No pace comparison data");
+
+  const width = 980;
+  const height = 318;
+  const padding = { top: 36, right: 28, bottom: 72, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const paceDomain = buildPaceAxisDomain(points.flatMap((point) => [point.paceSecondsPerKm, point.expectedPaceSecondsPerKm]));
+  const y = (paceSecondsPerKm) => padding.top + ((paceSecondsPerKm - paceDomain.min) / paceDomain.spread) * chartHeight;
+  const groupWidth = chartWidth / points.length;
+  const barWidth = Math.max(8, Math.min(26, groupWidth * 0.28));
+  const baselineY = y(paceDomain.max);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => paceDomain.min + paceDomain.spread * ratio);
+
+  const grid = yTicks.map((tick) => {
+    const tickY = y(tick);
+    return `
+      <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="#d9dfd7"></line>
+      <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatPace(tick)}</text>
+    `;
+  }).join("");
+  const labels = points.map((point, index) => {
+    const centerX = padding.left + groupWidth * index + groupWidth / 2;
+    const labelY = height - 34;
+    return `<text class="axis-label" x="${centerX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${centerX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
+  }).join("");
+  const bars = points.map((point, index) => {
+    const centerX = padding.left + groupWidth * index + groupWidth / 2;
+    const expectedY = y(point.expectedPaceSecondsPerKm);
+    const actualY = y(point.paceSecondsPerKm);
+    const paceGap = point.paceSecondsPerKm - point.expectedPaceSecondsPerKm;
+    const gapColor = point.status === "strength" ? "#24724f" : point.status === "weakness" ? "#b24b3f" : "#6f786f";
+    return `
+      <rect x="${(centerX - barWidth - 2).toFixed(1)}" y="${expectedY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - expectedY).toFixed(1)}" fill="#3266a8" opacity="0.72" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatPaceWithUnit(point.expectedPaceSecondsPerKm)}`)}"></rect>
+      <rect x="${(centerX + 2).toFixed(1)}" y="${actualY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - actualY).toFixed(1)}" fill="${gapColor}" opacity="0.86" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatPaceWithUnit(point.paceSecondsPerKm)}\nGap ${formatPaceGapLabel(paceGap)}`)}"></rect>
+    `;
+  }).join("");
+  const legend = `
+    <g transform="translate(${padding.left}, 18)">
+      <rect x="0" y="-8" width="16" height="10" fill="#3266a8" opacity="0.72"></rect>
+      <text class="axis-label" x="24" y="1">Expected</text>
+    </g>
+    <g transform="translate(${padding.left + 120}, 18)">
+      <rect x="0" y="-8" width="16" height="10" fill="#24724f" opacity="0.86"></rect>
+      <text class="axis-label" x="24" y="1">Current</text>
+    </g>
+  `;
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(ariaLabel)}">
+      ${grid}
+      ${legend}
+      ${bars}
+      ${labels}
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">${escapeHtml(targetLabel)}</text>
+      <text class="axis-label" x="10" y="16">Pace</text>
+    </svg>
+  `;
+}
+
+function buildAnalysisProfile(existing = {}) {
+  const distanceAnalysis = existing.distanceAnalysis === undefined ? buildRiegelAnalysis() : existing.distanceAnalysis;
+  const timeAnalysis = existing.timeAnalysis === undefined ? buildTimeRiegelAnalysis() : existing.timeAnalysis;
+  const paceAnalysis = existing.paceAnalysis === undefined ? buildPaceRiegelAnalysis() : existing.paceAnalysis;
+  const signals = [
+    ...distanceAnalysisSignals(distanceAnalysis),
+    ...timePaceAnalysisSignals(timeAnalysis, "Time"),
+    ...timePaceAnalysisSignals(paceAnalysis, "Pace")
+  ];
+  const strength = signals
+    .filter((item) => item.kind === "strength")
+    .sort((a, b) => b.magnitude - a.magnitude)[0] || null;
+  const weakness = signals
+    .filter((item) => item.kind === "weakness")
+    .sort((a, b) => b.magnitude - a.magnitude)[0] || null;
+  const improve = weakness || signals.sort((a, b) => b.magnitude - a.magnitude)[0] || null;
+  return {
+    cards: [
+      profileCard("Strength", strength, "No clear strength yet"),
+      profileCard("Weakness", weakness, "No clear weakness yet"),
+      profileCard("Improve", improve, "Collect more comparable records")
+    ],
+    schedule: buildTrainingSchedule(improve)
+  };
+}
+
+function profileCard(title, signal, fallback) {
+  return {
+    title,
+    value: signal?.name || "-",
+    detail: signal?.detail || fallback
+  };
+}
+
+function distanceAnalysisSignals(analysis) {
+  if (!analysis) return [];
+  const selectedSeries = analysis.selectedSeries || getSelectedRiegelSeries();
+  const series = (analysis.expectedPaceSeries || []).find((item) => item.key === selectedSeries.key)
+    || analysis.expectedPaceSeries?.[0];
+  return (series?.points || [])
+    .filter((point) => Number.isFinite(point.deltaSeconds) && Number.isFinite(point.distanceKm) && point.distanceKm > 0)
+    .map((point) => {
+      const strength = point.deltaSeconds > 0;
+      const gapPerKm = point.deltaSeconds / point.distanceKm;
+      return {
+        kind: strength ? "strength" : "weakness",
+        name: `Distance ${point.name}`,
+        magnitude: Math.abs(gapPerKm),
+        detail: `${formatDeltaPlain(point.deltaSeconds)} vs expected`
+      };
+    });
+}
+
+function timePaceAnalysisSignals(analysis, label) {
+  return (analysis?.rows || [])
+    .filter((row) => row.status === "strength" || row.status === "weakness")
+    .map((row) => ({
+      kind: row.status,
+      name: `${label} ${row.name}`,
+      magnitude: Math.abs(row.gapKm),
+      detail: `${formatSignedDistanceGapPlain(row.gapKm)} vs expected`
+    }));
+}
+
+function buildTrainingSchedule(improveSignal = null) {
+  const target = improveSignal?.name || "Current limiter";
+  return [
+    { focus: "Endurance", detail: `${target}: extend easy volume without chasing pace.` },
+    { focus: "Threshold", detail: `${target}: hold controlled efforts near sustainable pace.` },
+    { focus: "Recovery", detail: "Keep one low-stress day between demanding sessions." },
+    { focus: "Specific", detail: `${target}: repeat the target distance, time, or pace context.` }
+  ];
+}
+
+function renderAnalysisProfile(profile) {
+  if (els.analysisProfileGrid) {
+    els.analysisProfileGrid.innerHTML = profile.cards.map((card) => `
+      <article class="kpi-card">
+        <span>${escapeHtml(card.title)}</span>
+        <strong>${escapeHtml(card.value)}</strong>
+        <small>${escapeHtml(card.detail)}</small>
+      </article>
+    `).join("");
+  }
+  if (els.trainingScheduleList) {
+    els.trainingScheduleList.innerHTML = profile.schedule.map((item) => `
+      <li><strong>${escapeHtml(item.focus)}</strong> ${escapeHtml(item.detail)}</li>
+    `).join("");
+  }
 }
 
 function getRiegelExpectedPaceRows(selectedSeries, riegelExponent) {
@@ -3593,7 +4156,7 @@ function handleRiegelChartSourceClick(event) {
 
   appState.riegelSourceDistanceName = sourceName;
   saveRiegelSourceDistanceName(sourceName);
-  renderRiegelAnalysis();
+  renderAnalysisView();
   toast(`Baseline changed to ${sourceName}.`);
 }
 
@@ -4736,6 +5299,26 @@ function formatDistanceAxisTick(km) {
     ? 2
     : absolute < 10 && !Number.isInteger(km) ? 1 : 0;
   return `${formatNumber(km, digits)} km`;
+}
+
+function formatDistanceKm(km) {
+  if (!Number.isFinite(km)) return "-";
+  const absolute = Math.abs(km);
+  const digits = absolute < 10 ? 2 : 1;
+  return `${formatNumber(km, digits)} km`;
+}
+
+function formatSignedDistanceGap(value) {
+  const plain = formatSignedDistanceGapPlain(value);
+  if (plain === "-") return "-";
+  const className = value > 0 ? "negative" : value < 0 ? "positive" : "";
+  return `<span class="metric-delta ${className}">${escapeHtml(plain)}</span>`;
+}
+
+function formatSignedDistanceGapPlain(value) {
+  if (!Number.isFinite(value)) return "-";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${formatNumber(value, Math.abs(value) < 10 ? 2 : 1)} km`;
 }
 
 function formatDistanceTick(km) {

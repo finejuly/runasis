@@ -532,12 +532,32 @@ input[type="search"] {
   margin-top: 14px;
 }
 
+.view-section-heading {
+  margin: 14px 2px 10px;
+}
+
+.view-section-heading h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
 .analysis-heading {
   min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
   padding: 18px;
+}
+
+.analysis-subview-heading {
+  margin: 16px 2px 10px;
+}
+
+.analysis-subview-heading h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
 }
 
 .personal-best-grid {
@@ -568,6 +588,47 @@ input[type="search"] {
 
 .personal-best-tabs {
   grid-template-columns: repeat(3, minmax(92px, 1fr));
+}
+
+.analysis-tabs {
+  margin-top: 14px;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.analysis-context {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: 1.45;
+}
+
+.analysis-profile-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.analysis-subview {
+  min-width: 0;
+}
+
+.analysis-support-grid {
+  margin-top: 14px;
+}
+
+.training-schedule-list {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.training-schedule-list li {
+  color: var(--muted);
+  font-size: var(--font-body);
+}
+
+.training-schedule-list strong {
+  color: var(--text);
 }
 
 .time-best-heading {
@@ -1198,6 +1259,7 @@ td.activity-name {
   .chart-grid,
   .records-grid,
   .analysis-grid,
+  .analysis-profile-grid,
   .personal-best-grid {
     grid-template-columns: 1fr;
   }
