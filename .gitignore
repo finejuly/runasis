@@ -2,6 +2,7 @@
 .env*
 !.env.example
 .superpowers/
+obsidian/
 data/*.json
 data/**/*.json
 data/strava/

@@ -86,7 +86,7 @@ The `Personal Bests` tab calculates your best efforts across standard distances 
 
 ### Analysis
 
-The `Analysis` tab uses the [Riegel model](https://en.wikipedia.org/wiki/Peter_Riegel#Race_time_prediction) to compare race distances, estimate equivalent performances, and highlight stronger or weaker distances. You can use the default exponent, estimate one from your best efforts, or set a custom value.
+The `Analysis` tab uses the [Riegel model](https://en.wikipedia.org/wiki/Peter_Riegel#Race_time_prediction) to compare distance, time, and pace bests, estimate equivalent performances, and highlight stronger or weaker patterns. You can use the default exponent, estimate one from all valid best-effort distance pairs, or set a custom value. The same screen also summarizes record history and deterministic training suggestions from your saved activities.
 
 ## macOS App Wrapper
 

@@ -570,6 +570,47 @@ input[type="search"] {
   grid-template-columns: repeat(3, minmax(92px, 1fr));
 }
 
+.analysis-tabs {
+  margin-top: 14px;
+  width: 100%;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.analysis-context {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: 1.45;
+}
+
+.analysis-profile-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.analysis-subview {
+  min-width: 0;
+}
+
+.analysis-support-grid {
+  margin-top: 14px;
+}
+
+.training-schedule-list {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.training-schedule-list li {
+  color: var(--muted);
+  font-size: var(--font-body);
+}
+
+.training-schedule-list strong {
+  color: var(--text);
+}
+
 .time-best-heading {
   margin-top: 0;
 }
@@ -1198,6 +1239,7 @@ td.activity-name {
   .chart-grid,
   .records-grid,
   .analysis-grid,
+  .analysis-profile-grid,
   .personal-best-grid {
     grid-template-columns: 1fr;
   }
