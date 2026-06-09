@@ -2693,11 +2693,11 @@ test("Riegel equivalent chart has its own help dialog copy", () => {
   assert.doesNotMatch(html, /id="riegelProjectionCaption"/);
 });
 
-test("Riegel projection panel spans the full analysis grid row", () => {
+test("pace by distance comparison panel spans the full analysis grid row", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
 
-  assert.match(html, /<article class="records-panel analysis-panel analysis-panel--full-row">[\s\S]*<h2 id="riegelProjectionTitle">Riegel Projection<\/h2>/);
+  assert.match(html, /<article class="records-panel analysis-panel analysis-panel--full-row">[\s\S]*<h2 id="riegelProjectionTitle">Pace by Distance Comparison<\/h2>/);
   assert.match(css, /\.analysis-panel--full-row\s*{\s*grid-column:\s*1\s*\/\s*-1;\s*}/);
 });
 
@@ -2734,7 +2734,7 @@ test("renderRiegelAnalysis labels the projection table with the selected baselin
     els.riegelProjectionTitle.textContent;
   `, app);
 
-  assert.equal(result, "Riegel Projection · 10K");
+  assert.equal(result, "Pace by Distance Comparison · 10K");
 });
 
 test("Riegel baseline is selected from chart bars instead of a dropdown", () => {
@@ -2791,6 +2791,17 @@ test("all activities is a dashboard drill-down, not a peer top-level tab", () =>
   assert.match(recentPanel, /id="openActivityListButton"/);
   assert.match(html, /id="activityListView"/);
   assert.match(html, /id="backActivityListButton"/);
+});
+
+test("top-level views expose consistent section headings", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  assert.match(html, /<div id="dashboardView" role="region" aria-labelledby="dashboardViewTitle">/);
+  assert.match(html, /<h2 id="dashboardViewTitle">Dashboard<\/h2>/);
+  assert.match(html, /<section class="analysis-view hidden" id="pbView" aria-labelledby="personalBestsViewTitle">/);
+  assert.match(html, /<h2 id="personalBestsViewTitle">Personal Bests<\/h2>/);
+  assert.match(html, /<section class="analysis-view hidden" id="analysisView" aria-labelledby="analysisViewTitle">/);
+  assert.match(html, /<h2 id="analysisViewTitle">Training Analysis<\/h2>/);
 });
 
 test("renderAllActivities filters, sorts, and keeps refresh actions on run rows", () => {
@@ -2888,9 +2899,169 @@ test("Riegel analysis omits the segment exponent panel", () => {
   assert.doesNotMatch(html, /riegelExponentTable/);
 });
 
+test("Analysis view groups pace-by-distance, pace-by-time, and distance-by-pace under tabs", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+
+  assert.match(analysisView, /class="personal-best-tabs analysis-tabs scale-toggle"/);
+  assert.match(analysisView, /data-analysis-tab="distance"[\s\S]*>Pace by Distance</);
+  assert.match(analysisView, /data-analysis-tab="time"[\s\S]*>Pace by Time</);
+  assert.match(analysisView, /data-analysis-tab="pace"[\s\S]*>Distance by Pace</);
+  assert.match(analysisView, /id="analysisDistanceView"/);
+  assert.match(analysisView, /id="analysisTimeView"/);
+  assert.match(analysisView, /id="analysisPaceView"/);
+  assert.match(analysisView, /id="analysisTabContext"/);
+  assert.match(analysisView, /id="analysisProfileGrid"/);
+  assert.match(analysisView, />Expected vs Current Pace by Distance</);
+  assert.match(analysisView, />Pace by Distance Comparison</);
+  assert.match(analysisView, />Expected vs Current Pace by Time</);
+  assert.match(analysisView, />Pace by Time Comparison</);
+  assert.match(analysisView, /id="timeRiegelChart" aria-label="Expected pace compared with current time bests chart"/);
+  assert.match(analysisView, />Expected vs Current Distance by Pace</);
+  assert.match(analysisView, />Distance by Pace Comparison</);
+  assert.doesNotMatch(analysisView, /Distance by Time/);
+  assert.match(analysisView, /id="trainingScheduleList"/);
+  assert.doesNotMatch(analysisView, /Record History/);
+  assert.doesNotMatch(analysisView, /id="recordHistoryTable"/);
+});
+
+test("Analysis sub tabs avoid redundant summary grids", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+
+  assert.match(analysisView, /id="analysisTabContext"/);
+  assert.doesNotMatch(analysisView, /id="timeRiegelSummaryGrid"/);
+  assert.doesNotMatch(analysisView, /id="paceRiegelSummaryGrid"/);
+});
+
+test("Analysis view uses a user-first hierarchy with matching sub tab headings", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+  const subviewHeadings = Array.from(analysisView.matchAll(/<div class="analysis-subview-heading">\s*<h3>([^<]+)<\/h3>/g))
+    .map((match) => match[1]);
+
+  assert.match(analysisView, /<h2 id="analysisViewTitle">Training Analysis<\/h2>/);
+  assert.doesNotMatch(analysisView, /<h2>Riegel Analysis<\/h2>/);
+  assert.match(analysisView, /role="group" aria-label="Analysis model"/);
+  assert.deepEqual(subviewHeadings, ["Pace by Distance", "Pace by Time", "Distance by Pace"]);
+});
+
+test("analysis tab context copy stays concise and avoids formula jargon", () => {
+  const app = loadAppContext();
+
+  const contexts = vm.runInContext(`
+    ["distance", "time", "pace"].map((tab) => getAnalysisTabContext(tab))
+  `, app);
+
+  for (const text of contexts) {
+    assert.ok(text.length > 40);
+    assert.ok(text.length <= 140);
+    assert.doesNotMatch(text, /exponent|formula|Riegel/i);
+  }
+  assert.match(contexts[0], /pace by distance/i);
+  assert.match(contexts[1], /pace by time/i);
+  assert.match(contexts[2], /distance by pace/i);
+});
+
+test("time analysis chart renders expected and current pace by time", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1;
+    appState.personalBests = {
+      durations: [
+        { name: "20 min", durationSeconds: 1200, top: [{ distanceKm: 4, paceSecondsPerKm: 300 }] },
+        { name: "1 hour", durationSeconds: 3600, top: [{ distanceKm: 12, paceSecondsPerKm: 300 }] }
+      ]
+    };
+    els.timeRiegelChart = { innerHTML: "" };
+    els.timeRiegelTable = { innerHTML: "" };
+    els.timeRiegelSummaryGrid = null;
+
+    renderTimeRiegelAnalysis();
+
+    els.timeRiegelChart.innerHTML;
+  `, app);
+
+  assert.match(result, /aria-label="Pace by Time expected pace compared with current pace"/);
+  assert.match(result, />Pace</);
+  assert.match(result, /Expected 20 min[\s\S]*5:00\/km/);
+  assert.match(result, /Current 20 min[\s\S]*5:00\/km/);
+  assert.doesNotMatch(result, />Distance</);
+  assert.doesNotMatch(result, /expected distance compared with current distance/i);
+});
+
+test("renderAnalysisView renders only the active analysis sub tab", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const calls = { distance: 0, time: 0, pace: 0 };
+    const buttonState = new Map();
+    const makeButton = (tab) => ({
+      dataset: { analysisTab: tab },
+      classList: {
+        toggle(name, force) {
+          if (name === "active") buttonState.set(tab, Boolean(force));
+        }
+      }
+    });
+    const makeSubview = () => ({
+      hidden: false,
+      classList: {
+        toggle(name, force) {
+          if (name === "hidden") this.hidden = Boolean(force);
+        }
+      }
+    });
+
+    els.analysisTabOptions = [makeButton("distance"), makeButton("time"), makeButton("pace")];
+    els.analysisDistanceView = makeSubview();
+    els.analysisTimeView = makeSubview();
+    els.analysisPaceView = makeSubview();
+    els.analysisTabContext = { textContent: "" };
+    renderRiegelAnalysis = () => {
+      calls.distance += 1;
+      return { selectedSeries: { key: "top1" }, expectedPaceSeries: [] };
+    };
+    renderTimeRiegelAnalysis = () => {
+      calls.time += 1;
+      return { rows: [] };
+    };
+    renderPaceRiegelAnalysis = () => {
+      calls.pace += 1;
+      return { rows: [] };
+    };
+    buildRiegelAnalysis = () => ({ selectedSeries: { key: "top1" }, expectedPaceSeries: [] });
+    buildTimeRiegelAnalysis = () => ({ rows: [] });
+    buildPaceRiegelAnalysis = () => ({ rows: [] });
+    buildAnalysisProfile = () => ({ cards: [], history: [], schedule: [] });
+    renderAnalysisProfile = () => {};
+
+    appState.analysisTab = "time";
+    renderAnalysisView();
+
+    ({
+      calls,
+      activeButtons: Object.fromEntries(buttonState),
+      hiddenViews: {
+        distance: els.analysisDistanceView.classList.hidden,
+        time: els.analysisTimeView.classList.hidden,
+        pace: els.analysisPaceView.classList.hidden
+      },
+      context: els.analysisTabContext.textContent
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.calls)), { distance: 0, time: 1, pace: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.activeButtons)), { distance: false, time: true, pace: false });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.hiddenViews)), { distance: true, time: false, pace: true });
+  assert.match(result.context, /time/i);
+});
+
 test("expected vs current chart exposes the shared x-axis scale toggle", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
-  const panel = html.match(/<h2>Expected vs Current by Distance<\/h2>[\s\S]*?<div class="chart-box personal-best-chart expected-gap-chart"/)?.[0] || "";
+  const panel = html.match(/<h2>Expected vs Current Pace by Distance<\/h2>[\s\S]*?<div class="chart-box personal-best-chart expected-gap-chart"/)?.[0] || "";
 
   assert.match(panel, /aria-label="Expected vs current x-axis scale"/);
   assert.match(panel, /class="scale-option riegel-scale-option active"[^>]*data-scale="linear"/);
@@ -3047,8 +3218,217 @@ test("renderRiegelAnalysis calculates median exponent from the full distance ran
     });
   `, app);
 
-  assert.ok(Math.abs(result.medianExponent - 1.286) < 0.001);
-  assert.match(result.summary, /1\.286/);
+  assert.ok(Math.abs(result.medianExponent - 1.220) < 0.001);
+  assert.match(result.summary, /1\.220/);
+});
+
+test("buildRiegelAnalysis estimates personal exponent from all valid distance pairs", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelSourceDistanceName = "5K";
+    appState.riegelExponentMode = "median";
+    appState.personalBests = {
+      distances: [
+        { name: "5K", distanceKm: 5, top: [{ movingTime: 1500, paceSecondsPerKm: 300 }] },
+        { name: "10K", distanceKm: 10, top: [{ movingTime: 3120, paceSecondsPerKm: 312 }] },
+        { name: "Half-Marathon", distanceKm: 21.097, top: [{ movingTime: 7200, paceSecondsPerKm: 341.3 }] },
+        { name: "30K", distanceKm: 30, top: [{ movingTime: 12000, paceSecondsPerKm: 400 }] },
+        { name: "Marathon", distanceKm: 42.195, top: [{ movingTime: 20000, paceSecondsPerKm: 474 }] }
+      ]
+    };
+
+    const analysis = buildRiegelAnalysis();
+    ({
+      medianExponent: analysis.medianExponent,
+      rowCount: analysis.exponentRows.length,
+      samplePair: analysis.exponentRows.find((row) => row.fromName === "5K" && row.toName === "Marathon")
+    });
+  `, app);
+
+  assert.equal(result.rowCount, 10);
+  assert.ok(Math.abs(result.medianExponent - 1.220) < 0.001);
+  assert.ok(Math.abs(result.samplePair.exponent - 1.214) < 0.001);
+});
+
+test("time and pace Riegel analysis compare actual endurance with expected distance", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1;
+    appState.personalBests = {
+      durations: [
+        {
+          name: "20 min",
+          durationSeconds: 1200,
+          top: [{ distanceKm: 4, paceSecondsPerKm: 300, startDate: "2026-05-01T00:00:00Z" }]
+        },
+        {
+          name: "1 hour",
+          durationSeconds: 3600,
+          top: [{ distanceKm: 11.5, paceSecondsPerKm: 313, startDate: "2026-05-02T00:00:00Z" }]
+        }
+      ],
+      paces: [
+        {
+          name: "5:00/km",
+          paceSecondsPerKm: 300,
+          top: [{ distanceKm: 5, durationSeconds: 1500, movingTime: 1500, paceSecondsPerKm: 300, startDate: "2026-05-03T00:00:00Z" }]
+        },
+        {
+          name: "6:00/km",
+          paceSecondsPerKm: 360,
+          top: [{ distanceKm: 9, durationSeconds: 3240, movingTime: 3240, paceSecondsPerKm: 360, startDate: "2026-05-04T00:00:00Z" }]
+        }
+      ]
+    };
+
+    const timeAnalysis = buildTimeRiegelAnalysis();
+    appState.riegelCustomExponent = 1.2;
+    const paceAnalysis = buildPaceRiegelAnalysis();
+    ({
+      timeRows: timeAnalysis.rows.map((row) => ({
+        name: row.name,
+        expectedDistanceKm: Number(row.expectedDistanceKm.toFixed(3)),
+        actualDistanceKm: row.actualDistanceKm,
+        gapKm: Number(row.gapKm.toFixed(3)),
+        status: row.status
+      })),
+      paceRows: paceAnalysis.rows.map((row) => ({
+        name: row.name,
+        expectedDistanceKm: Number(row.expectedDistanceKm.toFixed(3)),
+        actualDistanceKm: row.actualDistanceKm,
+        gapKm: Number(row.gapKm.toFixed(3)),
+        status: row.status
+      }))
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.timeRows)), [
+    { name: "20 min", expectedDistanceKm: 3.833, actualDistanceKm: 4, gapKm: 0.167, status: "strength" },
+    { name: "1 hour", expectedDistanceKm: 12, actualDistanceKm: 11.5, gapKm: -0.5, status: "weakness" }
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.paceRows)), [
+    { name: "5:00/km", expectedDistanceKm: 3.617, actualDistanceKm: 5, gapKm: 1.383, status: "strength" },
+    { name: "6:00/km", expectedDistanceKm: 12.442, actualDistanceKm: 9, gapKm: -3.442, status: "weakness" }
+  ]);
+});
+
+test("analysis profile builds strengths, weaknesses, and schedule without record history", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1;
+    appState.personalBests = {
+      distances: [
+        { name: "5K", distanceKm: 5, top: [{ movingTime: 1500, paceSecondsPerKm: 300, startDate: "2026-05-01T00:00:00Z", activityName: "Fast 5K" }] },
+        { name: "10K", distanceKm: 10, top: [{ movingTime: 3300, paceSecondsPerKm: 330, startDate: "2026-05-03T00:00:00Z", activityName: "Steady 10K" }] }
+      ],
+      durations: [
+        { name: "20 min", durationSeconds: 1200, top: [{ distanceKm: 4, paceSecondsPerKm: 300, startDate: "2026-05-02T00:00:00Z", activityName: "Twenty" }] }
+      ],
+      paces: [
+        { name: "5:00/km", paceSecondsPerKm: 300, top: [{ distanceKm: 5, durationSeconds: 1500, movingTime: 1500, paceSecondsPerKm: 300, startDate: "2026-05-04T00:00:00Z", activityName: "Pace Hold" }] }
+      ]
+    };
+
+    const profile = buildAnalysisProfile();
+    ({
+      cards: profile.cards.map((card) => card.title),
+      hasHistory: Object.prototype.hasOwnProperty.call(profile, "history"),
+      schedule: profile.schedule.map((item) => item.focus)
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.cards)), ["Strength", "Weakness", "Improve"]);
+  assert.equal(result.hasHistory, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.schedule)), ["Endurance", "Threshold", "Recovery", "Specific"]);
+});
+
+test("analysis profile ignores pace projections outside the observed distance range", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1.06;
+    appState.personalBests = {
+      paces: [
+        {
+          name: "5:00/km",
+          paceSecondsPerKm: 300,
+          top: [{ distanceKm: 10, durationSeconds: 3000, movingTime: 3000, paceSecondsPerKm: 300, startDate: "2026-05-01T00:00:00Z" }]
+        },
+        {
+          name: "7:00/km",
+          paceSecondsPerKm: 420,
+          top: [{ distanceKm: 31, durationSeconds: 13020, movingTime: 13020, paceSecondsPerKm: 420, startDate: "2026-05-02T00:00:00Z" }]
+        }
+      ]
+    };
+
+    const paceAnalysis = buildPaceRiegelAnalysis();
+    const slowRow = paceAnalysis.rows.find((row) => row.name === "7:00/km");
+    const profile = buildAnalysisProfile({
+      distanceAnalysis: null,
+      timeAnalysis: { rows: [] },
+      paceAnalysis
+    });
+    ({
+      slowStatus: slowRow.status,
+      slowOutOfRange: slowRow.outOfRange,
+      weakness: profile.cards.find((card) => card.title === "Weakness").value,
+      improve: profile.cards.find((card) => card.title === "Improve").value
+    });
+  `, app);
+
+  assert.equal(result.slowOutOfRange, true);
+  assert.equal(result.slowStatus, "neutral");
+  assert.notEqual(result.weakness, "Pace 7:00/km");
+  assert.notEqual(result.improve, "Pace 7:00/km");
+});
+
+test("pace Riegel rendering keeps out-of-range projections out of chart scale", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1.06;
+    appState.personalBests = {
+      paces: [
+        {
+          name: "5:00/km",
+          paceSecondsPerKm: 300,
+          top: [{ distanceKm: 10, durationSeconds: 3000, movingTime: 3000, paceSecondsPerKm: 300, startDate: "2026-05-01T00:00:00Z" }]
+        },
+        {
+          name: "7:00/km",
+          paceSecondsPerKm: 420,
+          top: [{ distanceKm: 31, durationSeconds: 13020, movingTime: 13020, paceSecondsPerKm: 420, startDate: "2026-05-02T00:00:00Z" }]
+        }
+      ]
+    };
+    els.paceRiegelSummaryGrid = { innerHTML: "" };
+    els.paceRiegelChart = { innerHTML: "" };
+    els.paceRiegelTable = { innerHTML: "" };
+
+    renderPaceRiegelAnalysis();
+    ({
+      table: els.paceRiegelTable.innerHTML,
+      chart: els.paceRiegelChart.innerHTML
+    });
+  `, app);
+
+  assert.match(result.table, /7:00\/km/);
+  assert.match(result.table, /Out of range/);
+  assert.doesNotMatch(result.table, /208\.8 km/);
+  assert.doesNotMatch(result.chart, /208\.8 km|210 km/);
 });
 
 test("renderRiegelAnalysis draws median expected record line on baseline prediction chart", () => {
