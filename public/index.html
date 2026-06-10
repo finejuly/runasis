@@ -416,11 +416,16 @@
         </div>
         <p class="analysis-context" id="analysisTabContext" aria-live="polite"></p>
 
-        <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Training profile" id="analysisProfileGrid"></section>
+        <div class="analysis-subview-heading analysis-profile-heading">
+          <h3 id="analysisProfileHeading">Strength, Weakness, Improvement</h3>
+          <p class="analysis-subview-context" id="analysisProfileContext">Best current signal across distance, time, and pace records.</p>
+        </div>
+        <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext" id="analysisProfileGrid"></section>
 
         <div class="analysis-subview" id="analysisDistanceView">
           <div class="analysis-subview-heading">
             <h3>Pace by Distance</h3>
+            <p class="analysis-subview-context">Current pace per km, expected pace per km, and baseline projections for each distance.</p>
           </div>
           <section class="kpi-grid analysis-kpi-grid" aria-label="Riegel summary" id="riegelSummaryGrid"></section>
           <article class="chart-panel personal-best-chart-panel">
@@ -481,6 +486,7 @@
         <div class="analysis-subview hidden" id="analysisTimeView">
           <div class="analysis-subview-heading">
             <h3>Pace by Time</h3>
+            <p class="analysis-subview-context">Current pace per km and expected pace per km grouped by fixed time targets.</p>
           </div>
           <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
@@ -514,6 +520,7 @@
         <div class="analysis-subview hidden" id="analysisPaceView">
           <div class="analysis-subview-heading">
             <h3>Distance by Pace</h3>
+            <p class="analysis-subview-context">Current distance and expected distance grouped by fixed target pace.</p>
           </div>
           <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
@@ -566,13 +573,13 @@
       </div>
     </div>
 
-    <div class="modal-backdrop hidden" id="riegelInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelInfoTitle">
+    <div class="modal-backdrop hidden" id="riegelInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelInfoTitle" aria-describedby="riegelInfoDescription">
       <div class="confirm-dialog info-dialog">
         <div class="info-dialog-header">
           <h2 id="riegelInfoTitle">Riegel Analysis</h2>
           <button class="button ghost" id="riegelInfoCloseButton" type="button">Close</button>
         </div>
-        <p>Riegel analysis estimates equivalent race times from a selected baseline personal best using a power-law model.</p>
+        <p id="riegelInfoDescription">Riegel analysis estimates equivalent race times from a selected baseline personal best using a power-law model.</p>
         <p><span class="formula-text">T2 = T1 x (D2 / D1)^exponent</span></p>
         <p>The commonly used Riegel race-prediction formula uses an exponent of 1.060. Many recreational runners slow down more over longer distances than that baseline predicts.</p>
         <p>A higher exponent can reflect short-distance strength, less developed long-distance preparation, pacing, terrain, or limited data. Treat it as a comparison tool rather than a diagnosis.</p>
@@ -589,24 +596,24 @@
       </div>
     </div>
 
-    <div class="modal-backdrop hidden" id="riegelEquivalentInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelEquivalentInfoTitle">
+    <div class="modal-backdrop hidden" id="riegelEquivalentInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelEquivalentInfoTitle" aria-describedby="riegelEquivalentInfoDescription">
       <div class="confirm-dialog info-dialog">
         <div class="info-dialog-header">
           <h2 id="riegelEquivalentInfoTitle">Baseline Prediction</h2>
           <button class="button ghost" id="riegelEquivalentInfoCloseButton" type="button">Close</button>
         </div>
-        <p>This chart estimates the selected baseline distance from each personal best using the current Riegel exponent.</p>
+        <p id="riegelEquivalentInfoDescription">This chart estimates the selected baseline distance from each personal best using the current Riegel exponent.</p>
         <p>For example, with 5K selected, each bar converts that distance's best effort into a predicted 5K time. This makes short and long-distance performances easier to compare on one target distance.</p>
       </div>
     </div>
 
-    <div class="modal-backdrop hidden" id="riegelProjectionInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelProjectionInfoTitle">
+    <div class="modal-backdrop hidden" id="riegelProjectionInfoDialog" role="dialog" aria-modal="true" aria-labelledby="riegelProjectionInfoTitle" aria-describedby="riegelProjectionInfoDescription">
       <div class="confirm-dialog info-dialog">
         <div class="info-dialog-header">
           <h2 id="riegelProjectionInfoTitle">Pace by Distance Comparison</h2>
           <button class="button ghost" id="riegelProjectionInfoCloseButton" type="button">Close</button>
         </div>
-        <p>This table estimates each target distance from the selected baseline best using the current Riegel exponent.</p>
+        <p id="riegelProjectionInfoDescription">This table estimates each target distance from the selected baseline best using the current Riegel exponent.</p>
         <p>For example, with 5K selected, it projects what your 10K, half-marathon, or marathon could look like from that 5K result. The diff column compares the projection with your saved best at the same distance.</p>
       </div>
     </div>

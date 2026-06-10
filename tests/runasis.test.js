@@ -2693,6 +2693,17 @@ test("Riegel equivalent chart has its own help dialog copy", () => {
   assert.doesNotMatch(html, /id="riegelProjectionCaption"/);
 });
 
+test("Riegel information dialogs describe their visible explanatory copy", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  assert.match(html, /id="riegelInfoDialog"[^>]*aria-labelledby="riegelInfoTitle"[^>]*aria-describedby="riegelInfoDescription"/);
+  assert.match(html, /id="riegelInfoDescription"[^>]*>Riegel analysis estimates equivalent race times/);
+  assert.match(html, /id="riegelEquivalentInfoDialog"[^>]*aria-labelledby="riegelEquivalentInfoTitle"[^>]*aria-describedby="riegelEquivalentInfoDescription"/);
+  assert.match(html, /id="riegelEquivalentInfoDescription"[^>]*>This chart estimates the selected baseline distance/);
+  assert.match(html, /id="riegelProjectionInfoDialog"[^>]*aria-labelledby="riegelProjectionInfoTitle"[^>]*aria-describedby="riegelProjectionInfoDescription"/);
+  assert.match(html, /id="riegelProjectionInfoDescription"[^>]*>This table estimates each target distance/);
+});
+
 test("pace by distance comparison panel spans the full analysis grid row", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
@@ -2925,6 +2936,37 @@ test("Analysis view groups pace-by-distance, pace-by-time, and distance-by-pace 
   assert.doesNotMatch(analysisView, /id="recordHistoryTable"/);
 });
 
+test("Analysis view labels the shared diagnostic profile", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+
+  assert.match(analysisView, /<h3 id="analysisProfileHeading">Strength, Weakness, Improvement<\/h3>/);
+  assert.match(analysisView, /<p class="analysis-subview-context" id="analysisProfileContext">Best current signal across distance, time, and pace records\.<\/p>/);
+  assert.match(analysisView, /<section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext" id="analysisProfileGrid">/);
+});
+
+test("Analysis sub tabs carry matching context copy", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+  const contexts = Array.from(analysisView.matchAll(/<div class="analysis-subview-heading">\s*<h3>([^<]+)<\/h3>\s*<p class="analysis-subview-context">([^<]+)<\/p>/g))
+    .map((match) => ({ heading: match[1], copy: match[2] }));
+
+  assert.deepEqual(contexts, [
+    {
+      heading: "Pace by Distance",
+      copy: "Current pace per km, expected pace per km, and baseline projections for each distance."
+    },
+    {
+      heading: "Pace by Time",
+      copy: "Current pace per km and expected pace per km grouped by fixed time targets."
+    },
+    {
+      heading: "Distance by Pace",
+      copy: "Current distance and expected distance grouped by fixed target pace."
+    }
+  ]);
+});
+
 test("Analysis sub tabs avoid redundant summary grids", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
@@ -2985,11 +3027,50 @@ test("time analysis chart renders expected and current pace by time", () => {
   `, app);
 
   assert.match(result, /aria-label="Pace by Time expected pace compared with current pace"/);
+  assert.match(result, /data-riegel-panel="pace"/);
+  assert.match(result, /data-riegel-panel="gap"/);
+  assert.match(result, /<path /);
+  assert.match(result, /data-riegel-gap-bar-target="20 min"/);
   assert.match(result, />Pace</);
+  assert.match(result, />Pace Gap/);
   assert.match(result, /Expected 20 min[\s\S]*5:00\/km/);
   assert.match(result, /Current 20 min[\s\S]*5:00\/km/);
+  assert.match(result, /Gap 20 min[\s\S]*match/);
   assert.doesNotMatch(result, />Distance</);
   assert.doesNotMatch(result, /expected distance compared with current distance/i);
+});
+
+test("pace analysis chart renders expected and current distance by pace with a gap panel", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1.2;
+    appState.personalBests = {
+      paces: [
+        { name: "5:00/km", paceSecondsPerKm: 300, top: [{ distanceKm: 5, durationSeconds: 1500, movingTime: 1500, paceSecondsPerKm: 300 }] },
+        { name: "6:00/km", paceSecondsPerKm: 360, top: [{ distanceKm: 9, durationSeconds: 3240, movingTime: 3240, paceSecondsPerKm: 360 }] }
+      ]
+    };
+    els.paceRiegelChart = { innerHTML: "" };
+    els.paceRiegelTable = { innerHTML: "" };
+    els.paceRiegelSummaryGrid = null;
+
+    renderPaceRiegelAnalysis();
+
+    els.paceRiegelChart.innerHTML;
+  `, app);
+
+  assert.match(result, /aria-label="Distance by Pace expected distance compared with current distance"/);
+  assert.match(result, /data-riegel-panel="distance"/);
+  assert.match(result, /data-riegel-panel="gap"/);
+  assert.match(result, /<path /);
+  assert.match(result, /data-riegel-gap-bar-target="5:00\/km"/);
+  assert.match(result, />Distance</);
+  assert.match(result, />Distance Gap/);
+  assert.match(result, /Expected 5:00\/km[\s\S]*km/);
+  assert.match(result, /Current 5:00\/km[\s\S]*5\.00 km/);
+  assert.match(result, /Gap 5:00\/km/);
 });
 
 test("renderAnalysisView renders only the active analysis sub tab", () => {
@@ -3345,9 +3426,23 @@ test("analysis profile builds strengths, weaknesses, and schedule without record
     });
   `, app);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result.cards)), ["Strength", "Weakness", "Improve"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.cards)), ["Strength", "Weakness", "Improvement"]);
   assert.equal(result.hasHistory, false);
   assert.deepEqual(JSON.parse(JSON.stringify(result.schedule)), ["Endurance", "Threshold", "Recovery", "Specific"]);
+});
+
+test("analysis profile labels the improvement card explicitly", () => {
+  const app = loadAppContext();
+
+  const cards = vm.runInContext(`
+    buildAnalysisProfile({
+      distanceAnalysis: null,
+      timeAnalysis: { rows: [] },
+      paceAnalysis: { rows: [] }
+    }).cards.map((card) => card.title)
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(cards)), ["Strength", "Weakness", "Improvement"]);
 });
 
 test("analysis profile ignores pace projections outside the observed distance range", () => {
@@ -3383,7 +3478,7 @@ test("analysis profile ignores pace projections outside the observed distance ra
       slowStatus: slowRow.status,
       slowOutOfRange: slowRow.outOfRange,
       weakness: profile.cards.find((card) => card.title === "Weakness").value,
-      improve: profile.cards.find((card) => card.title === "Improve").value
+      improve: profile.cards.find((card) => card.title === "Improvement").value
     });
   `, app);
 
@@ -3512,7 +3607,7 @@ test("renderRiegelAnalysis scales baseline prediction chart from the full distan
   assert.ok(Math.max(...paceLabels) >= 9 * 60);
 });
 
-test("renderRiegelAnalysis draws selected expected pace over the current pace graph", () => {
+test("renderRiegelAnalysis renders distance analysis with split pace paths and a gap panel", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
@@ -3563,8 +3658,7 @@ test("renderRiegelAnalysis draws selected expected pace over the current pace gr
   assert.match(result.chart, /data-riegel-panel="gap"/);
   assert.match(result.chart, />Expected Top 3</);
   assert.match(result.chart, />Current Top 3</);
-  assert.doesNotMatch(result.chart, />Gap bars</);
-  assert.doesNotMatch(result.chart, /data-riegel-legend="gap"/);
+  assert.match(result.chart, /<path /);
   assert.doesNotMatch(result.chart, /data-riegel-expected-pace-series="top1"/);
   assert.doesNotMatch(result.chart, /data-riegel-expected-pace-series="top10"/);
   assert.match(result.chart, />5K</);
@@ -3573,24 +3667,12 @@ test("renderRiegelAnalysis draws selected expected pace over the current pace gr
   assert.match(result.chart, /data-riegel-expected-pace-series="top3"/);
   assert.match(result.chart, /data-riegel-current-pace-distance="10K"/);
   assert.match(result.chart, /data-riegel-gap-bar-distance="10K"/);
-  assert.match(result.chart, /<rect[\s\S]*data-riegel-gap-bar-distance="20K"/);
-  assert.match(result.chart, /data-riegel-pace-gap-seconds="0"/);
-  assert.match(result.chart, /data-riegel-pace-gap-seconds="-60"/);
   assert.match(result.chart, /data-riegel-pace-gap-seconds="99"/);
-  assert.match(result.chart, />\+0:10</);
-  assert.match(result.chart, />-0:10</);
-  assert.match(result.chart, /y="338\.0"[\s\S]*height="48\.0"[\s\S]*data-riegel-gap-bar-distance="20K"/);
-  assert.match(result.chart, /y="290\.0"[\s\S]*height="48\.0"[\s\S]*data-riegel-gap-bar-distance="5K"/);
-  assert.match(result.chart, />\+1:39\/km</);
-  assert.match(result.chart, />-1:00\/km</);
-  assert.match(result.chart, />match</);
-  assert.match(result.chart, /data-riegel-gap-label="20K"/);
+  assert.match(result.chart, /data-riegel-pace-gap-seconds="-60"/);
   assert.match(result.chart, /Expected Top 3 10K[\s\S]*1:01:00[\s\S]*6:06\/km[\s\S]*Matches current Top 3/);
   assert.match(result.chart, /Current Top 3 10K[\s\S]*1:01:00[\s\S]*6:06\/km/);
   assert.match(result.chart, />Pace \(min\/km\)</);
   assert.match(result.chart, />Pace Gap \(sec\/km\)</);
-  assert.match(result.chart, /text-anchor="end"[^>]*>Current faster</);
-  assert.match(result.chart, /text-anchor="end"[^>]*>Current slower</);
 });
 
 test("renderRiegelAnalysis keeps expected pace through marathon without a current record", () => {
@@ -3754,6 +3836,9 @@ test("renderRiegelAnalysis separates crowded expected pace chart labels", () => 
   assert.ok(Math.min(...gapTickYs) - gapAxisLabelY >= 24);
   assert.ok(Math.min(...distanceLabelYs) <= xAxisLabelY - 28);
   assert.ok(distanceLabelYs.length <= 6);
+  assert.match(result, /data-riegel-panel="pace"/);
+  assert.match(result, /data-riegel-panel="gap"/);
+  assert.match(result, /<path /);
 });
 
 test("renderRiegelAnalysis shows placeholders for official best-effort distances without efforts", () => {

@@ -3262,7 +3262,7 @@ function renderPaceRiegelAnalysis() {
     els.paceRiegelSummaryGrid.innerHTML = renderRiegelGapSummaryCards(analysis, "Pace");
   }
   renderExpectedDistanceChart(els.paceRiegelChart, analysis.rows, {
-    ariaLabel: "Pace best expected distance compared with current distance",
+    ariaLabel: "Distance by Pace expected distance compared with current distance",
     targetLabel: "Pace"
   });
   els.paceRiegelTable.innerHTML = analysis.rows.map((row) => {
@@ -3312,59 +3312,108 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
   if (!points.length) return renderEmpty(container, "No comparison data");
 
   const width = 980;
-  const height = 318;
-  const padding = { top: 36, right: 28, bottom: 72, left: 70 };
+  const height = 480;
+  const padding = { top: 34, right: 32, bottom: 78, left: 92 };
   const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
+  const distancePanel = { top: 84, bottom: 226 };
+  distancePanel.height = distancePanel.bottom - distancePanel.top;
+  const gapPanel = { top: 290, bottom: 386 };
+  gapPanel.height = gapPanel.bottom - gapPanel.top;
   const maxDistance = Math.max(...points.flatMap((point) => [point.distanceKm, point.expectedDistanceKm]), 1);
   const yDomain = buildDistanceAxisDomain([maxDistance]);
-  const y = (distanceKm) => padding.top + ((yDomain.max - distanceKm) / yDomain.spread) * chartHeight;
-  const groupWidth = chartWidth / points.length;
-  const barWidth = Math.max(8, Math.min(26, groupWidth * 0.28));
+  const x = (index) => points.length <= 1
+    ? padding.left + chartWidth / 2
+    : padding.left + (chartWidth / (points.length - 1)) * index;
+  const yDistance = (distanceKm) => distancePanel.top + ((yDomain.max - distanceKm) / yDomain.spread) * distancePanel.height;
+  const maxGap = Math.max(0.25, Math.max(...points.map((point) => Math.abs(point.gapKm || 0))));
+  const gapMax = Math.ceil(maxGap * 2) / 2;
+  const yGap = (gapKm) => gapPanel.top + ((gapMax - Math.max(-gapMax, Math.min(gapMax, gapKm))) / (gapMax * 2)) * gapPanel.height;
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => yDomain.max * ratio);
+  const gapTicks = [-gapMax, -gapMax / 2, 0, gapMax / 2, gapMax];
 
-  const grid = yTicks.map((tick) => {
-    const tickY = y(tick);
-    return `
-      <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="#d9dfd7"></line>
-      <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatNumber(tick, tick < 10 && tick % 1 ? 1 : 0)} km</text>
-    `;
-  }).join("");
+  const grid = [
+    ...points.map((point, index) => {
+      const pointX = x(index);
+      return `
+        <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${distancePanel.top}" y2="${distancePanel.bottom}" stroke="#e5e9e3"></line>
+        <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${gapPanel.top}" y2="${gapPanel.bottom}" stroke="#e5e9e3"></line>
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = yDistance(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatNumber(tick, tick < 10 && tick % 1 ? 1 : 0)} km</text>
+      `;
+    }),
+    ...gapTicks.map((tick) => {
+      const tickY = yGap(tick);
+      const isZero = Math.abs(tick) < 0.0001;
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="${isZero ? "#17201a" : "#d9dfd7"}" stroke-width="${isZero ? "1.6" : "1"}"></line>
+        <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatSignedDistanceGapPlain(tick)}</text>
+      `;
+    })
+  ].join("");
   const labels = points.map((point, index) => {
-    const centerX = padding.left + groupWidth * index + groupWidth / 2;
-    const labelY = height - 34;
-    return `<text class="axis-label" x="${centerX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${centerX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
+    const labelX = x(index);
+    const labelY = height - 42;
+    return `<text class="axis-label" x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${labelX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
   }).join("");
-  const bars = points.map((point, index) => {
-    const centerX = padding.left + groupWidth * index + groupWidth / 2;
-    const expectedY = y(point.expectedDistanceKm);
-    const actualY = y(point.distanceKm);
-    const baselineY = y(0);
+  const expectedPath = points
+    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yDistance(point.expectedDistanceKm).toFixed(1)}`)
+    .join(" ");
+  const currentPath = points
+    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yDistance(point.distanceKm).toFixed(1)}`)
+    .join(" ");
+  const gapBarWidth = Math.max(9, Math.min(24, (points.length <= 1 ? 34 : chartWidth / (points.length - 1)) * 0.24));
+  const zeroGapY = yGap(0);
+  const gapBars = points.map((point, index) => {
+    const pointX = x(index);
+    const gapY = yGap(point.gapKm);
     const gapColor = point.status === "strength" ? "#24724f" : point.status === "weakness" ? "#b24b3f" : "#6f786f";
+    const rawHeight = Math.abs(zeroGapY - gapY);
+    const barHeight = Math.max(2, rawHeight);
+    const barY = rawHeight < 2 ? zeroGapY - 1 : Math.min(gapY, zeroGapY);
+    const tooltip = `Gap ${point.name}\n${formatSignedDistanceGapPlain(point.gapKm)}\nExpected ${formatDistanceKm(point.expectedDistanceKm)}\nCurrent ${formatDistanceKm(point.distanceKm)}`;
     return `
-      <rect x="${(centerX - barWidth - 2).toFixed(1)}" y="${expectedY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - expectedY).toFixed(1)}" fill="#3266a8" opacity="0.72" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatDistanceKm(point.expectedDistanceKm)}`)}"></rect>
-      <rect x="${(centerX + 2).toFixed(1)}" y="${actualY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - actualY).toFixed(1)}" fill="${gapColor}" opacity="0.86" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatDistanceKm(point.distanceKm)}\nGap ${formatSignedDistanceGapPlain(point.gapKm)}`)}"></rect>
+      <rect x="${(pointX - gapBarWidth / 2).toFixed(1)}" y="${barY.toFixed(1)}" width="${gapBarWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${gapColor}" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-target="${escapeHtml(point.name)}" data-tooltip="${escapeHtml(tooltip)}"></rect>
     `;
   }).join("");
+  const expectedDots = points.map((point, index) => `
+    <circle cx="${x(index).toFixed(1)}" cy="${yDistance(point.expectedDistanceKm).toFixed(1)}" r="4.6" fill="#3266a8" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatDistanceKm(point.expectedDistanceKm)}`)}"></circle>
+  `).join("");
+  const currentDots = points.map((point, index) => `
+    <circle cx="${x(index).toFixed(1)}" cy="${yDistance(point.distanceKm).toFixed(1)}" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatDistanceKm(point.distanceKm)}`)}"></circle>
+  `).join("");
   const legend = `
-    <g transform="translate(${padding.left}, 18)">
-      <rect x="0" y="-8" width="16" height="10" fill="#3266a8" opacity="0.72"></rect>
-      <text class="axis-label" x="24" y="1">Expected</text>
+    <g transform="translate(${padding.left}, 52)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#3266a8" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Expected</text>
     </g>
-    <g transform="translate(${padding.left + 120}, 18)">
-      <rect x="0" y="-8" width="16" height="10" fill="#24724f" opacity="0.86"></rect>
-      <text class="axis-label" x="24" y="1">Current</text>
+    <g transform="translate(${padding.left + 120}, 52)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#17201a" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Current</text>
     </g>
   `;
 
   container.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(ariaLabel)}">
+    <svg viewBox="0 0 ${width} ${height}" style="height:${height}px" role="img" aria-label="${escapeHtml(ariaLabel)}">
       ${grid}
       ${legend}
-      ${bars}
       ${labels}
-      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">${escapeHtml(targetLabel)}</text>
-      <text class="axis-label" x="10" y="16">Distance</text>
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 8}" text-anchor="middle">${escapeHtml(targetLabel)}</text>
+      <text class="axis-label" x="${padding.left}" y="22">Distance</text>
+      <text class="axis-label" x="${padding.left}" y="${gapPanel.top - 32}">Distance Gap</text>
+      <g data-riegel-panel="distance">
+        <path d="${expectedPath}" fill="none" stroke="#3266a8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="${currentPath}" fill="none" stroke="#17201a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        ${expectedDots}
+        ${currentDots}
+      </g>
+      <g data-riegel-panel="gap">
+        ${gapBars}
+      </g>
     </svg>
   `;
 }
@@ -3378,59 +3427,108 @@ function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel
   if (!points.length) return renderEmpty(container, "No pace comparison data");
 
   const width = 980;
-  const height = 318;
-  const padding = { top: 36, right: 28, bottom: 72, left: 70 };
+  const height = 480;
+  const padding = { top: 34, right: 32, bottom: 78, left: 92 };
   const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
+  const pacePanel = { top: 84, bottom: 226 };
+  pacePanel.height = pacePanel.bottom - pacePanel.top;
+  const gapPanel = { top: 290, bottom: 386 };
+  gapPanel.height = gapPanel.bottom - gapPanel.top;
   const paceDomain = buildPaceAxisDomain(points.flatMap((point) => [point.paceSecondsPerKm, point.expectedPaceSecondsPerKm]));
-  const y = (paceSecondsPerKm) => padding.top + ((paceSecondsPerKm - paceDomain.min) / paceDomain.spread) * chartHeight;
-  const groupWidth = chartWidth / points.length;
-  const barWidth = Math.max(8, Math.min(26, groupWidth * 0.28));
-  const baselineY = y(paceDomain.max);
+  const x = (index) => points.length <= 1
+    ? padding.left + chartWidth / 2
+    : padding.left + (chartWidth / (points.length - 1)) * index;
+  const yPace = (paceSecondsPerKm) => pacePanel.top + ((paceSecondsPerKm - paceDomain.min) / paceDomain.spread) * pacePanel.height;
+  const paceGaps = points.map((point) => point.paceSecondsPerKm - point.expectedPaceSecondsPerKm);
+  const maxGap = Math.max(10, Math.max(...paceGaps.map((gap) => Math.abs(gap))));
+  const yGap = (gap) => gapPanel.top + ((maxGap + Math.max(-maxGap, Math.min(maxGap, gap))) / (maxGap * 2)) * gapPanel.height;
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => paceDomain.min + paceDomain.spread * ratio);
+  const gapTicks = [-maxGap, -maxGap / 2, 0, maxGap / 2, maxGap];
 
-  const grid = yTicks.map((tick) => {
-    const tickY = y(tick);
-    return `
-      <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="#d9dfd7"></line>
-      <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatPace(tick)}</text>
-    `;
-  }).join("");
+  const grid = [
+    ...points.map((point, index) => {
+      const pointX = x(index);
+      return `
+        <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${pacePanel.top}" y2="${pacePanel.bottom}" stroke="#e5e9e3"></line>
+        <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${gapPanel.top}" y2="${gapPanel.bottom}" stroke="#e5e9e3"></line>
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = yPace(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatPace(tick)}</text>
+      `;
+    }),
+    ...gapTicks.map((tick) => {
+      const tickY = yGap(tick);
+      const isZero = Math.abs(tick) < 0.0001;
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY.toFixed(1)}" y2="${tickY.toFixed(1)}" stroke="${isZero ? "#17201a" : "#d9dfd7"}" stroke-width="${isZero ? "1.6" : "1"}"></line>
+        <text class="axis-label" x="10" y="${(tickY + 4).toFixed(1)}">${formatPaceGapTick(tick)}</text>
+      `;
+    })
+  ].join("");
   const labels = points.map((point, index) => {
-    const centerX = padding.left + groupWidth * index + groupWidth / 2;
-    const labelY = height - 34;
-    return `<text class="axis-label" x="${centerX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${centerX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
+    const labelX = x(index);
+    const labelY = height - 42;
+    return `<text class="axis-label" x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${labelX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
   }).join("");
-  const bars = points.map((point, index) => {
-    const centerX = padding.left + groupWidth * index + groupWidth / 2;
-    const expectedY = y(point.expectedPaceSecondsPerKm);
-    const actualY = y(point.paceSecondsPerKm);
+  const expectedPath = points
+    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yPace(point.expectedPaceSecondsPerKm).toFixed(1)}`)
+    .join(" ");
+  const currentPath = points
+    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yPace(point.paceSecondsPerKm).toFixed(1)}`)
+    .join(" ");
+  const gapBarWidth = Math.max(9, Math.min(24, (points.length <= 1 ? 34 : chartWidth / (points.length - 1)) * 0.24));
+  const zeroGapY = yGap(0);
+  const gapBars = points.map((point, index) => {
+    const pointX = x(index);
     const paceGap = point.paceSecondsPerKm - point.expectedPaceSecondsPerKm;
     const gapColor = point.status === "strength" ? "#24724f" : point.status === "weakness" ? "#b24b3f" : "#6f786f";
+    const gapY = yGap(paceGap);
+    const rawHeight = Math.abs(zeroGapY - gapY);
+    const barHeight = Math.max(2, rawHeight);
+    const barY = rawHeight < 2 ? zeroGapY - 1 : Math.min(gapY, zeroGapY);
+    const tooltip = `Gap ${point.name}\n${formatPaceGapLabel(paceGap)}\nExpected ${formatPaceWithUnit(point.expectedPaceSecondsPerKm)}\nCurrent ${formatPaceWithUnit(point.paceSecondsPerKm)}`;
     return `
-      <rect x="${(centerX - barWidth - 2).toFixed(1)}" y="${expectedY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - expectedY).toFixed(1)}" fill="#3266a8" opacity="0.72" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatPaceWithUnit(point.expectedPaceSecondsPerKm)}`)}"></rect>
-      <rect x="${(centerX + 2).toFixed(1)}" y="${actualY.toFixed(1)}" width="${barWidth}" height="${Math.max(2, baselineY - actualY).toFixed(1)}" fill="${gapColor}" opacity="0.86" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatPaceWithUnit(point.paceSecondsPerKm)}\nGap ${formatPaceGapLabel(paceGap)}`)}"></rect>
+      <rect x="${(pointX - gapBarWidth / 2).toFixed(1)}" y="${barY.toFixed(1)}" width="${gapBarWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${gapColor}" opacity="0.82" stroke="#ffffff" stroke-width="1.4" data-riegel-gap-bar-target="${escapeHtml(point.name)}" data-tooltip="${escapeHtml(tooltip)}"></rect>
     `;
   }).join("");
+  const expectedDots = points.map((point, index) => `
+    <circle cx="${x(index).toFixed(1)}" cy="${yPace(point.expectedPaceSecondsPerKm).toFixed(1)}" r="4.6" fill="#3266a8" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatPaceWithUnit(point.expectedPaceSecondsPerKm)}`)}"></circle>
+  `).join("");
+  const currentDots = points.map((point, index) => `
+    <circle cx="${x(index).toFixed(1)}" cy="${yPace(point.paceSecondsPerKm).toFixed(1)}" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatPaceWithUnit(point.paceSecondsPerKm)}`)}"></circle>
+  `).join("");
   const legend = `
-    <g transform="translate(${padding.left}, 18)">
-      <rect x="0" y="-8" width="16" height="10" fill="#3266a8" opacity="0.72"></rect>
-      <text class="axis-label" x="24" y="1">Expected</text>
+    <g transform="translate(${padding.left}, 52)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#3266a8" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Expected</text>
     </g>
-    <g transform="translate(${padding.left + 120}, 18)">
-      <rect x="0" y="-8" width="16" height="10" fill="#24724f" opacity="0.86"></rect>
-      <text class="axis-label" x="24" y="1">Current</text>
+    <g transform="translate(${padding.left + 120}, 52)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#17201a" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Current</text>
     </g>
   `;
 
   container.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(ariaLabel)}">
+    <svg viewBox="0 0 ${width} ${height}" style="height:${height}px" role="img" aria-label="${escapeHtml(ariaLabel)}">
       ${grid}
       ${legend}
-      ${bars}
       ${labels}
-      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">${escapeHtml(targetLabel)}</text>
-      <text class="axis-label" x="10" y="16">Pace</text>
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 8}" text-anchor="middle">${escapeHtml(targetLabel)}</text>
+      <text class="axis-label" x="${padding.left}" y="22">Pace</text>
+      <text class="axis-label" x="${padding.left}" y="${gapPanel.top - 32}">Pace Gap</text>
+      <g data-riegel-panel="pace">
+        <path d="${expectedPath}" fill="none" stroke="#3266a8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+        <path d="${currentPath}" fill="none" stroke="#17201a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        ${expectedDots}
+        ${currentDots}
+      </g>
+      <g data-riegel-panel="gap">
+        ${gapBars}
+      </g>
     </svg>
   `;
 }
@@ -3455,7 +3553,7 @@ function buildAnalysisProfile(existing = {}) {
     cards: [
       profileCard("Strength", strength, "No clear strength yet"),
       profileCard("Weakness", weakness, "No clear weakness yet"),
-      profileCard("Improve", improve, "Collect more comparable records")
+      profileCard("Improvement", improve, "Collect more comparable records")
     ],
     schedule: buildTrainingSchedule(improve)
   };
