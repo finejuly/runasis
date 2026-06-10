@@ -560,6 +560,17 @@ input[type="search"] {
   line-height: 1.2;
 }
 
+.analysis-subview-context {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--font-body);
+  line-height: 1.45;
+}
+
+.analysis-profile-heading {
+  margin-top: 14px;
+}
+
 .personal-best-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
