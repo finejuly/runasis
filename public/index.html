@@ -409,18 +409,19 @@
             </div>
           </div>
         </div>
+        <section class="analysis-overview-panel" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext">
+          <div class="analysis-subview-heading analysis-profile-heading">
+            <h3 id="analysisProfileHeading">Overall Diagnostic Profile</h3>
+            <p class="analysis-subview-context" id="analysisProfileContext">Common strength, weakness, and improvement signal across all Analysis tabs.</p>
+          </div>
+          <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Strength, Weakness, Improvement" id="analysisProfileGrid"></section>
+        </section>
         <div class="personal-best-tabs analysis-tabs scale-toggle" role="group" aria-label="Analysis type">
           <button class="scale-option analysis-tab-option active" type="button" data-analysis-tab="distance">Pace by Distance</button>
           <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="time">Pace by Time</button>
           <button class="scale-option analysis-tab-option" type="button" data-analysis-tab="pace">Distance by Pace</button>
         </div>
         <p class="analysis-context" id="analysisTabContext" aria-live="polite"></p>
-
-        <div class="analysis-subview-heading analysis-profile-heading">
-          <h3 id="analysisProfileHeading">Strength, Weakness, Improvement</h3>
-          <p class="analysis-subview-context" id="analysisProfileContext">Best current signal across distance, time, and pace records.</p>
-        </div>
-        <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext" id="analysisProfileGrid"></section>
 
         <div class="analysis-subview" id="analysisDistanceView">
           <div class="analysis-subview-heading">

@@ -3,6 +3,8 @@
 !.env.example
 .superpowers/
 .agents/
+/obsidian
+/obsidian.backup/
 obsidian/
 docs/loop/
 data/*.json

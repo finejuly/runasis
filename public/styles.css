@@ -567,8 +567,14 @@ input[type="search"] {
   line-height: 1.45;
 }
 
-.analysis-profile-heading {
+.analysis-overview-panel {
   margin-top: 14px;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--border);
+}
+
+.analysis-profile-heading {
+  margin-top: 0;
 }
 
 .personal-best-grid {

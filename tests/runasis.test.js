@@ -2940,9 +2940,11 @@ test("Analysis view labels the shared diagnostic profile", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
 
-  assert.match(analysisView, /<h3 id="analysisProfileHeading">Strength, Weakness, Improvement<\/h3>/);
-  assert.match(analysisView, /<p class="analysis-subview-context" id="analysisProfileContext">Best current signal across distance, time, and pace records\.<\/p>/);
-  assert.match(analysisView, /<section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext" id="analysisProfileGrid">/);
+  assert.match(analysisView, /<section class="analysis-overview-panel" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext">/);
+  assert.match(analysisView, /<h3 id="analysisProfileHeading">Overall Diagnostic Profile<\/h3>/);
+  assert.match(analysisView, /<p class="analysis-subview-context" id="analysisProfileContext">Common strength, weakness, and improvement signal across all Analysis tabs\.<\/p>/);
+  assert.match(analysisView, /<section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Strength, Weakness, Improvement" id="analysisProfileGrid">/);
+  assert.ok(analysisView.indexOf('class="analysis-overview-panel"') < analysisView.indexOf('class="personal-best-tabs analysis-tabs scale-toggle"'));
 });
 
 test("Analysis sub tabs carry matching context copy", () => {
@@ -3260,6 +3262,57 @@ test("Riegel scale controls keep shared active state across both charts", () => 
   assert.deepEqual(JSON.parse(JSON.stringify(result.activeStates)), [false, true, false, true]);
   assert.match(result.baselineChart, /data-riegel-distance-scale="log"/);
   assert.match(result.expectedChart, /data-riegel-distance-scale="log"/);
+});
+
+test("Analysis series controls keep active state outside the distance tab", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const fakeClassList = () => {
+      const classes = new Set();
+      return {
+        toggle(name, force) {
+          if (force) classes.add(name);
+          else classes.delete(name);
+        },
+        contains(name) {
+          return classes.has(name);
+        }
+      };
+    };
+    const makeSeriesButton = (series) => ({
+      dataset: { series },
+      classList: fakeClassList()
+    });
+    els.analysisTabOptions = [];
+    els.analysisDistanceView = { classList: fakeClassList() };
+    els.analysisTimeView = { classList: fakeClassList() };
+    els.analysisPaceView = { classList: fakeClassList() };
+    els.analysisTabContext = { textContent: "" };
+    els.riegelFiveKSeriesButtons = [
+      makeSeriesButton("top1"),
+      makeSeriesButton("top3"),
+      makeSeriesButton("top10")
+    ];
+    els.riegelFiveKScaleButtons = [];
+    els.riegelExponentModeButtons = [];
+    els.riegelExponentInput = { disabled: false, value: "", classList: { add() {}, remove() {} } };
+    els.timeRiegelChart = null;
+    els.timeRiegelTable = null;
+    els.paceRiegelChart = null;
+    els.paceRiegelTable = null;
+    els.analysisProfileGrid = { innerHTML: "" };
+    els.trainingScheduleList = null;
+    appState.analysisTab = "time";
+    appState.riegelFiveKSeries = "top3";
+    appState.personalBests = {};
+
+    renderAnalysisView();
+
+    els.riegelFiveKSeriesButtons.map((button) => button.classList.contains("active"));
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [false, true, false]);
 });
 
 test("renderRiegelAnalysis calculates median exponent from the full distance range", () => {

@@ -632,6 +632,14 @@ function updateAnalysisSubviewVisibility(activeTab = appState.analysisTab) {
   els.analysisPaceView?.classList.toggle("hidden", normalizedTab !== "pace");
 }
 
+function updateRiegelSeriesControls(selectedSeries = appState.riegelFiveKSeries) {
+  for (const button of els.riegelFiveKSeriesButtons || []) {
+    const isActive = button.dataset.series === selectedSeries;
+    button.classList.toggle("active", isActive);
+    if (button.setAttribute) button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  }
+}
+
 function renderAnalysisTabContext(activeTab = appState.analysisTab) {
   if (!els.analysisTabContext) return;
   els.analysisTabContext.textContent = getAnalysisTabContext(activeTab);
@@ -2879,6 +2887,7 @@ function renderAnalysisView() {
   const activeTab = normalizeAnalysisTab(appState.analysisTab);
   appState.analysisTab = activeTab;
   updateAnalysisSubviewVisibility(activeTab);
+  updateRiegelSeriesControls();
   renderAnalysisTabContext(activeTab);
 
   const distanceAnalysis = activeTab === "distance" ? renderRiegelAnalysis() : buildRiegelAnalysis();
