@@ -1,0 +1,7 @@
+interface:
+  display_name: "Runasis Triage"
+  short_description: "Find safe Runasis work items"
+  default_prompt: "Use $runasis-triage to run a read-mostly Runasis repo triage. Keep docs/loop/state.md and obsidian/Triage/현재 triage 상태.md as compact Korean loop summaries, record dated history under obsidian/Triage/History/, and create/update/move work-item files under obsidian/Work/{Inbox,Next,Doing,Blocked,Done,Dropped}/. Treat the containing folder as status; do not add status frontmatter or maintain separate Todo/Suggestions/Archive indexes."
+
+policy:
+  allow_implicit_invocation: true
