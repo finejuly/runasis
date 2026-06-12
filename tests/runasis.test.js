@@ -3142,6 +3142,136 @@ test("renderAnalysisView renders only the active analysis sub tab", () => {
   assert.match(result.context, /time/i);
 });
 
+test("Analysis controls wire sub tab, rank, and scale interactions", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const calls = [];
+    const makeElement = (values = {}) => {
+      const handlers = {};
+      return {
+        value: "",
+        checked: false,
+        dataset: {},
+        classList: {
+          add() {},
+          remove() {},
+          toggle() {},
+          contains() { return false; }
+        },
+        setAttribute() {},
+        addEventListener(type, handler) {
+          handlers[type] = handler;
+          this["on" + type] = handler;
+        },
+        click() {
+          if (handlers.click) handlers.click({ preventDefault() {} });
+        },
+        ...values
+      };
+    };
+    const makeButton = (dataset) => makeElement({ dataset });
+    const distanceTab = makeButton({ analysisTab: "distance" });
+    const timeTab = makeButton({ analysisTab: "time" });
+    const paceTab = makeButton({ analysisTab: "pace" });
+    const top1Button = makeButton({ series: "top1" });
+    const top3Button = makeButton({ series: "top3" });
+    const top10Button = makeButton({ series: "top10" });
+    const linearExpectedButton = makeButton({ scale: "linear" });
+    const logExpectedButton = makeButton({ scale: "log" });
+    const linearBaselineButton = makeButton({ scale: "linear" });
+    const logBaselineButton = makeButton({ scale: "log" });
+
+    els.setupForm = makeElement();
+    els.connectButton = makeElement();
+    els.syncButton = makeElement();
+    els.clearButton = makeElement();
+    els.openActivityListButton = makeElement();
+    els.backActivityListButton = makeElement();
+    els.rangeSelect = makeElement();
+    els.allActivitySearchInput = makeElement();
+    els.allActivityRunOnlyInput = makeElement();
+    els.allActivityDetailStatusSelect = makeElement();
+    els.allActivityTable = makeElement();
+    els.personalBestTrendDistanceSelect = makeElement();
+    els.timeBestTrendDurationSelect = makeElement();
+    els.personalBestGrid = makeElement();
+    els.personalBestDurationGrid = makeElement();
+    els.personalBestPaceGrid = makeElement();
+    els.riegelExponentInput = makeElement({ value: "1.000" });
+    els.kpiCards = [];
+    els.viewTabs = [];
+    els.personalBestTabOptions = [];
+    els.analysisTabOptions = [distanceTab, timeTab, paceTab];
+    els.personalBestScaleButtons = [];
+    els.timeBestScaleButtons = [];
+    els.paceBestDistanceScaleButtons = [];
+    els.personalBestTrendLimitButtons = [];
+    els.timeBestTrendLimitButtons = [];
+    els.paceBestTrendLimitButtons = [];
+    els.allActivitySortButtons = [];
+    els.excludedRecordsToggleButtons = [];
+    els.riegelFiveKScaleButtons = [
+      linearExpectedButton,
+      logExpectedButton,
+      linearBaselineButton,
+      logBaselineButton
+    ];
+    els.riegelFiveKSeriesButtons = [top1Button, top3Button, top10Button];
+    els.riegelExponentModeButtons = [];
+
+    render = () => {
+      calls.push({
+        type: "render",
+        currentView: appState.currentView,
+        analysisTab: appState.analysisTab
+      });
+    };
+    renderAnalysisView = () => {
+      calls.push({
+        type: "analysis",
+        series: appState.riegelFiveKSeries,
+        currentView: appState.currentView
+      });
+    };
+    renderRiegelAnalysis = () => {
+      calls.push({
+        type: "riegel",
+        scale: appState.riegelFiveKScale,
+        series: appState.riegelFiveKSeries
+      });
+    };
+
+    appState.currentView = "dashboard";
+    appState.analysisTab = "distance";
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelFiveKScale = "linear";
+
+    bindEvents();
+    timeTab.click();
+    top10Button.click();
+    logBaselineButton.click();
+
+    ({
+      currentView: appState.currentView,
+      analysisTab: appState.analysisTab,
+      selectedSeries: appState.riegelFiveKSeries,
+      selectedScale: appState.riegelFiveKScale,
+      calls
+    });
+  `, app);
+
+  assert.equal(result.currentView, "analysis");
+  assert.equal(result.analysisTab, "time");
+  assert.equal(result.selectedSeries, "top10");
+  assert.equal(result.selectedScale, "log");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.calls)), [
+    { type: "render", currentView: "analysis", analysisTab: "time" },
+    { type: "analysis", series: "top10", currentView: "analysis" },
+    { type: "riegel", scale: "log", series: "top10" }
+  ]);
+});
+
 test("expected vs current chart exposes the shared x-axis scale toggle", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const panel = html.match(/<h2>Expected vs Current Pace by Distance<\/h2>[\s\S]*?<div class="chart-box personal-best-chart expected-gap-chart"/)?.[0] || "";
