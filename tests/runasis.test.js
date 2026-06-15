@@ -1613,6 +1613,14 @@ test("excluded record rows use a distinct text color", () => {
   assert.doesNotMatch(css, /\.record-row-excluded td\s*{[^}]*color:\s*var\(--muted\);/);
 });
 
+test("visual state tokens are defined", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+
+  assert.match(css, /--border:\s*var\(--line\);/);
+  assert.match(css, /--green-soft:\s*#[0-9a-fA-F]{6};/);
+  assert.match(css, /--green-light:\s*#[0-9a-fA-F]{6};/);
+});
+
 test("configureRepositoryLink shows the repository link only when a URL is configured", () => {
   const app = loadAppContext();
 
@@ -1671,6 +1679,45 @@ test("topbar exposes one Strava sync action", () => {
   assert.match(topbarActions, /id="syncButton"/);
   assert.doesNotMatch(topbarActions, /id="detailSyncButton"/);
   assert.doesNotMatch(topbarActions, />Best Efforts</);
+});
+
+test("sync action labels match import state", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const button = () => ({ disabled: false, textContent: "" });
+    els.connectButton = button();
+    els.syncButton = button();
+    els.clearButton = button();
+    els.stravaConfigSaveButton = button();
+
+    appState.loading = false;
+    appState.syncing = false;
+    appState.detailSyncing = false;
+    appState.configSaving = false;
+    appState.refreshingActivityId = null;
+    appState.excludingRecordKey = null;
+
+    appState.status = { configured: true, connected: true, activityCount: 0 };
+    updateActionButtons();
+    const emptyLabel = els.syncButton.textContent;
+
+    appState.status = { configured: true, connected: true, activityCount: 12 };
+    updateActionButtons();
+    const importedLabel = els.syncButton.textContent;
+
+    appState.syncing = true;
+    updateActionButtons();
+    const busyLabel = els.syncButton.textContent;
+
+    ({ emptyLabel, importedLabel, busyLabel });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    emptyLabel: "Import Activities",
+    importedLabel: "Update from Strava",
+    busyLabel: "Syncing"
+  });
 });
 
 test("syncActivities fetches pending best efforts after activity sync", async () => {
@@ -1735,7 +1782,7 @@ test("syncActivities fetches pending best efforts after activity sync", async ()
   assert.match(result.toastMessage, /Best efforts: 3 new, 0 failed, 0 remaining/);
   assert.equal(result.syncing, false);
   assert.equal(result.detailSyncing, false);
-  assert.equal(result.syncText, "Sync");
+  assert.equal(result.syncText, "Import Activities");
 });
 
 test("syncActivities skips best-effort fetch when no run details are pending", async () => {
@@ -1951,6 +1998,36 @@ test("refreshActivityDetail warns when stream refresh remains pending", async ()
   assert.match(result.calls.find((call) => call.url === "toast").message, /Stream refresh failed/);
 });
 
+test("activity refresh state re-renders the top-level activities view", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const calls = [];
+    const button = () => ({ disabled: false, textContent: "" });
+    els.connectButton = button();
+    els.syncButton = button();
+    els.clearButton = button();
+    els.stravaConfigSaveButton = button();
+    els.excludedRecordsToggleButtons = [];
+    appState.status = { configured: true, connected: true, activityCount: 2 };
+    appState.currentView = "activities";
+    appState.activityListOpen = false;
+    renderAllActivities = () => {
+      calls.push({ refreshingActivityId: appState.refreshingActivityId });
+    };
+
+    setActivityRefreshing("123");
+    setActivityRefreshing(null);
+
+    calls;
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [
+    { refreshingActivityId: "123" },
+    { refreshingActivityId: null }
+  ]);
+});
+
 test("clear data is disabled while background work is running", () => {
   const app = loadAppContext();
 
@@ -2160,6 +2237,124 @@ test("renderPersonalBests adds exclusion buttons for source records", () => {
   assert.match(result, /<th[^>]*>#<\/th>\s*<th[^>]*>Date<\/th>\s*<th[^>]*>Best Time<\/th>\s*<th[^>]*>Pace<\/th>\s*<th[^>]*>Activity<\/th>\s*<th[^>]*>Actions<\/th>/);
   assert.match(result, /<td>1<\/td>\s*<td>05\/01\/2026<\/td>\s*<td>24:50<\/td>\s*<td>4:58\/km<\/td>\s*<td class="activity-name">Fixed Run<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
   assert.doesNotMatch(result, /data-refresh-activity-id="123"/);
+});
+
+test("Personal Bests exposes one records-first mode switch per type", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const pbView = html.match(/<section class="analysis-view hidden" id="pbView"[\s\S]*?<section class="analysis-view hidden" id="analysisView"/)?.[0] || "";
+
+  assert.match(pbView, /class="personal-best-mode-tabs scale-toggle"/);
+  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="records"[\s\S]*>Records</);
+  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="curve"[\s\S]*>Curve</);
+  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="timing"[\s\S]*>Timing</);
+  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="trend"[\s\S]*>Trend</);
+  assert.match(pbView, /data-pb-pane="records"/);
+  assert.match(pbView, /data-pb-pane="curve"/);
+  assert.match(pbView, /data-pb-pane="timing"/);
+  assert.match(pbView, /data-pb-pane="trend"/);
+  assert.match(pbView, /id="personalBestGrid"[\s\S]*id="personalBestChart"[\s\S]*id="personalBestRecencyChart"[\s\S]*id="personalBestTrendChart"/);
+});
+
+test("Personal Best mode controls switch one pane at a time", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    function makeControl(mode, tab = "distance") {
+      return {
+        dataset: { pbMode: mode, personalBestModeTab: tab },
+        active: false,
+        classList: { toggle(name, value) { if (name === "active") this.owner.active = value; }, owner: null }
+      };
+    }
+    function makePane(mode, tab = "distance") {
+      return {
+        dataset: { pbPane: mode, personalBestModeTab: tab },
+        hidden: false,
+        classList: { toggle(name, value) { if (name === "hidden") this.owner.hidden = value; }, owner: null }
+      };
+    }
+    const controls = ["records", "curve", "timing", "trend"].map((mode) => makeControl(mode));
+    const panes = ["records", "curve", "timing", "trend"].map((mode) => makePane(mode));
+    controls.forEach((item) => { item.classList.owner = item; });
+    panes.forEach((item) => { item.classList.owner = item; });
+    els.personalBestModeOptions = controls;
+    els.personalBestModePanes = panes;
+    appState.personalBestModes = { distance: "records", time: "records", pace: "records" };
+    appState.personalBestTab = "distance";
+
+    updatePersonalBestModeVisibility();
+    const initial = {
+      controls: controls.map((item) => item.active),
+      panes: panes.map((item) => item.hidden)
+    };
+
+    selectPersonalBestMode("trend");
+    const afterTrend = {
+      mode: appState.personalBestModes.distance,
+      controls: controls.map((item) => item.active),
+      panes: panes.map((item) => item.hidden)
+    };
+
+    ({ initial, afterTrend });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    initial: {
+      controls: [true, false, false, false],
+      panes: [false, true, true, true]
+    },
+    afterTrend: {
+      mode: "trend",
+      controls: [false, false, false, true],
+      panes: [true, true, true, false]
+    }
+  });
+});
+
+test("renderPersonalBests focuses one selected distance target", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.personalBestGrid = { innerHTML: "" };
+    appState.selectedPersonalBestTargets = { distance: "10K", time: null, pace: null };
+    appState.expandedPersonalBestDistances = new Set();
+    appState.personalBests = {
+      detailActivityCount: 2,
+      effortCount: 2,
+      distances: [
+        {
+          name: "5K",
+          count: 1,
+          top: [{
+            activityName: "Five",
+            startDate: "2026-05-01T00:00:00Z",
+            movingTime: 1500,
+            paceSecondsPerKm: 300
+          }]
+        },
+        {
+          name: "10K",
+          count: 4,
+          top: Array.from({ length: 4 }, (_, index) => ({
+            activityName: "Ten " + (index + 1),
+            startDate: "2026-05-02T00:00:00Z",
+            movingTime: 3200 + index,
+            paceSecondsPerKm: 320 + index
+          }))
+        }
+      ]
+    };
+
+    renderPersonalBests();
+    els.personalBestGrid.innerHTML;
+  `, app);
+
+  assert.match(result, /class="record-target-list"/);
+  assert.match(result, /data-record-target-type="distance" data-record-target-name="5K"/);
+  assert.match(result, /data-record-target-type="distance" data-record-target-name="10K"[\s\S]*active/);
+  assert.match(result, /Ten 1/);
+  assert.match(result, /Show More/);
+  assert.doesNotMatch(result, /<h2>5K<\/h2>[\s\S]*Five/);
 });
 
 test("renderTimeBestsView renders fixed-time distance records from streams", () => {
@@ -2788,20 +2983,116 @@ test("Riegel baseline is selected from chart bars instead of a dropdown", () => 
   `, app));
 });
 
-test("all activities is a dashboard drill-down, not a peer top-level tab", () => {
+test("activities are available as a top-level workflow", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
 
   const topTabs = html.match(/<div class="view-tabs"[\s\S]*?<\/div>/)?.[0] || "";
   const recentPanel = html.match(/<h2>Recent Activities<\/h2>[\s\S]*?<tbody id="activityTable">/)?.[0] || "";
 
-  assert.doesNotMatch(topTabs, /data-view="activities"/);
-  assert.doesNotMatch(topTabs, />Activities</);
+  assert.match(topTabs, /data-view="activities"[\s\S]*>Activities</);
   assert.doesNotMatch(topTabs, /data-view="time"/);
   assert.doesNotMatch(topTabs, />Time Bests</);
   assert.match(topTabs, /data-view="pb"[\s\S]*>Personal Bests</);
-  assert.match(recentPanel, /id="openActivityListButton"/);
+  assert.match(recentPanel, /id="openActivityListButton"[\s\S]*>Search activities</);
   assert.match(html, /id="activityListView"/);
   assert.match(html, /id="backActivityListButton"/);
+});
+
+test("Activities page defaults to compact summaries with advanced controls disclosed", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const activitiesView = html.match(/<section class="analysis-view hidden" id="activityListView"[\s\S]*?<section class="analysis-view hidden" id="pbView"/)?.[0] || "";
+
+  assert.match(activitiesView, /id="activitySummaryList"/);
+  assert.match(activitiesView, /<details class="activity-filter-shell"/);
+  assert.match(activitiesView, /<details class="activity-table-shell"/);
+  assert.match(activitiesView, /Advanced table/);
+  assert.match(activitiesView, /<button[^>]*\bhidden\b[^>]*id="backActivityListButton"/);
+});
+
+test("setup progress checklist is available in the shell", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  assert.match(html, /<section class="onboarding-panel hidden" id="onboardingPanel"[\s\S]*aria-label="Setup progress"/);
+  assert.match(html, /id="setupStepCredentials"[\s\S]*Save Strava credentials/);
+  assert.match(html, /id="setupStepConnect"[\s\S]*Connect to Strava/);
+  assert.match(html, /id="setupStepImport"[\s\S]*Import activities/);
+});
+
+test("dashboard secondary information is progressively disclosed", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+
+  assert.match(html, /<details class="dashboard-detail-shell"/);
+  assert.match(html, /<summary class="dashboard-detail-summary">[\s\S]*More training detail[\s\S]*Weekly patterns, distance mix, longest runs, and recent activities/);
+  assert.match(html, /<details class="dashboard-detail-shell"[\s\S]*<section class="chart-grid summary-chart-grid">[\s\S]*<section class="records-grid">/);
+  assert.match(css, /\.dashboard-detail-shell:not\(\[open\]\) > \.chart-grid,\s*\.dashboard-detail-shell:not\(\[open\]\) > \.records-grid\s*{[^}]*display:\s*none;/);
+});
+
+test("dashboard marks the default KPI as selected before data loads", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const distanceCard = html.match(/<article class="[^"]*" data-kpi-metric="distance"[\s\S]*?<\/article>/)?.[0] || "";
+
+  assert.match(distanceCard, /class="[^"]*\bdashboard-kpi-card\b[^"]*\bselected\b/);
+  assert.match(distanceCard, /aria-pressed="true"/);
+});
+
+test("Personal Bests progressively discloses records, curve, timing, and trend modes", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+  const personalBestView = html.match(/<section class="analysis-view hidden" id="pbView"[\s\S]*?<section class="analysis-view hidden" id="analysisView"/)?.[0] || "";
+
+  assert.doesNotMatch(personalBestView, /<details class="personal-best-detail-shell"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="records"[\s\S]*data-pb-mode="curve"[\s\S]*data-pb-mode="timing"[\s\S]*data-pb-mode="trend"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="records"[\s\S]*id="personalBestGrid"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="curve"[\s\S]*id="personalBestChart"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="timing"[\s\S]*id="personalBestRecencyChart"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="trend"[\s\S]*id="personalBestTrendChart"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="time" data-pb-pane="records"[\s\S]*id="personalBestDurationGrid"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="pace" data-pb-pane="records"[\s\S]*id="personalBestPaceGrid"/);
+  assert.match(css, /\.scale-toggle\.personal-best-mode-tabs\s*{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/);
+  assert.match(css, /\.hidden\s*{[^}]*display:\s*none !important;/);
+});
+
+test("weekly dashboard chart uses a stable width when hidden in disclosure", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.rangeDays = "all";
+    appState.selectedKpiMetric = "distance";
+    appState.activities = Array.from({ length: 30 }, (_, index) => {
+      const date = new Date(2026, 0, 1 + index * 7);
+      return {
+        id: String(index + 1),
+        name: "Run " + (index + 1),
+        sport_type: "Run",
+        start_date_local: date.toISOString(),
+        distance: 1000 + index * 100,
+        moving_time: 300
+      };
+    });
+    els.primaryDistanceTitle = { textContent: "" };
+    els.monthlyCaption = { textContent: "" };
+    function makeChart(clientWidth) {
+      return {
+        clientWidth,
+        innerHTML: "",
+        attrs: {},
+        setAttribute(name, value) { this.attrs[name] = value; }
+      };
+    };
+
+    els.monthlyChart = makeChart(0);
+    renderWeeklyMetricChart(appState.activities);
+    const hiddenWidthLabels = (els.monthlyChart.innerHTML.match(/text-anchor="middle"/g) || []).length;
+
+    els.monthlyChart = makeChart(600);
+    renderWeeklyMetricChart(appState.activities);
+    const narrowWidthLabels = (els.monthlyChart.innerHTML.match(/text-anchor="middle"/g) || []).length;
+
+    ({ hiddenWidthLabels, narrowWidthLabels });
+  `, app);
+
+  assert.ok(result.hiddenWidthLabels > result.narrowWidthLabels);
 });
 
 test("top-level views expose consistent section headings", () => {
@@ -2823,6 +3114,7 @@ test("renderAllActivities filters, sorts, and keeps refresh actions on run rows"
     els.allActivitySearchInput = { value: "" };
     els.allActivityRunOnlyInput = { checked: false };
     els.allActivityDetailStatusSelect = { value: "all" };
+    els.activitySummaryList = { innerHTML: "" };
     els.allActivityTable = { innerHTML: "" };
     els.allActivitySortButtons = [];
     appState.activities = [
@@ -2870,17 +3162,121 @@ test("renderAllActivities filters, sorts, and keeps refresh actions on run rows"
     renderAllActivities();
     ({
       caption: els.allActivityCountCaption.textContent,
+      summaries: els.activitySummaryList.innerHTML,
       table: els.allActivityTable.innerHTML
     });
   `, app);
 
   assert.equal(result.caption, "2 shown · 3 saved");
+  assert.match(result.summaries, /Fast Run[\s\S]*Easy Run/);
+  assert.match(result.summaries, /data-refresh-activity-id="2"/);
+  assert.match(result.summaries, />Missing</);
+  assert.doesNotMatch(result.summaries, /Avg HR/);
   assert.match(result.table, /Fast Run[\s\S]*Easy Run/);
   assert.doesNotMatch(result.table, /Commute/);
   assert.match(result.table, /data-refresh-activity-id="2"/);
   assert.match(result.table, /data-refresh-activity-id="1"/);
   assert.match(result.table, />Missing</);
   assert.match(result.table, />Fetched/);
+});
+
+test("renderAllActivities limits initial rows and exposes show more", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.allActivityCountCaption = { textContent: "" };
+    els.allActivitySearchInput = { value: "" };
+    els.allActivityRunOnlyInput = { checked: false };
+    els.allActivityDetailStatusSelect = { value: "all" };
+    els.activitySummaryList = { innerHTML: "" };
+    els.allActivityTable = { innerHTML: "" };
+    els.allActivityShowMoreButton = { classList: { toggle(name, value) { this[name] = value; } }, textContent: "" };
+    els.allActivitySortButtons = [];
+    appState.activities = Array.from({ length: 55 }, (_, index) => ({
+      id: index + 1,
+      name: "Run " + String(index + 1).padStart(2, "0"),
+      sport_type: "Run",
+      start_date_local: "2026-05-" + String((index % 28) + 1).padStart(2, "0") + "T07:00:00",
+      distance: 5000 + index,
+      moving_time: 1800,
+      detail_status: "fetched",
+      best_effort_count: 1
+    }));
+    appState.allActivitySort = { key: "name", direction: "asc" };
+    appState.allActivityVisibleLimit = 50;
+
+    renderAllActivities();
+    const initialCards = (els.activitySummaryList.innerHTML.match(/activity-summary-card/g) || []).length;
+    const initialRows = (els.allActivityTable.innerHTML.match(/<tr>/g) || []).length;
+    const initialHidden = els.allActivityShowMoreButton.classList.hidden;
+    const initialText = els.allActivityShowMoreButton.textContent;
+
+    showMoreActivities();
+    const expandedCards = (els.activitySummaryList.innerHTML.match(/activity-summary-card/g) || []).length;
+    const expandedRows = (els.allActivityTable.innerHTML.match(/<tr>/g) || []).length;
+    const expandedHidden = els.allActivityShowMoreButton.classList.hidden;
+
+    ({ initialCards, initialRows, initialHidden, initialText, expandedCards, expandedRows, expandedHidden });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    initialCards: 50,
+    initialRows: 50,
+    initialHidden: false,
+    initialText: "Show 5 more",
+    expandedCards: 55,
+    expandedRows: 55,
+    expandedHidden: true
+  });
+});
+
+test("renderAllActivities uses a compact empty state for no matching summaries", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.allActivityCountCaption = { textContent: "" };
+    els.allActivitySearchInput = { value: "" };
+    els.allActivityRunOnlyInput = { checked: false };
+    els.allActivityDetailStatusSelect = { value: "all" };
+    els.activitySummaryList = { innerHTML: "" };
+    els.allActivityTable = { innerHTML: "" };
+    els.allActivityShowMoreButton = { classList: { toggle(name, value) { this[name] = value; } }, textContent: "" };
+    els.allActivitySortButtons = [];
+    appState.activities = [{
+      id: 1,
+      name: "Easy Run",
+      sport_type: "Run",
+      start_date_local: "2026-05-01T07:00:00",
+      distance: 5000,
+      moving_time: 1800,
+      detail_status: "fetched",
+      best_effort_count: 1
+    }];
+    appState.allActivitySearch = "no match";
+    appState.allActivityRunOnly = false;
+    appState.allActivityDetailStatus = "all";
+    appState.allActivitySort = { key: "date", direction: "desc" };
+
+    renderAllActivities();
+    els.activitySummaryList.innerHTML;
+  `, app);
+
+  assert.match(result, /class="activity-empty-state"/);
+  assert.doesNotMatch(result, /class="chart-empty"/);
+});
+
+test("Analysis page discloses model detail and comparison tables progressively", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+  const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+
+  assert.match(analysisView, /<details class="analysis-detail-shell"/);
+  assert.match(analysisView, /More model detail/);
+  assert.match(analysisView, /<details class="analysis-detail-shell"[\s\S]*id="riegelSummaryGrid"[\s\S]*id="riegelFiveKChart"[\s\S]*id="riegelProjectionTable"/);
+  assert.match(analysisView, /More comparison rows[\s\S]*id="timeRiegelTable"/);
+  assert.match(analysisView, /More comparison rows[\s\S]*id="paceRiegelTable"/);
+  assert.match(analysisView, /Training schedule[\s\S]*id="trainingScheduleList"/);
+  assert.match(css, /\.analysis-detail-shell:not\(\[open\]\) > \.analysis-detail-content\s*{[^}]*display:\s*none;/);
 });
 
 test("Riegel reference link uses a readable source in a new window", () => {

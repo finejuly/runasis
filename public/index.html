@@ -8,14 +8,15 @@
   </head>
   <body>
     <header class="topbar">
-      <div>
+      <div class="brand-lockup">
         <h1>Runasis</h1>
+        <p>Private Strava training dashboard</p>
       </div>
       <div class="topbar-actions">
         <span class="status-pill" id="connectionStatus">Checking</span>
         <button class="button primary" id="connectButton" type="button">Connect Strava</button>
-        <button class="button" id="syncButton" type="button">Sync</button>
-        <button class="button danger" id="clearButton" type="button">Clear Data</button>
+        <button class="button" id="syncButton" type="button">Import Activities</button>
+        <button class="button ghost danger" id="clearButton" type="button">Clear Data</button>
         <a class="topbar-icon-link repository-link hidden" id="repositoryLink" target="_blank" rel="noreferrer" aria-label="View repository" title="View repository">
           <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5A10.6 10.6 0 0 0 8 3.5C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.4 5.4 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"></path>
@@ -55,13 +56,36 @@
             <span>Client Secret</span>
             <input id="stravaClientSecretInput" type="password" autocomplete="off" required>
           </label>
-          <button class="button primary" id="stravaConfigSaveButton" type="submit">Save Settings</button>
+          <button class="button primary" id="stravaConfigSaveButton" type="submit">Save credentials</button>
         </form>
+      </section>
+
+      <section class="onboarding-panel hidden" id="onboardingPanel" aria-label="Setup progress">
+        <div class="onboarding-copy">
+          <span class="section-kicker">Setup progress</span>
+          <h2>Bring your running history into focus</h2>
+          <p id="onboardingMessage">Save your Strava credentials, connect your account, then import activities.</p>
+        </div>
+        <ol class="setup-steps" aria-label="Runasis setup steps">
+          <li class="setup-step" id="setupStepCredentials">
+            <span>1</span>
+            <strong>Save Strava credentials</strong>
+          </li>
+          <li class="setup-step" id="setupStepConnect">
+            <span>2</span>
+            <strong>Connect to Strava</strong>
+          </li>
+          <li class="setup-step" id="setupStepImport">
+            <span>3</span>
+            <strong>Import activities</strong>
+          </li>
+        </ol>
       </section>
 
       <section class="controls-band" aria-label="Views">
         <div class="view-tabs" role="group" aria-label="Views">
           <button class="view-tab active" type="button" data-view="dashboard">Dashboard</button>
+          <button class="view-tab" type="button" data-view="activities">Activities</button>
           <button class="view-tab" type="button" data-view="pb">Personal Bests</button>
           <button class="view-tab" type="button" data-view="analysis">Analysis</button>
         </div>
@@ -81,7 +105,7 @@
         </div>
         <div class="kpi-summary-heading">
           <div>
-            <h2>Key Metrics</h2>
+            <h2>Choose metric to chart</h2>
             <span id="kpiRangeCaption">No range</span>
           </div>
           <label class="field dashboard-range-field">
@@ -97,7 +121,7 @@
           </label>
         </div>
         <section class="kpi-grid" id="dashboardKpiGrid" aria-label="Key metrics">
-          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="distance" role="button" tabindex="0" aria-pressed="true" aria-label="Show distance chart">
+          <article class="kpi-card dashboard-kpi-card selected" data-kpi-metric="distance" role="button" tabindex="0" aria-pressed="true" aria-label="Show distance chart">
             <span>Distance</span>
             <strong id="kpiDistance">0 km</strong>
             <small id="kpiDistanceSub">Based on saved runs</small>
@@ -127,66 +151,73 @@
           <div class="chart-box cumulative-distance-chart" id="cumulativeDistanceChart" aria-label="Cumulative distance by date chart"></div>
         </article>
 
-        <section class="chart-grid summary-chart-grid">
-          <article class="chart-panel">
-            <div class="panel-title">
-              <h2 id="primaryDistanceTitle">Weekly Distance</h2>
-              <span id="monthlyCaption">No data</span>
-            </div>
-            <div class="chart-box" id="monthlyChart" aria-label="Weekly activity chart"></div>
-          </article>
-          <article class="chart-panel">
-            <div class="panel-title">
-              <h2>Distance Distribution</h2>
-              <span id="distanceDistributionCaption">No data</span>
-            </div>
-            <div class="chart-box" id="distanceDistributionChart" aria-label="Activity distance distribution for selected range chart"></div>
-          </article>
-        </section>
+        <details class="dashboard-detail-shell">
+          <summary class="dashboard-detail-summary">
+            <span>More training detail</span>
+            <small>Weekly patterns, distance mix, longest runs, and recent activities</small>
+          </summary>
 
-        <section class="records-grid">
-          <article class="records-panel">
-            <div class="panel-title">
-              <h2>Longest Runs</h2>
-              <span id="longRunCaption">By distance</span>
-            </div>
-            <ol class="ranking-list" id="longRunList"></ol>
-          </article>
-          <article class="records-panel table-panel">
-            <div class="panel-title">
-              <h2>Recent Activities</h2>
-              <div class="panel-actions">
-                <span id="recentCaption">Newest first</span>
-                <button class="button ghost panel-compact-button" id="openActivityListButton" type="button">View All</button>
+          <section class="chart-grid summary-chart-grid">
+            <article class="chart-panel">
+              <div class="panel-title">
+                <h2 id="primaryDistanceTitle">Weekly Distance</h2>
+                <span id="monthlyCaption">No data</span>
               </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Distance</th>
-                    <th>Pace</th>
-                    <th>Time</th>
-                  </tr>
-                </thead>
-                <tbody id="activityTable"></tbody>
-              </table>
-            </div>
-          </article>
-        </section>
+              <div class="chart-box" id="monthlyChart" aria-label="Weekly activity chart"></div>
+            </article>
+            <article class="chart-panel">
+              <div class="panel-title">
+                <h2>Distance Distribution</h2>
+                <span id="distanceDistributionCaption">No data</span>
+              </div>
+              <div class="chart-box" id="distanceDistributionChart" aria-label="Activity distance distribution for selected range chart"></div>
+            </article>
+          </section>
+
+          <section class="records-grid">
+            <article class="records-panel">
+              <div class="panel-title">
+                <h2>Longest Runs</h2>
+                <span id="longRunCaption">By distance</span>
+              </div>
+              <ol class="ranking-list" id="longRunList"></ol>
+            </article>
+            <article class="records-panel table-panel">
+              <div class="panel-title">
+                <h2>Recent Activities</h2>
+                <div class="panel-actions">
+                  <span id="recentCaption">Newest first</span>
+                  <button class="button ghost panel-compact-button" id="openActivityListButton" type="button">Search activities</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Distance</th>
+                      <th>Pace</th>
+                      <th>Time</th>
+                    </tr>
+                  </thead>
+                  <tbody id="activityTable"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        </details>
       </div>
 
-      <section class="analysis-view hidden" id="activityListView" aria-label="All activities">
+      <section class="analysis-view hidden" id="activityListView" aria-label="Activities">
         <div class="analysis-heading activity-list-heading">
           <div class="panel-title">
             <div>
-              <h2>All Activities</h2>
+              <h2>Activities</h2>
               <span id="allActivityCountCaption">No activities</span>
             </div>
-            <button class="button ghost panel-compact-button" id="backActivityListButton" type="button">Back</button>
+            <button class="button ghost panel-compact-button hidden" id="backActivityListButton" type="button">Back to Dashboard</button>
           </div>
         </div>
         <article class="records-panel table-panel activity-list-panel">
@@ -195,39 +226,54 @@
               <span>Search</span>
               <input id="allActivitySearchInput" type="search" autocomplete="off" placeholder="Name, sport, or id">
             </label>
-            <label class="field checkbox-field">
-              <input id="allActivityRunOnlyInput" type="checkbox">
-              <span>Runs only</span>
-            </label>
-            <label class="select-field">
-              <span>Detail</span>
-              <select id="allActivityDetailStatusSelect" aria-label="Detail status">
-                <option value="all">All</option>
-                <option value="fetched">Fetched</option>
-                <option value="missing">Missing</option>
-                <option value="failed">Failed</option>
-              </select>
-            </label>
+            <details class="activity-filter-shell">
+              <summary class="compact-detail-summary">
+                <span>More filters</span>
+              </summary>
+              <div class="activity-filter-content">
+                <label class="field checkbox-field">
+                  <input id="allActivityRunOnlyInput" type="checkbox">
+                  <span>Runs only</span>
+                </label>
+                <label class="select-field">
+                  <span>Detail</span>
+                  <select id="allActivityDetailStatusSelect" aria-label="Detail status">
+                    <option value="all">All</option>
+                    <option value="fetched">Fetched</option>
+                    <option value="missing">Missing</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                </label>
+              </div>
+            </details>
           </div>
-          <div class="table-wrap all-activity-table-wrap">
-            <table class="all-activity-table">
-              <thead>
-                <tr>
-                  <th><button class="table-sort" type="button" data-activity-sort="date">Date</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="name">Name</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="sport">Sport</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="distance">Distance</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="pace">Pace</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="moving_time">Time</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="elevation">Elev.</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="avg_hr">Avg HR</button></th>
-                  <th><button class="table-sort" type="button" data-activity-sort="detail_status">Detail</button></th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="allActivityTable"></tbody>
-            </table>
-          </div>
+          <div class="activity-summary-list" id="activitySummaryList" aria-label="Activity summaries"></div>
+          <button class="button ghost activity-show-more-button hidden" id="allActivityShowMoreButton" type="button">Show more</button>
+          <details class="activity-table-shell">
+            <summary class="dashboard-detail-summary activity-table-summary">
+              <span>Advanced table</span>
+              <small>Sort by sport, elevation, heart rate, detail state, and refresh actions</small>
+            </summary>
+            <div class="table-wrap all-activity-table-wrap">
+              <table class="all-activity-table">
+                <thead>
+                  <tr>
+                    <th><button class="table-sort" type="button" data-activity-sort="date">Date</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="name">Name</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="sport">Sport</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="distance">Distance</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="pace">Pace</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="moving_time">Time</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="elevation">Elev.</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="avg_hr">Avg HR</button></th>
+                    <th><button class="table-sort" type="button" data-activity-sort="detail_status">Detail</button></th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="allActivityTable"></tbody>
+              </table>
+            </div>
+          </details>
         </article>
       </section>
 
@@ -242,150 +288,192 @@
         </div>
 
         <div class="personal-best-subview" id="personalBestDistanceView">
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Pace Curve by Distance</h2>
-              <div class="panel-actions">
-                <span id="personalBestChartCaption"></span>
-                <div class="scale-toggle" role="group" aria-label="X-axis scale">
-                  <button class="scale-option pb-scale-option active" type="button" data-scale="linear">Linear</button>
-                  <button class="scale-option pb-scale-option" type="button" data-scale="log">Log</button>
-                </div>
-              </div>
-            </div>
-            <div class="chart-box personal-best-chart" id="personalBestChart" aria-label="Personal best pace by distance chart"></div>
-          </article>
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Personal Best Timing by Distance</h2>
-              <span id="personalBestRecencyChartCaption">D-day</span>
-            </div>
-            <div class="chart-box personal-best-chart" id="personalBestRecencyChart" aria-label="Personal best timing by distance chart"></div>
-          </article>
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Personal Best Trend</h2>
-              <div class="panel-actions">
-                <span id="personalBestTrendCaption"></span>
-                <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Personal best trend display count">
-                  <button class="scale-option pb-trend-limit-option" type="button" data-limit="5">Top 5</button>
-                  <button class="scale-option pb-trend-limit-option" type="button" data-limit="10">Top 10</button>
-                  <button class="scale-option pb-trend-limit-option active" type="button" data-limit="20">Top 20</button>
-                </div>
-                <label class="select-field personal-best-trend-field">
-                  <span>Distance</span>
-                  <select id="personalBestTrendDistanceSelect" aria-label="Personal best trend distance"></select>
-                </label>
-              </div>
-            </div>
-            <div class="chart-box personal-best-chart" id="personalBestTrendChart" aria-label="Personal best trend by distance chart"></div>
-          </article>
-          <div class="personal-best-section-heading">
-            <div>
-              <h2>Distance Bests</h2>
-              <span id="personalBestCaption">No data</span>
-            </div>
-            <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+          <div class="personal-best-mode-tabs scale-toggle" role="group" aria-label="Distance best view">
+            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="distance" data-pb-mode="records" aria-pressed="true">Records</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="distance" data-pb-mode="curve" aria-pressed="false">Curve</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="distance" data-pb-mode="timing" aria-pressed="false">Timing</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="distance" data-pb-mode="trend" aria-pressed="false">Trend</button>
           </div>
-          <div class="personal-best-grid" id="personalBestGrid"></div>
+          <div class="personal-best-mode-pane" data-personal-best-mode-tab="distance" data-pb-pane="records">
+            <div class="personal-best-section-heading">
+              <div>
+                <h2>Distance Bests</h2>
+                <span id="personalBestCaption">No data</span>
+              </div>
+              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+            </div>
+            <div class="personal-best-grid" id="personalBestGrid"></div>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="distance" data-pb-pane="curve">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Pace Curve by Distance</h2>
+                <div class="panel-actions">
+                  <span id="personalBestChartCaption"></span>
+                  <div class="scale-toggle" role="group" aria-label="X-axis scale">
+                    <button class="scale-option pb-scale-option active" type="button" data-scale="linear">Linear</button>
+                    <button class="scale-option pb-scale-option" type="button" data-scale="log">Log</button>
+                  </div>
+                </div>
+              </div>
+              <div class="chart-box personal-best-chart" id="personalBestChart" aria-label="Personal best pace by distance chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="distance" data-pb-pane="timing">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Personal Best Timing by Distance</h2>
+                <span id="personalBestRecencyChartCaption">D-day</span>
+              </div>
+              <div class="chart-box personal-best-chart" id="personalBestRecencyChart" aria-label="Personal best timing by distance chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="distance" data-pb-pane="trend">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Personal Best Trend</h2>
+                <div class="panel-actions">
+                  <span id="personalBestTrendCaption"></span>
+                  <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Personal best trend display count">
+                    <button class="scale-option pb-trend-limit-option" type="button" data-limit="5">Top 5</button>
+                    <button class="scale-option pb-trend-limit-option" type="button" data-limit="10">Top 10</button>
+                    <button class="scale-option pb-trend-limit-option active" type="button" data-limit="20">Top 20</button>
+                  </div>
+                  <label class="select-field personal-best-trend-field">
+                    <span>Distance</span>
+                    <select id="personalBestTrendDistanceSelect" aria-label="Personal best trend distance"></select>
+                  </label>
+                </div>
+              </div>
+              <div class="chart-box personal-best-chart" id="personalBestTrendChart" aria-label="Personal best trend by distance chart"></div>
+            </article>
+          </div>
         </div>
 
         <div class="personal-best-subview hidden" id="timeView" aria-label="Time-limited bests">
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Pace Curve by Time</h2>
-              <div class="panel-actions">
-                <span id="timeBestDistanceChartCaption"></span>
-                <div class="scale-toggle" role="group" aria-label="Time best X-axis scale">
-                  <button class="scale-option time-scale-option active" type="button" data-scale="linear">Linear</button>
-                  <button class="scale-option time-scale-option" type="button" data-scale="log">Log</button>
-                </div>
-              </div>
-            </div>
-            <div class="chart-box personal-best-chart" id="timeBestDistanceChart" aria-label="Time best pace by duration chart"></div>
-          </article>
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Time Best Timing by Duration</h2>
-              <span id="timeBestRecencyChartCaption">D-day</span>
-            </div>
-            <div class="chart-box personal-best-chart" id="timeBestRecencyChart" aria-label="Time best timing by duration chart"></div>
-          </article>
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Time Best Trend</h2>
-              <div class="panel-actions">
-                <span id="timeBestTrendCaption"></span>
-                <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Time best trend display count">
-                  <button class="scale-option time-trend-limit-option" type="button" data-limit="5">Top 5</button>
-                  <button class="scale-option time-trend-limit-option" type="button" data-limit="10">Top 10</button>
-                  <button class="scale-option time-trend-limit-option active" type="button" data-limit="20">Top 20</button>
-                </div>
-                <label class="select-field personal-best-trend-field">
-                  <span>Time</span>
-                  <select id="timeBestTrendDurationSelect" aria-label="Time best trend duration"></select>
-                </label>
-              </div>
-            </div>
-            <div class="chart-box personal-best-chart" id="timeBestTrendChart" aria-label="Time best trend by duration chart"></div>
-          </article>
-          <div class="personal-best-section-heading time-best-heading">
-            <div>
-              <h2>Time-Limited Bests</h2>
-              <span id="personalBestDurationCaption">No stream data</span>
-            </div>
-            <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+          <div class="personal-best-mode-tabs scale-toggle" role="group" aria-label="Time best view">
+            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="time" data-pb-mode="records" aria-pressed="true">Records</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="time" data-pb-mode="curve" aria-pressed="false">Curve</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="time" data-pb-mode="timing" aria-pressed="false">Timing</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="time" data-pb-mode="trend" aria-pressed="false">Trend</button>
           </div>
-          <div class="personal-best-grid" id="personalBestDurationGrid"></div>
+          <div class="personal-best-mode-pane" data-personal-best-mode-tab="time" data-pb-pane="records">
+            <div class="personal-best-section-heading time-best-heading">
+              <div>
+                <h2>Time-Limited Bests</h2>
+                <span id="personalBestDurationCaption">No stream data</span>
+              </div>
+              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+            </div>
+            <div class="personal-best-grid" id="personalBestDurationGrid"></div>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="time" data-pb-pane="curve">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Pace Curve by Time</h2>
+                <div class="panel-actions">
+                  <span id="timeBestDistanceChartCaption"></span>
+                  <div class="scale-toggle" role="group" aria-label="Time best X-axis scale">
+                    <button class="scale-option time-scale-option active" type="button" data-scale="linear">Linear</button>
+                    <button class="scale-option time-scale-option" type="button" data-scale="log">Log</button>
+                  </div>
+                </div>
+              </div>
+              <div class="chart-box personal-best-chart" id="timeBestDistanceChart" aria-label="Time best pace by duration chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="time" data-pb-pane="timing">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Time Best Timing by Duration</h2>
+                <span id="timeBestRecencyChartCaption">D-day</span>
+              </div>
+              <div class="chart-box personal-best-chart" id="timeBestRecencyChart" aria-label="Time best timing by duration chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="time" data-pb-pane="trend">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Time Best Trend</h2>
+                <div class="panel-actions">
+                  <span id="timeBestTrendCaption"></span>
+                  <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Time best trend display count">
+                    <button class="scale-option time-trend-limit-option" type="button" data-limit="5">Top 5</button>
+                    <button class="scale-option time-trend-limit-option" type="button" data-limit="10">Top 10</button>
+                    <button class="scale-option time-trend-limit-option active" type="button" data-limit="20">Top 20</button>
+                  </div>
+                  <label class="select-field personal-best-trend-field">
+                    <span>Time</span>
+                    <select id="timeBestTrendDurationSelect" aria-label="Time best trend duration"></select>
+                  </label>
+                </div>
+              </div>
+              <div class="chart-box personal-best-chart" id="timeBestTrendChart" aria-label="Time best trend by duration chart"></div>
+            </article>
+          </div>
         </div>
 
         <div class="personal-best-subview hidden" id="paceView" aria-label="Pace bests">
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Distance by Pace</h2>
-              <div class="panel-actions">
-                <span id="paceBestDurationChartCaption"></span>
-                <div class="scale-toggle" role="group" aria-label="Pace best distance Y-axis scale">
-                  <button class="scale-option pace-distance-scale-option active" type="button" data-scale="linear">Linear</button>
-                  <button class="scale-option pace-distance-scale-option" type="button" data-scale="log">Log</button>
-                </div>
-              </div>
-            </div>
-            <div class="chart-box personal-best-chart" id="paceBestDurationChart" aria-label="Pace best distance by target pace chart"></div>
-          </article>
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Pace Best Timing</h2>
-              <span id="paceBestRecencyChartCaption">D-day</span>
-            </div>
-            <div class="chart-box personal-best-chart" id="paceBestRecencyChart" aria-label="Pace best timing by target pace chart"></div>
-          </article>
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <h2>Pace Best Trend</h2>
-              <div class="panel-actions">
-                <span id="paceBestTrendCaption"></span>
-                <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Pace best trend display count">
-                  <button class="scale-option pace-trend-limit-option" type="button" data-limit="5">Top 5</button>
-                  <button class="scale-option pace-trend-limit-option" type="button" data-limit="10">Top 10</button>
-                  <button class="scale-option pace-trend-limit-option active" type="button" data-limit="20">Top 20</button>
-                </div>
-                <label class="select-field personal-best-trend-field">
-                  <span>Pace</span>
-                  <select id="paceBestTrendTargetSelect" aria-label="Pace best trend target pace"></select>
-                </label>
-              </div>
-            </div>
-            <div class="chart-box personal-best-chart" id="paceBestTrendChart" aria-label="Pace best trend by target pace chart"></div>
-          </article>
-          <div class="personal-best-section-heading time-best-heading">
-            <div>
-              <h2>Pace Bests</h2>
-              <span id="personalBestPaceCaption">No stream data</span>
-            </div>
-            <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+          <div class="personal-best-mode-tabs scale-toggle" role="group" aria-label="Pace best view">
+            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="pace" data-pb-mode="records" aria-pressed="true">Records</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="pace" data-pb-mode="curve" aria-pressed="false">Curve</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="pace" data-pb-mode="timing" aria-pressed="false">Timing</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="pace" data-pb-mode="trend" aria-pressed="false">Trend</button>
           </div>
-          <div class="personal-best-grid" id="personalBestPaceGrid"></div>
+          <div class="personal-best-mode-pane" data-personal-best-mode-tab="pace" data-pb-pane="records">
+            <div class="personal-best-section-heading time-best-heading">
+              <div>
+                <h2>Pace Bests</h2>
+                <span id="personalBestPaceCaption">No stream data</span>
+              </div>
+              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+            </div>
+            <div class="personal-best-grid" id="personalBestPaceGrid"></div>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="pace" data-pb-pane="curve">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Distance by Pace</h2>
+                <div class="panel-actions">
+                  <span id="paceBestDurationChartCaption"></span>
+                  <div class="scale-toggle" role="group" aria-label="Pace best distance Y-axis scale">
+                    <button class="scale-option pace-distance-scale-option active" type="button" data-scale="linear">Linear</button>
+                    <button class="scale-option pace-distance-scale-option" type="button" data-scale="log">Log</button>
+                  </div>
+                </div>
+              </div>
+              <div class="chart-box personal-best-chart" id="paceBestDurationChart" aria-label="Pace best distance by target pace chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="pace" data-pb-pane="timing">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Pace Best Timing</h2>
+                <span id="paceBestRecencyChartCaption">D-day</span>
+              </div>
+              <div class="chart-box personal-best-chart" id="paceBestRecencyChart" aria-label="Pace best timing by target pace chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="pace" data-pb-pane="trend">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Pace Best Trend</h2>
+                <div class="panel-actions">
+                  <span id="paceBestTrendCaption"></span>
+                  <div class="scale-toggle trend-limit-toggle" role="group" aria-label="Pace best trend display count">
+                    <button class="scale-option pace-trend-limit-option" type="button" data-limit="5">Top 5</button>
+                    <button class="scale-option pace-trend-limit-option" type="button" data-limit="10">Top 10</button>
+                    <button class="scale-option pace-trend-limit-option active" type="button" data-limit="20">Top 20</button>
+                  </div>
+                  <label class="select-field personal-best-trend-field">
+                    <span>Pace</span>
+                    <select id="paceBestTrendTargetSelect" aria-label="Pace best trend target pace"></select>
+                  </label>
+                </div>
+              </div>
+              <div class="chart-box personal-best-chart" id="paceBestTrendChart" aria-label="Pace best trend by target pace chart"></div>
+            </article>
+          </div>
         </div>
       </section>
 
@@ -428,7 +516,6 @@
             <h3>Pace by Distance</h3>
             <p class="analysis-subview-context">Current pace per km, expected pace per km, and baseline projections for each distance.</p>
           </div>
-          <section class="kpi-grid analysis-kpi-grid" aria-label="Riegel summary" id="riegelSummaryGrid"></section>
           <article class="chart-panel personal-best-chart-panel">
             <div class="panel-title">
               <h2>Expected vs Current Pace by Distance</h2>
@@ -442,46 +529,55 @@
             </div>
             <div class="chart-box personal-best-chart expected-gap-chart" id="riegelExpectedPaceChart" aria-label="Expected records compared with current records chart"></div>
           </article>
-          <article class="chart-panel personal-best-chart-panel">
-            <div class="panel-title">
-              <div class="title-with-help">
-                <h2 id="riegelEquivalentChartTitle">Baseline Prediction</h2>
-                <button class="help-button" id="riegelEquivalentInfoButton" type="button" aria-label="About baseline prediction" aria-haspopup="dialog">?</button>
-              </div>
-              <div class="panel-actions">
-                <span id="riegelFiveKChartCaption"></span>
-                <div class="scale-toggle" role="group" aria-label="X-axis scale">
-                  <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
-                  <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
+          <details class="analysis-detail-shell">
+            <summary class="dashboard-detail-summary analysis-detail-summary">
+              <span>More model detail</span>
+              <small>Expected targets, baseline prediction, and projection rows</small>
+            </summary>
+            <div class="analysis-detail-content">
+              <section class="kpi-grid analysis-kpi-grid" aria-label="Riegel summary" id="riegelSummaryGrid"></section>
+              <article class="chart-panel personal-best-chart-panel">
+                <div class="panel-title">
+                  <div class="title-with-help">
+                    <h2 id="riegelEquivalentChartTitle">Baseline Prediction</h2>
+                    <button class="help-button" id="riegelEquivalentInfoButton" type="button" aria-label="About baseline prediction" aria-haspopup="dialog">?</button>
+                  </div>
+                  <div class="panel-actions">
+                    <span id="riegelFiveKChartCaption"></span>
+                    <div class="scale-toggle" role="group" aria-label="X-axis scale">
+                      <button class="scale-option riegel-scale-option active" type="button" data-scale="linear">Linear</button>
+                      <button class="scale-option riegel-scale-option" type="button" data-scale="log">Log</button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+                <div class="chart-box personal-best-chart" id="riegelFiveKChart" aria-label="Baseline prediction by predictor distance chart"></div>
+              </article>
+              <section class="analysis-grid">
+                <article class="records-panel analysis-panel analysis-panel--full-row">
+                  <div class="panel-title">
+                    <div class="title-with-help">
+                      <h2 id="riegelProjectionTitle">Pace by Distance Comparison</h2>
+                      <button class="help-button" id="riegelProjectionInfoButton" type="button" aria-label="About pace by distance comparison" aria-haspopup="dialog">?</button>
+                    </div>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Distance</th>
+                          <th>Selected Best</th>
+                          <th>Projection</th>
+                          <th>Diff</th>
+                          <th>Pace</th>
+                        </tr>
+                      </thead>
+                      <tbody id="riegelProjectionTable"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
             </div>
-            <div class="chart-box personal-best-chart" id="riegelFiveKChart" aria-label="Baseline prediction by predictor distance chart"></div>
-          </article>
-          <section class="analysis-grid">
-            <article class="records-panel analysis-panel analysis-panel--full-row">
-              <div class="panel-title">
-                <div class="title-with-help">
-                  <h2 id="riegelProjectionTitle">Pace by Distance Comparison</h2>
-                  <button class="help-button" id="riegelProjectionInfoButton" type="button" aria-label="About pace by distance comparison" aria-haspopup="dialog">?</button>
-                </div>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Distance</th>
-                      <th>Selected Best</th>
-                      <th>Projection</th>
-                      <th>Diff</th>
-                      <th>Pace</th>
-                    </tr>
-                  </thead>
-                  <tbody id="riegelProjectionTable"></tbody>
-                </table>
-              </div>
-            </article>
-          </section>
+          </details>
         </div>
 
         <div class="analysis-subview hidden" id="analysisTimeView">
@@ -495,27 +591,35 @@
             </div>
             <div class="chart-box personal-best-chart expected-gap-chart" id="timeRiegelChart" aria-label="Expected pace compared with current time bests chart"></div>
           </article>
-          <section class="analysis-grid">
-            <article class="records-panel analysis-panel analysis-panel--full-row">
-              <div class="panel-title">
-                <h2>Pace by Time Comparison</h2>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Time</th>
-                      <th>Current Pace</th>
-                      <th>Expected Pace</th>
-                      <th>Pace Gap</th>
-                      <th>Distance</th>
-                    </tr>
-                  </thead>
-                  <tbody id="timeRiegelTable"></tbody>
-                </table>
-              </div>
-            </article>
-          </section>
+          <details class="analysis-detail-shell">
+            <summary class="dashboard-detail-summary analysis-detail-summary">
+              <span>More comparison rows</span>
+              <small>Table values behind the pace-by-time chart</small>
+            </summary>
+            <div class="analysis-detail-content">
+              <section class="analysis-grid">
+                <article class="records-panel analysis-panel analysis-panel--full-row">
+                  <div class="panel-title">
+                    <h2>Pace by Time Comparison</h2>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Current Pace</th>
+                          <th>Expected Pace</th>
+                          <th>Pace Gap</th>
+                          <th>Distance</th>
+                        </tr>
+                      </thead>
+                      <tbody id="timeRiegelTable"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
+            </div>
+          </details>
         </div>
 
         <div class="analysis-subview hidden" id="analysisPaceView">
@@ -529,37 +633,53 @@
             </div>
             <div class="chart-box personal-best-chart expected-gap-chart" id="paceRiegelChart" aria-label="Expected distance compared with current pace bests chart"></div>
           </article>
-          <section class="analysis-grid">
-            <article class="records-panel analysis-panel analysis-panel--full-row">
-              <div class="panel-title">
-                <h2>Distance by Pace Comparison</h2>
-              </div>
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Pace</th>
-                      <th>Current Distance</th>
-                      <th>Expected Distance</th>
-                      <th>Gap</th>
-                      <th>Time</th>
-                    </tr>
-                  </thead>
-                  <tbody id="paceRiegelTable"></tbody>
-                </table>
-              </div>
-            </article>
-          </section>
+          <details class="analysis-detail-shell">
+            <summary class="dashboard-detail-summary analysis-detail-summary">
+              <span>More comparison rows</span>
+              <small>Table values behind the distance-by-pace chart</small>
+            </summary>
+            <div class="analysis-detail-content">
+              <section class="analysis-grid">
+                <article class="records-panel analysis-panel analysis-panel--full-row">
+                  <div class="panel-title">
+                    <h2>Distance by Pace Comparison</h2>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Pace</th>
+                          <th>Current Distance</th>
+                          <th>Expected Distance</th>
+                          <th>Gap</th>
+                          <th>Time</th>
+                        </tr>
+                      </thead>
+                      <tbody id="paceRiegelTable"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
+            </div>
+          </details>
         </div>
 
-        <section class="analysis-grid analysis-support-grid">
-          <article class="records-panel analysis-panel analysis-panel--full-row">
-            <div class="panel-title">
-              <h2>Training Schedule</h2>
-            </div>
-            <ol class="training-schedule-list" id="trainingScheduleList"></ol>
-          </article>
-        </section>
+        <details class="analysis-detail-shell analysis-schedule-shell">
+          <summary class="dashboard-detail-summary analysis-detail-summary">
+            <span>Training schedule</span>
+            <small>How the diagnostic profile might translate into workouts</small>
+          </summary>
+          <div class="analysis-detail-content">
+            <section class="analysis-grid analysis-support-grid">
+              <article class="records-panel analysis-panel analysis-panel--full-row">
+                <div class="panel-title">
+                  <h2>Training Schedule</h2>
+                </div>
+                <ol class="training-schedule-list" id="trainingScheduleList"></ol>
+              </article>
+            </section>
+          </div>
+        </details>
       </section>
     </main>
 
