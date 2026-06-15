@@ -273,6 +273,21 @@ test("numeric dashboard ranges include today when there is a run today", () => {
   });
 });
 
+test("recent training insight summarizes last 30 days before details", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    buildRecentTrainingInsight([
+      ${JSON.stringify(runActivity("current", "2026-06-10T07:00:00", { distance: 10000 }))},
+      ${JSON.stringify(runActivity("previous", "2026-05-10T07:00:00", { distance: 5000 }))},
+      ${JSON.stringify(runActivity("ride", "2026-06-11T07:00:00", { sport_type: "Ride", distance: 30000 }))}
+    ]);
+  `, app);
+
+  assert.equal(result, "Last 30 days: 10.0 km, up 5.0 km vs previous 30 days");
+});
+
 test("Strava local timestamp strings keep their calendar date", () => {
   const previousTimezone = process.env.TZ;
   process.env.TZ = "America/Los_Angeles";
@@ -1681,6 +1696,18 @@ test("topbar exposes one Strava sync action", () => {
   assert.doesNotMatch(topbarActions, />Best Efforts</);
 });
 
+test("README setup steps match current app control labels", () => {
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+  assert.match(readme, /Save credentials/);
+  assert.match(readme, /Import Activities/);
+  assert.match(readme, /Update from Strava/);
+  assert.match(readme, /Personal Bests > Time/);
+  assert.doesNotMatch(readme, /Save Settings/);
+  assert.doesNotMatch(readme, /Click `Sync`/);
+  assert.doesNotMatch(readme, /`Time Bests` tab/);
+});
+
 test("sync action labels match import state", () => {
   const app = loadAppContext();
 
@@ -2354,6 +2381,7 @@ test("renderPersonalBests focuses one selected distance target", () => {
   assert.match(result, /data-record-target-type="distance" data-record-target-name="10K"[\s\S]*active/);
   assert.match(result, /Ten 1/);
   assert.match(result, /Show More/);
+  assert.match(result, /class="button ghost personal-best-more"[\s\S]*aria-expanded="false"[\s\S]*Show More/);
   assert.doesNotMatch(result, /<h2>5K<\/h2>[\s\S]*Five/);
 });
 
@@ -2818,6 +2846,17 @@ test("personal best type tabs stay in one row", () => {
   assert.match(css, /\.scale-toggle\.personal-best-tabs\s*{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/);
 });
 
+test("static active segmented controls include pressed state", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const activeButtons = Array.from(html.matchAll(/<button[^>]*class="[^"]*\bactive\b[^"]*"[^>]*>/g))
+    .map((match) => match[0]);
+
+  assert.ok(activeButtons.length > 0);
+  for (const button of activeButtons) {
+    assert.match(button, /aria-pressed="true"/);
+  }
+});
+
 test("renderRiegelAnalysis leaves redundant secondary analysis text out of the summary and chart caption", () => {
   const app = loadAppContext();
 
@@ -3041,6 +3080,8 @@ test("Personal Bests progressively discloses records, curve, timing, and trend m
   const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
   const personalBestView = html.match(/<section class="analysis-view hidden" id="pbView"[\s\S]*?<section class="analysis-view hidden" id="analysisView"/)?.[0] || "";
 
+  assert.match(personalBestView, /id="personalBestOverviewGrid"/);
+  assert.ok(personalBestView.indexOf('id="personalBestOverviewGrid"') < personalBestView.indexOf('class="personal-best-mode-tabs scale-toggle"'));
   assert.doesNotMatch(personalBestView, /<details class="personal-best-detail-shell"/);
   assert.match(personalBestView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="records"[\s\S]*data-pb-mode="curve"[\s\S]*data-pb-mode="timing"[\s\S]*data-pb-mode="trend"/);
   assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="records"[\s\S]*id="personalBestGrid"/);
@@ -3051,6 +3092,39 @@ test("Personal Bests progressively discloses records, curve, timing, and trend m
   assert.match(personalBestView, /data-personal-best-mode-tab="pace" data-pb-pane="records"[\s\S]*id="personalBestPaceGrid"/);
   assert.match(css, /\.scale-toggle\.personal-best-mode-tabs\s*{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/);
   assert.match(css, /\.hidden\s*{[^}]*display:\s*none !important;/);
+});
+
+test("renderPersonalBestOverview summarizes records before details", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.personalBestOverviewGrid = { innerHTML: "" };
+    appState.personalBests = {
+      distances: [
+        { name: "5K", count: 2, top: [{ movingTime: 1500 }] },
+        { name: "10K", count: 1, top: [{ movingTime: 3200 }] }
+      ],
+      durations: [
+        { name: "30 min", count: 3, top: [{ distanceKm: 6.4 }] }
+      ],
+      paces: [],
+      effortCount: 3,
+      durationEffortCount: 3,
+      paceEffortCount: 0
+    };
+
+    renderPersonalBestOverview();
+    els.personalBestOverviewGrid.innerHTML;
+  `, app);
+
+  assert.match(result, /Distance records/);
+  assert.match(result, /2 targets/);
+  assert.match(result, /3 record efforts/);
+  assert.match(result, /Time records/);
+  assert.match(result, /1 time target/);
+  assert.match(result, /Pace records/);
+  assert.match(result, /No pace records yet/);
+  assert.match(result, /Update run details to calculate pace records/);
 });
 
 test("weekly dashboard chart uses a stable width when hidden in disclosure", () => {
@@ -3104,6 +3178,255 @@ test("top-level views expose consistent section headings", () => {
   assert.match(html, /<h2 id="personalBestsViewTitle">Personal Bests<\/h2>/);
   assert.match(html, /<section class="analysis-view hidden" id="analysisView" aria-labelledby="analysisViewTitle">/);
   assert.match(html, /<h2 id="analysisViewTitle">Training Analysis<\/h2>/);
+});
+
+test("primary view and personal best tabs expose pressed state", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const makeButton = (dataset) => {
+      const classes = new Set();
+      const attributes = {};
+      return {
+        dataset,
+        classList: {
+          toggle(name, force) {
+            if (force) classes.add(name);
+            else classes.delete(name);
+          },
+          contains(name) {
+            return classes.has(name);
+          }
+        },
+        setAttribute(name, value) {
+          attributes[name] = String(value);
+        },
+        getAttribute(name) {
+          return attributes[name] || null;
+        }
+      };
+    };
+    const viewButtons = ["dashboard", "activities", "pb", "analysis"].map((view) => makeButton({ view }));
+    const personalBestButtons = ["distance", "time", "pace"].map((personalBestTab) => makeButton({ personalBestTab }));
+
+    els.viewTabs = viewButtons;
+    els.personalBestTabOptions = personalBestButtons;
+
+    setActiveViewTab("analysis");
+    updatePersonalBestTabControls("time");
+
+    ({
+      views: Object.fromEntries(viewButtons.map((button) => [
+        button.dataset.view,
+        {
+          active: button.classList.contains("active"),
+          pressed: button.getAttribute("aria-pressed")
+        }
+      ])),
+      personalBests: Object.fromEntries(personalBestButtons.map((button) => [
+        button.dataset.personalBestTab,
+        {
+          active: button.classList.contains("active"),
+          pressed: button.getAttribute("aria-pressed")
+        }
+      ]))
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.views)), {
+    dashboard: { active: false, pressed: "false" },
+    activities: { active: false, pressed: "false" },
+    pb: { active: false, pressed: "false" },
+    analysis: { active: true, pressed: "true" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.personalBests)), {
+    distance: { active: false, pressed: "false" },
+    time: { active: true, pressed: "true" },
+    pace: { active: false, pressed: "false" }
+  });
+});
+
+test("segmented controls expose pressed state when active state changes", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const makeClassList = () => {
+      const classes = new Set();
+      return {
+        toggle(name, force) {
+          if (force) classes.add(name);
+          else classes.delete(name);
+        },
+        contains(name) {
+          return classes.has(name);
+        }
+      };
+    };
+    const makeButton = (dataset) => {
+      const attributes = {};
+      return {
+        dataset,
+        classList: makeClassList(),
+        setAttribute(name, value) {
+          attributes[name] = String(value);
+        },
+        getAttribute(name) {
+          return attributes[name] || null;
+        }
+      };
+    };
+    const summarize = (buttons, key) => Object.fromEntries(buttons.map((button) => [
+      button.dataset[key],
+      {
+        active: button.classList.contains("active"),
+        pressed: button.getAttribute("aria-pressed")
+      }
+    ]));
+
+    const analysisButtons = ["distance", "time", "pace"].map((analysisTab) => makeButton({ analysisTab }));
+    const personalScaleButtons = ["linear", "log"].map((scale) => makeButton({ scale }));
+    const timeScaleButtons = ["linear", "log"].map((scale) => makeButton({ scale }));
+    const paceScaleButtons = ["linear", "log"].map((scale) => makeButton({ scale }));
+    const trendButtons = ["5", "10", "20"].map((limit) => makeButton({ limit }));
+    const exponentButtons = ["default", "median", "custom"].map((mode) => makeButton({ mode }));
+
+    els.analysisTabOptions = analysisButtons;
+    els.analysisDistanceView = { classList: makeClassList() };
+    els.analysisTimeView = { classList: makeClassList() };
+    els.analysisPaceView = { classList: makeClassList() };
+    els.personalBestScaleButtons = personalScaleButtons;
+    els.timeBestScaleButtons = timeScaleButtons;
+    els.paceBestDistanceScaleButtons = paceScaleButtons;
+    els.personalBestTrendLimitButtons = trendButtons;
+    els.riegelExponentModeButtons = exponentButtons;
+    els.riegelExponentInput = { value: "", disabled: false };
+
+    appState.personalBestTrendLimit = 10;
+    appState.riegelExponentMode = "custom";
+
+    updateAnalysisSubviewVisibility("pace");
+    updatePersonalBestScaleControls("log");
+    updatePersonalBestTrendLimitButtons();
+    updateRiegelExponentControls(1.08);
+
+    ({
+      analysis: summarize(analysisButtons, "analysisTab"),
+      personalScale: summarize(personalScaleButtons, "scale"),
+      timeScale: summarize(timeScaleButtons, "scale"),
+      paceScale: summarize(paceScaleButtons, "scale"),
+      trend: summarize(trendButtons, "limit"),
+      exponent: summarize(exponentButtons, "mode"),
+      hiddenViews: {
+        distance: els.analysisDistanceView.classList.contains("hidden"),
+        time: els.analysisTimeView.classList.contains("hidden"),
+        pace: els.analysisPaceView.classList.contains("hidden")
+      }
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.analysis)), {
+    distance: { active: false, pressed: "false" },
+    time: { active: false, pressed: "false" },
+    pace: { active: true, pressed: "true" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.personalScale)), {
+    linear: { active: false, pressed: "false" },
+    log: { active: true, pressed: "true" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.timeScale)), {
+    linear: { active: false, pressed: "false" },
+    log: { active: true, pressed: "true" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.paceScale)), {
+    linear: { active: false, pressed: "false" },
+    log: { active: true, pressed: "true" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.trend)), {
+    5: { active: false, pressed: "false" },
+    10: { active: true, pressed: "true" },
+    20: { active: false, pressed: "false" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.exponent)), {
+    default: { active: false, pressed: "false" },
+    median: { active: false, pressed: "false" },
+    custom: { active: true, pressed: "true" }
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.hiddenViews)), {
+    distance: true,
+    time: true,
+    pace: false
+  });
+});
+
+test("activity sort state is exposed on table headers", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const makeClassList = () => {
+      const classes = new Set();
+      return {
+        toggle(name, force) {
+          if (force) classes.add(name);
+          else classes.delete(name);
+        },
+        contains(name) {
+          return classes.has(name);
+        }
+      };
+    };
+    const makeSortButton = (key, label) => {
+      const buttonAttributes = {};
+      const headerAttributes = {};
+      const header = {
+        setAttribute(name, value) {
+          headerAttributes[name] = String(value);
+        },
+        getAttribute(name) {
+          return headerAttributes[name] || null;
+        }
+      };
+      return {
+        dataset: { activitySort: key },
+        textContent: label,
+        classList: makeClassList(),
+        setAttribute(name, value) {
+          buttonAttributes[name] = String(value);
+        },
+        getAttribute(name) {
+          return buttonAttributes[name] || null;
+        },
+        closest(selector) {
+          return selector === "th" ? header : null;
+        },
+        header
+      };
+    };
+    const dateButton = makeSortButton("date", "Date");
+    const nameButton = makeSortButton("name", "Name");
+
+    els.allActivitySortButtons = [dateButton, nameButton];
+    appState.allActivitySort = { key: "name", direction: "asc" };
+
+    updateAllActivitySortButtons();
+
+    ({
+      dateHeaderSort: dateButton.header.getAttribute("aria-sort"),
+      nameHeaderSort: nameButton.header.getAttribute("aria-sort"),
+      dateButtonSort: dateButton.getAttribute("aria-sort"),
+      nameButtonSort: nameButton.getAttribute("aria-sort"),
+      nameText: nameButton.textContent,
+      nameActive: nameButton.classList.contains("active")
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    dateHeaderSort: "none",
+    nameHeaderSort: "asc",
+    dateButtonSort: null,
+    nameButtonSort: null,
+    nameText: "Name ▲",
+    nameActive: true
+  });
 });
 
 test("renderAllActivities filters, sorts, and keeps refresh actions on run rows", () => {
@@ -3309,8 +3632,11 @@ test("Riegel analysis omits the segment exponent panel", () => {
 test("Analysis view groups pace-by-distance, pace-by-time, and distance-by-pace under tabs", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+  const controlsBand = html.match(/<section class="controls-band"[\s\S]*?<\/section>/)?.[0] || "";
 
   assert.match(analysisView, /class="personal-best-tabs analysis-tabs scale-toggle"/);
+  assert.doesNotMatch(controlsBand, /id="analysisRankControl"/);
+  assert.ok(analysisView.indexOf('id="analysisRankControl"') < analysisView.indexOf('class="scale-toggle exponent-mode-toggle"'));
   assert.match(analysisView, /data-analysis-tab="distance"[\s\S]*>Pace by Distance</);
   assert.match(analysisView, /data-analysis-tab="time"[\s\S]*>Pace by Time</);
   assert.match(analysisView, /data-analysis-tab="pace"[\s\S]*>Distance by Pace</);
@@ -4508,6 +4834,7 @@ test("renderRiegelAnalysis can use a predicted official distance as the baseline
   assert.doesNotMatch(result.summary, /Predicted from other distances · Top 1 · Marathon/);
   assert.doesNotMatch(result.summary, /Your Record/);
   assert.match(result.chart, /riegel-source-bar placeholder active[\s\S]*data-riegel-source-name="Marathon"/);
+  assert.match(result.chart, /riegel-source-bar placeholder active[\s\S]*aria-pressed="true"[\s\S]*data-riegel-source-name="Marathon"/);
 });
 
 test("renderRiegelAnalysis projects every available personal-best distance", () => {
