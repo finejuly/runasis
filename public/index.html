@@ -110,9 +110,9 @@
             <p id="runnerBriefTodayDetail">Import activities for a conservative suggestion.</p>
           </article>
           <article class="runner-brief-card">
-            <span>Year Goal</span>
-            <strong id="runnerBriefYearValue">0.0 / 1,000 km</strong>
-            <small id="runnerBriefYearMeta">Current year</small>
+            <span>Year to Date</span>
+            <strong id="runnerBriefYearValue">0.0 km</strong>
+            <small id="runnerBriefYearMeta">Current year total</small>
             <p id="runnerBriefYearDetail">No current-year runs saved.</p>
           </article>
         </section>
@@ -128,7 +128,7 @@
               <option value="365">Last year</option>
               <option value="180">Last 6 months</option>
               <option value="90">Last 90 days</option>
-              <option value="30">Last 30 days</option>
+              <option value="30" selected>Last 30 days</option>
               <option value="7">Last 7 days</option>
             </select>
           </label>
@@ -228,6 +228,7 @@
           <div class="panel-title">
             <div>
               <h2>Activities</h2>
+              <p class="analysis-subview-context activity-list-context">Find a run, check detail coverage, and refresh best-effort data.</p>
               <span id="allActivityCountCaption">No activities</span>
             </div>
             <button class="button ghost panel-compact-button hidden" id="backActivityListButton" type="button">Back to Dashboard</button>

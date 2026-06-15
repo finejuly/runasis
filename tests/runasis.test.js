@@ -349,7 +349,12 @@ test("buildTodayRunSuggestion allows controlled work after stable recent load", 
     buildTodayRunSuggestion([
       ${JSON.stringify(runActivity("two-days", "2026-06-13T07:00:00", { distance: 6000 }))},
       ${JSON.stringify(runActivity("five-days", "2026-06-10T07:00:00", { distance: 6000 }))},
-      ${JSON.stringify(runActivity("previous", "2026-05-27T07:00:00", { distance: 12000 }))}
+      ${JSON.stringify(runActivity("seven-days", "2026-06-08T07:00:00", { distance: 7000 }))},
+      ${JSON.stringify(runActivity("ten-days", "2026-06-05T07:00:00", { distance: 8000 }))},
+      ${JSON.stringify(runActivity("previous", "2026-05-27T07:00:00", { distance: 12000 }))},
+      ${JSON.stringify(runActivity("older-a", "2026-05-20T07:00:00", { distance: 6000 }))},
+      ${JSON.stringify(runActivity("older-b", "2026-05-13T07:00:00", { distance: 6000 }))},
+      ${JSON.stringify(runActivity("older-c", "2026-05-06T07:00:00", { distance: 6000 }))}
     ], { name: "Distance 10K" });
   `, app);
 
@@ -357,7 +362,24 @@ test("buildTodayRunSuggestion allows controlled work after stable recent load", 
   assert.match(result.detail, /Distance 10K/);
 });
 
-test("buildYearGoalProgress returns fixed annual goal progress", () => {
+test("buildTodayRunSuggestion avoids workout recommendations with shallow evidence", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    buildTodayRunSuggestion([
+      ${JSON.stringify(runActivity("two-days", "2026-06-13T07:00:00", { distance: 6000 }))},
+      ${JSON.stringify(runActivity("five-days", "2026-06-10T07:00:00", { distance: 6000 }))},
+      ${JSON.stringify(runActivity("previous", "2026-05-27T07:00:00", { distance: 12000 }))}
+    ], { name: "Distance 10K" });
+  `, app);
+
+  assert.equal(result.title, "Need more evidence");
+  assert.equal(result.value, "No workout recommendation");
+  assert.match(result.detail, /not enough/i);
+});
+
+test("buildYearGoalProgress reports current year distance without a fixed goal", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-06-15T12:00:00");
 
@@ -368,11 +390,10 @@ test("buildYearGoalProgress returns fixed annual goal progress", () => {
     ]);
   `, app);
 
-  assert.equal(result.targetKm, 1000);
   assert.equal(result.completedKm, 100);
-  assert.equal(result.remainingKm, 900);
-  assert.equal(result.value, "100.0 / 1,000 km");
-  assert.ok(result.neededKmPerWeek > 0);
+  assert.equal(result.value, "100.0 km");
+  assert.equal(result.meta, "Current year total");
+  assert.doesNotMatch(result.detail, /1,000/);
 });
 
 test("renderCumulativeMetricChart keeps the computed caption visible", () => {
@@ -439,7 +460,7 @@ test("renderDashboardRunnerBrief fills latest, today, and year goal cards", () =
 
   assert.equal(result.latest, "10.00 km");
   assert.ok(result.today.length > 0);
-  assert.match(result.year, /10.0 \/ 1,000 km/);
+  assert.equal(result.year, "10.0 km");
 });
 
 test("Strava local timestamp strings keep their calendar date", () => {
@@ -3196,6 +3217,7 @@ test("Activities page defaults to compact summaries with advanced controls discl
   const activitiesView = html.match(/<section class="analysis-view hidden" id="activityListView"[\s\S]*?<section class="analysis-view hidden" id="pbView"/)?.[0] || "";
 
   assert.match(activitiesView, /id="activitySummaryList"/);
+  assert.match(activitiesView, /Find a run, check detail coverage, and refresh best-effort data/);
   assert.match(activitiesView, /<details class="activity-filter-shell"/);
   assert.match(activitiesView, /<details class="activity-table-shell"/);
   assert.match(activitiesView, /Advanced table/);
@@ -3227,6 +3249,22 @@ test("dashboard marks the default KPI as selected before data loads", () => {
 
   assert.match(distanceCard, /class="[^"]*\bdashboard-kpi-card\b[^"]*\bselected\b/);
   assert.match(distanceCard, /aria-pressed="true"/);
+});
+
+test("dashboard defaults to the last 30 days range", () => {
+  const app = loadAppContext();
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const rangeSelect = html.match(/<select id="rangeSelect"[\s\S]*?<\/select>/)?.[0] || "";
+
+  assert.equal(vm.runInContext("appState.rangeDays", app), "30");
+  assert.match(rangeSelect, /<option value="30" selected>Last 30 days<\/option>/);
+});
+
+test("dashboard KPI selected state keeps card grid size stable", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+  const selectedRule = css.match(/\.dashboard-kpi-card\.selected\s*{[^}]*}/)?.[0] || "";
+
+  assert.doesNotMatch(selectedRule, /grid-column\s*:\s*span/);
 });
 
 test("Personal Bests progressively discloses records, curve, timing, and trend modes", () => {
@@ -3272,10 +3310,12 @@ test("renderPersonalBestOverview summarizes records before details", () => {
   `, app);
 
   assert.match(result, /Distance records/);
-  assert.match(result, /2 targets/);
+  assert.match(result, /Records ready/);
+  assert.doesNotMatch(result, /targets/);
   assert.match(result, /3 record efforts/);
   assert.match(result, /Time records/);
-  assert.match(result, /1 time target/);
+  assert.match(result, /Time bests ready/);
+  assert.doesNotMatch(result, /time target/);
   assert.match(result, /Pace records/);
   assert.match(result, /No pace records yet/);
   assert.match(result, /Update run details to calculate pace records/);
@@ -3655,6 +3695,46 @@ test("renderAllActivities filters, sorts, and keeps refresh actions on run rows"
   assert.match(result.table, /data-refresh-activity-id="1"/);
   assert.match(result.table, />Missing</);
   assert.match(result.table, />Fetched/);
+});
+
+test("renderAllActivities keeps an action slot for rows without refresh", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.allActivityCountCaption = { textContent: "" };
+    els.allActivitySearchInput = { value: "" };
+    els.allActivityRunOnlyInput = { checked: false };
+    els.allActivityDetailStatusSelect = { value: "all" };
+    els.activitySummaryList = { innerHTML: "" };
+    els.allActivityTable = { innerHTML: "" };
+    els.allActivitySortButtons = [];
+    appState.activities = [
+      {
+        id: 3,
+        name: "Commute",
+        sport_type: "Ride",
+        start_date_local: "2026-05-03T07:00:00",
+        distance: 10000,
+        moving_time: 2000,
+        detail_status: "not_applicable",
+        best_effort_count: 0
+      }
+    ];
+    appState.allActivitySearch = "";
+    appState.allActivityRunOnly = false;
+    appState.allActivityDetailStatus = "all";
+    appState.allActivitySort = { key: "date", direction: "desc" };
+
+    renderAllActivities();
+    ({
+      summaries: els.activitySummaryList.innerHTML,
+      table: els.allActivityTable.innerHTML
+    });
+  `, app);
+
+  assert.match(result.summaries, /activity-action-spacer/);
+  assert.match(result.table, /activity-action-spacer/);
+  assert.doesNotMatch(result.summaries, /data-refresh-activity-id="3"/);
 });
 
 test("renderAllActivities limits initial rows and exposes show more", () => {
@@ -4568,7 +4648,7 @@ test("time and pace Riegel analysis compare actual endurance with expected dista
   ]);
 });
 
-test("analysis profile builds strengths, weaknesses, and schedule without record history", () => {
+test("analysis profile avoids workout options without activity evidence", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
@@ -4598,7 +4678,7 @@ test("analysis profile builds strengths, weaknesses, and schedule without record
 
   assert.deepEqual(JSON.parse(JSON.stringify(result.cards)), ["Strength", "Weakness", "Improvement"]);
   assert.equal(result.hasHistory, false);
-  assert.deepEqual(JSON.parse(JSON.stringify(result.schedule)), ["Endurance", "Threshold", "Recovery", "Specific"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.schedule)), ["Evidence", "Recent load", "Detail coverage"]);
 });
 
 test("analysis profile labels the improvement card explicitly", () => {

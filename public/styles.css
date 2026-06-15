@@ -641,7 +641,6 @@ input[type="search"] {
   border-color: var(--green);
   background: var(--green-soft);
   box-shadow: inset 0 0 0 2px var(--green);
-  grid-column: span 2;
 }
 
 .kpi-card span {
@@ -1451,6 +1450,13 @@ table {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.activity-action-spacer {
+  display: inline-block;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
 }
 
 .activity-table-summary {
