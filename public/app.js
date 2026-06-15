@@ -2164,7 +2164,9 @@ function buildDistanceDistributionBins(runs) {
 
 function renderLongRuns(activities) {
   const top = [...activities].sort((a, b) => Number(b.distance || 0) - Number(a.distance || 0)).slice(0, 5);
-  els.longRunCaption.textContent = "";
+  els.longRunCaption.textContent = top.length
+    ? `Top ${formatInteger(top.length)} in selected range`
+    : "Selected range";
   if (!top.length) {
     els.longRunList.innerHTML = `<li class="chart-empty">No runs</li>`;
     return;
@@ -2184,7 +2186,9 @@ function renderLongRuns(activities) {
 
 function renderTable(activities) {
   const rows = activities.slice(0, RECENT_ACTIVITY_LIMIT);
-  els.recentCaption.textContent = "";
+  els.recentCaption.textContent = rows.length
+    ? `Latest ${formatInteger(rows.length)} in selected range`
+    : "Selected range";
   if (!rows.length) {
     els.activityTable.innerHTML = `<tr><td colspan="6">No saved activities</td></tr>`;
     return;
@@ -2487,7 +2491,7 @@ function renderPersonalBestOverview(payload = appState.personalBests || {}) {
     {
       label: "Distance records",
       value: distances.length
-        ? "Records ready"
+        ? formatCoverageTargetCount(distances.length, "distance", "distances")
         : "No distance records yet",
       detail: distances.length
         ? formatRecordEffortCount(distanceEfforts)
@@ -2496,7 +2500,7 @@ function renderPersonalBestOverview(payload = appState.personalBests || {}) {
     {
       label: "Time records",
       value: durations.length
-        ? "Time bests ready"
+        ? formatCoverageTargetCount(durations.length, "time target", "time targets")
         : "No time records yet",
       detail: durations.length
         ? formatRecordEffortCount(durationEfforts)
@@ -2505,7 +2509,7 @@ function renderPersonalBestOverview(payload = appState.personalBests || {}) {
     {
       label: "Pace records",
       value: paces.length
-        ? "Pace bests ready"
+        ? formatCoverageTargetCount(paces.length, "pace target", "pace targets")
         : "No pace records yet",
       detail: paces.length
         ? formatRecordEffortCount(paceEfforts)
@@ -2520,6 +2524,11 @@ function renderPersonalBestOverview(payload = appState.personalBests || {}) {
       <small>${escapeHtml(card.detail)}</small>
     </article>
   `).join("");
+}
+
+function formatCoverageTargetCount(count, singular, plural) {
+  const normalizedCount = Number(count || 0);
+  return `${formatInteger(normalizedCount)} ${normalizedCount === 1 ? singular : plural}`;
 }
 
 function countRecordEfforts(groups = []) {
