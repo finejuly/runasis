@@ -784,6 +784,25 @@ input[type="search"] {
   margin-top: 14px;
 }
 
+.personal-best-overview-panel {
+  margin-top: 14px;
+  padding: 12px 0 2px;
+  border-top: 1px solid var(--border);
+}
+
+.personal-best-overview-heading {
+  margin-top: 0;
+}
+
+.personal-best-overview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.personal-best-overview-card {
+  min-height: 104px;
+  box-shadow: none;
+}
+
 .personal-best-grid > .record-target-browser,
 .personal-best-grid > .chart-empty {
   grid-column: 1 / -1;
@@ -1088,7 +1107,7 @@ input[type="search"] {
 }
 
 .scale-option.active {
-  background: var(--blue);
+  background: var(--green);
   color: white;
 }
 
@@ -1649,6 +1668,7 @@ td.activity-name {
   .records-grid,
   .analysis-grid,
   .analysis-profile-grid,
+  .personal-best-overview-grid,
   .personal-best-grid {
     grid-template-columns: 1fr;
   }

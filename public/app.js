@@ -196,6 +196,7 @@ function cacheElements() {
     "lastSync",
     "activityCount",
     "detailSync",
+    "trainingInsight",
     "dashboardView",
     "activityListView",
     "pbView",
@@ -246,6 +247,7 @@ function cacheElements() {
     "personalBestTrendChart",
     "personalBestTrendCaption",
     "personalBestTrendDistanceSelect",
+    "personalBestOverviewGrid",
     "personalBestDurationGrid",
     "personalBestDurationCaption",
     "personalBestPaceGrid",
@@ -337,16 +339,22 @@ function setPersonalBestScaleSelection(scale) {
   return nextScale;
 }
 
+function setPressedActiveState(element, active) {
+  const isActive = Boolean(active);
+  element.classList.toggle("active", isActive);
+  if (element.setAttribute) element.setAttribute("aria-pressed", isActive ? "true" : "false");
+}
+
 function updatePersonalBestScaleControls(scale = appState.personalBestScale) {
   const activeScale = normalizePersonalBestScaleSelection(scale);
   for (const button of els.personalBestScaleButtons || []) {
-    button.classList.toggle("active", button.dataset.scale === activeScale);
+    setPressedActiveState(button, button.dataset.scale === activeScale);
   }
   for (const button of els.timeBestScaleButtons || []) {
-    button.classList.toggle("active", button.dataset.scale === activeScale);
+    setPressedActiveState(button, button.dataset.scale === activeScale);
   }
   for (const button of els.paceBestDistanceScaleButtons || []) {
-    button.classList.toggle("active", button.dataset.scale === activeScale);
+    setPressedActiveState(button, button.dataset.scale === activeScale);
   }
 }
 
@@ -667,8 +675,7 @@ function updatePersonalBestModeVisibility(tab = appState.personalBestTab) {
   for (const button of els.personalBestModeOptions || []) {
     const buttonTab = normalizePersonalBestTab(button.dataset.personalBestModeTab);
     const isActive = buttonTab === activeTab && normalizePersonalBestMode(button.dataset.pbMode) === activeMode;
-    button.classList.toggle("active", isActive);
-    button.setAttribute?.("aria-pressed", isActive ? "true" : "false");
+    setPressedActiveState(button, isActive);
   }
 
   for (const pane of els.personalBestModePanes || []) {
@@ -690,7 +697,7 @@ function updateAnalysisSubviewVisibility(activeTab = appState.analysisTab) {
   const normalizedTab = normalizeAnalysisTab(activeTab);
 
   for (const tab of els.analysisTabOptions || []) {
-    tab.classList.toggle("active", tab.dataset.analysisTab === normalizedTab);
+    setPressedActiveState(tab, tab.dataset.analysisTab === normalizedTab);
   }
   els.analysisDistanceView?.classList.toggle("hidden", normalizedTab !== "distance");
   els.analysisTimeView?.classList.toggle("hidden", normalizedTab !== "time");
@@ -700,8 +707,7 @@ function updateAnalysisSubviewVisibility(activeTab = appState.analysisTab) {
 function updateRiegelSeriesControls(selectedSeries = appState.riegelFiveKSeries) {
   for (const button of els.riegelFiveKSeriesButtons || []) {
     const isActive = button.dataset.series === selectedSeries;
-    button.classList.toggle("active", isActive);
-    if (button.setAttribute) button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    setPressedActiveState(button, isActive);
   }
 }
 
@@ -883,7 +889,7 @@ function updateRiegelExponentControls(activeExponent = appState.riegelExponent) 
     els.riegelExponentInput.disabled = appState.riegelExponentMode !== "custom";
   }
   for (const button of els.riegelExponentModeButtons || []) {
-    button.classList.toggle("active", button.dataset.mode === appState.riegelExponentMode);
+    setPressedActiveState(button, button.dataset.mode === appState.riegelExponentMode);
   }
 }
 
@@ -1177,7 +1183,35 @@ function renderStatus() {
     ? ` · Streams ${formatInteger(detailStatus.rawStreamRunCount || 0)}/${formatInteger(detailStatus.runCount || 0)}`
     : "";
   els.detailSync.textContent = `Best efforts ${formatInteger(detailStatus.fetchedRunCount || 0)}/${formatInteger(detailStatus.runCount || 0)}${streamStatus}${failedDetails ? ` · ${formatInteger(failedDetails)} failed` : ""}`;
+  if (els.trainingInsight) {
+    els.trainingInsight.textContent = buildRecentTrainingInsight(appState.activities);
+  }
   updateActionButtons();
+}
+
+function buildRecentTrainingInsight(activities = appState.activities) {
+  const end = getDashboardRangeEndDate(activities);
+  if (!end) return "No recent training summary";
+  const start = addLocalDays(end, -29);
+  const previousEnd = addLocalDays(start, -1);
+  const previousStart = addLocalDays(previousEnd, -29);
+  const currentKm = sumRunDistanceKmBetween(activities, start, end);
+  const previousKm = sumRunDistanceKmBetween(activities, previousStart, previousEnd);
+  if (currentKm <= 0) return "Last 30 days: no runs saved";
+  const delta = currentKm - previousKm;
+  let trend = "even with";
+  if (delta > 0.05) trend = `up ${formatNumber(delta, 1)} km`;
+  if (delta < -0.05) trend = `down ${formatNumber(Math.abs(delta), 1)} km`;
+  return `Last 30 days: ${formatNumber(currentKm, 1)} km, ${trend} vs previous 30 days`;
+}
+
+function sumRunDistanceKmBetween(activities, start, end) {
+  return sum(activities, (activity) => {
+    if (!isRun(activity)) return 0;
+    const date = getActivityLocalDay(activity);
+    if (!date || date < start || date > end) return 0;
+    return Number(activity.distance || 0) / 1000;
+  });
 }
 
 function renderOnboardingStatus(status) {
@@ -1317,7 +1351,7 @@ function getSelectedDashboardMetric() {
 function setActiveViewTab(view) {
   const activeView = view === "time" ? "pb" : view;
   for (const item of els.viewTabs || []) {
-    item.classList.toggle("active", item.dataset.view === activeView);
+    setPressedActiveState(item, item.dataset.view === activeView);
   }
 }
 
@@ -1338,7 +1372,7 @@ function renderView() {
   els.analysisPaceView?.classList.toggle("hidden", appState.currentView !== "analysis" || analysisTab !== "pace");
   els.analysisRankControl.classList.toggle("hidden", appState.currentView !== "analysis");
   for (const button of els.analysisTabOptions || []) {
-    button.classList.toggle("active", button.dataset.analysisTab === analysisTab);
+    setPressedActiveState(button, button.dataset.analysisTab === analysisTab);
   }
 }
 
@@ -2042,7 +2076,8 @@ function updateAllActivitySortButtons() {
     const active = button.dataset.activitySort === sort.key;
     button.classList.toggle("active", active);
     button.textContent = active ? `${label} ${sort.direction === "asc" ? "▲" : "▼"}` : label;
-    button.setAttribute("aria-sort", active ? sort.direction : "none");
+    const header = button.closest?.("th");
+    if (header?.setAttribute) header.setAttribute("aria-sort", active ? sort.direction : "none");
   }
 }
 
@@ -2084,6 +2119,7 @@ function renderPersonalBestTab() {
   const tab = normalizePersonalBestTab(appState.personalBestTab);
   appState.personalBestTab = tab;
   updatePersonalBestTabControls(tab);
+  renderPersonalBestOverview();
   if (tab === "pace") {
     renderPaceBestsView();
     updatePersonalBestModeVisibility(tab);
@@ -2102,9 +2138,65 @@ function renderPersonalBestTab() {
   updatePersonalBestModeVisibility(tab);
 }
 
+function renderPersonalBestOverview(payload = appState.personalBests || {}) {
+  if (!els.personalBestOverviewGrid) return;
+  const distances = payload.distances || [];
+  const durations = payload.durations || [];
+  const paces = payload.paces || [];
+  const distanceEfforts = Number(payload.effortCount || countRecordEfforts(distances));
+  const durationEfforts = Number(payload.durationEffortCount || countRecordEfforts(durations));
+  const paceEfforts = Number(payload.paceEffortCount || countRecordEfforts(paces));
+  const cards = [
+    {
+      label: "Distance records",
+      value: distances.length
+        ? `${formatInteger(distances.length)} ${distances.length === 1 ? "target" : "targets"}`
+        : "No distance records yet",
+      detail: distances.length
+        ? formatRecordEffortCount(distanceEfforts)
+        : "Import activities, then update run details to calculate distance records."
+    },
+    {
+      label: "Time records",
+      value: durations.length
+        ? `${formatInteger(durations.length)} ${durations.length === 1 ? "time target" : "time targets"}`
+        : "No time records yet",
+      detail: durations.length
+        ? formatRecordEffortCount(durationEfforts)
+        : "Update run details to calculate time records."
+    },
+    {
+      label: "Pace records",
+      value: paces.length
+        ? `${formatInteger(paces.length)} ${paces.length === 1 ? "pace target" : "pace targets"}`
+        : "No pace records yet",
+      detail: paces.length
+        ? formatRecordEffortCount(paceEfforts)
+        : "Update run details to calculate pace records."
+    }
+  ];
+
+  els.personalBestOverviewGrid.innerHTML = cards.map((card) => `
+    <article class="kpi-card personal-best-overview-card">
+      <span>${escapeHtml(card.label)}</span>
+      <strong>${escapeHtml(card.value)}</strong>
+      <small>${escapeHtml(card.detail)}</small>
+    </article>
+  `).join("");
+}
+
+function countRecordEfforts(groups = []) {
+  return sum(groups, (group) => Number(group.count || group.top?.length || 0));
+}
+
+function formatRecordEffortCount(count) {
+  const normalizedCount = Number(count || 0);
+  return `${formatInteger(normalizedCount)} ${normalizedCount === 1 ? "record effort" : "record efforts"}`;
+}
+
 function updatePersonalBestTabControls(tab = normalizePersonalBestTab(appState.personalBestTab)) {
   for (const button of els.personalBestTabOptions || []) {
-    button.classList.toggle("active", button.dataset.personalBestTab === tab);
+    setPressedActiveState(button, button.dataset.personalBestTab === tab);
   }
 }
 
@@ -2342,7 +2434,7 @@ function renderBestRecordMoreToggle({ hasMore, isExpanded, visibleCount, toggleA
   return `
       <div class="personal-best-more-row">
         <span>${toggleMeta}</span>
-        <button class="button ghost personal-best-more" type="button" data-${toggleAttribute}="${escapeHtml(name)}">
+        <button class="button ghost personal-best-more" type="button" data-${toggleAttribute}="${escapeHtml(name)}" aria-expanded="${isExpanded ? "true" : "false"}">
           ${toggleLabel}
         </button>
       </div>
@@ -3982,10 +4074,10 @@ function getRiegelProjectionTargets() {
 
 function renderRiegelEquivalentChart(seriesRows, source) {
   for (const button of els.riegelFiveKScaleButtons) {
-    button.classList.toggle("active", button.dataset.scale === appState.riegelFiveKScale);
+    setPressedActiveState(button, button.dataset.scale === appState.riegelFiveKScale);
   }
   for (const button of els.riegelFiveKSeriesButtons) {
-    button.classList.toggle("active", button.dataset.series === appState.riegelFiveKSeries);
+    setPressedActiveState(button, button.dataset.series === appState.riegelFiveKSeries);
   }
 
   const series = (seriesRows || []).map((item) => ({
@@ -4003,7 +4095,7 @@ function renderRiegelEquivalentChart(seriesRows, source) {
   const selectedSeries = series.find((item) => item.key === appState.riegelFiveKSeries) || series[0];
   appState.riegelFiveKSeries = selectedSeries.key;
   for (const button of els.riegelFiveKSeriesButtons) {
-    button.classList.toggle("active", button.dataset.series === selectedSeries.key);
+    setPressedActiveState(button, button.dataset.series === selectedSeries.key);
   }
   const selectedActualPoints = selectedSeries.points.filter((point) => !point.isPlaceholder);
   if (!selectedActualPoints.length) {
@@ -4087,12 +4179,12 @@ function renderRiegelEquivalentChart(seriesRows, source) {
       const opacity = isSource ? "1" : "0.72";
       const tooltip = `No ${selectedSeries.label} ${point.name} best effort yet\nPredicted ${source.name} ${formatClockDuration(point.predictedTime)}\n${formatPaceWithUnit(point.paceSecondsPerKm)}\n${actionText}`;
       return `
-        <rect class="riegel-source-bar placeholder${isSource ? " active" : ""}" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" stroke-dasharray="5 4" opacity="${opacity}" tabindex="0" role="button" aria-label="${escapeHtml(`Use predicted ${point.name} as baseline`)}" data-riegel-source-name="${escapeHtml(point.name)}" data-riegel-placeholder="true" data-tooltip="${escapeHtml(tooltip)}"></rect>
+        <rect class="riegel-source-bar placeholder${isSource ? " active" : ""}" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2" stroke-dasharray="5 4" opacity="${opacity}" tabindex="0" role="button" aria-pressed="${isSource ? "true" : "false"}" aria-label="${escapeHtml(`Use predicted ${point.name} as baseline`)}" data-riegel-source-name="${escapeHtml(point.name)}" data-riegel-placeholder="true" data-tooltip="${escapeHtml(tooltip)}"></rect>
       `;
     }
     const actionText = isSource ? "Current baseline distance" : `Click to use ${point.name} as baseline`;
     return `
-      <rect class="riegel-source-bar${isSource ? " active" : ""}" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${fill}" stroke="#ffffff" stroke-width="2" tabindex="0" role="button" aria-label="${escapeHtml(`Use ${point.name} as baseline`)}" data-riegel-source-name="${escapeHtml(point.name)}" data-tooltip="${escapeHtml(`${selectedSeries.label} ${point.name}\n${source.name} prediction ${formatClockDuration(point.predictedTime)}\n${formatPaceWithUnit(point.paceSecondsPerKm)} · vs baseline ${source.name} ${formatDeltaPlain(point.deltaSeconds)}\n${actionText}`)}"></rect>
+      <rect class="riegel-source-bar${isSource ? " active" : ""}" x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="2" fill="${fill}" stroke="#ffffff" stroke-width="2" tabindex="0" role="button" aria-pressed="${isSource ? "true" : "false"}" aria-label="${escapeHtml(`Use ${point.name} as baseline`)}" data-riegel-source-name="${escapeHtml(point.name)}" data-tooltip="${escapeHtml(`${selectedSeries.label} ${point.name}\n${source.name} prediction ${formatClockDuration(point.predictedTime)}\n${formatPaceWithUnit(point.paceSecondsPerKm)} · vs baseline ${source.name} ${formatDeltaPlain(point.deltaSeconds)}\n${actionText}`)}"></rect>
     `;
   }).join("");
   const expectedRecordLine = Number.isFinite(expectedPace) ? (() => {
@@ -4190,11 +4282,11 @@ function renderRiegelExpectedPaceChart(expectedSeries) {
   const selectedSeries = series.find((item) => item.key === appState.riegelFiveKSeries) || series[0];
   appState.riegelFiveKSeries = selectedSeries.key;
   for (const button of els.riegelFiveKSeriesButtons) {
-    button.classList.toggle("active", button.dataset.series === selectedSeries.key);
+    setPressedActiveState(button, button.dataset.series === selectedSeries.key);
   }
   const points = selectedSeries.points;
   for (const button of els.riegelFiveKScaleButtons) {
-    button.classList.toggle("active", button.dataset.scale === appState.riegelFiveKScale);
+    setPressedActiveState(button, button.dataset.scale === appState.riegelFiveKScale);
   }
 
   if (!points.length) {
@@ -4884,7 +4976,7 @@ function getTimeBestTrendDurations() {
 
 function updateTimeBestTrendLimitButtons() {
   for (const button of els.timeBestTrendLimitButtons || []) {
-    button.classList.toggle("active", Number(button.dataset.limit) === appState.timeBestTrendLimit);
+    setPressedActiveState(button, Number(button.dataset.limit) === appState.timeBestTrendLimit);
   }
 }
 
@@ -4940,7 +5032,7 @@ function getPaceBestTrendTargets() {
 
 function updatePaceBestTrendLimitButtons() {
   for (const button of els.paceBestTrendLimitButtons || []) {
-    button.classList.toggle("active", Number(button.dataset.limit) === appState.paceBestTrendLimit);
+    setPressedActiveState(button, Number(button.dataset.limit) === appState.paceBestTrendLimit);
   }
 }
 
@@ -4990,7 +5082,7 @@ function normalizePersonalBestTrendLimit(value) {
 
 function updatePersonalBestTrendLimitButtons() {
   for (const button of els.personalBestTrendLimitButtons || []) {
-    button.classList.toggle("active", Number(button.dataset.limit) === appState.personalBestTrendLimit);
+    setPressedActiveState(button, Number(button.dataset.limit) === appState.personalBestTrendLimit);
   }
 }
 
@@ -5956,9 +6048,8 @@ function updateActionButtons() {
 function updateExcludedRecordsToggleButtons(disabled = false) {
   for (const button of els.excludedRecordsToggleButtons || []) {
     button.disabled = disabled;
-    button.classList.toggle("active", appState.includeExcludedRecords);
+    setPressedActiveState(button, appState.includeExcludedRecords);
     button.textContent = appState.includeExcludedRecords ? "Hide Excluded" : "Include Excluded";
-    button.setAttribute("aria-pressed", appState.includeExcludedRecords ? "true" : "false");
   }
 }
 

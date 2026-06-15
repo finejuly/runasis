@@ -66,11 +66,11 @@ If port `3000` is already in use, Runasis automatically tries the next available
 2. Create or open your API application.
 3. Set `Authorization Callback Domain` to `localhost`.
 4. Start Runasis.
-5. Enter your Strava Client ID and Client Secret, then click `Save Settings`.
+5. Enter your Strava Client ID and Client Secret, then click `Save credentials`.
 6. Click `Connect Strava` and approve the connection.
-7. Click `Sync` to import your activity list and fetch any missing best-effort details.
+7. Click `Import Activities` to import your activity list and fetch any missing best-effort details.
 
-Large histories can take a while to sync. Best-effort details are fetched in batches, so click `Sync` again if Runasis says more records remain.
+Large histories can take a while to sync. Best-effort details are fetched in batches, so click `Update from Strava` again if Runasis says more records remain.
 
 Raw detailed activity payloads are saved locally under `data/strava/activities/raw-details/`, and raw activity streams are saved under `data/strava/activities/raw-streams/`. Runasis still writes smaller detail records used by the UI under `data/strava/activities/details/`.
 
@@ -82,7 +82,7 @@ The dashboard is the main training overview. Use the range selector and metric c
 
 ### Personal Bests
 
-The `Personal Bests` tab calculates your best efforts across standard distances from saved activity streams, including pace curves, dates, trends, and ranked efforts. The `Time Bests` tab uses the same activity streams to show time-limited bests from 5 minutes through 4 hours, including 20 minutes. If you edit an activity later in Strava, refresh that activity from its row in Runasis.
+The `Personal Bests` tab calculates your best efforts across standard distances from saved activity streams, including pace curves, dates, trends, and ranked efforts. `Personal Bests > Time` uses the same activity streams to show time-limited bests from 5 minutes through 4 hours, including 20 minutes. If you edit an activity later in Strava, refresh that activity from its row in Runasis.
 
 ### Analysis
 
