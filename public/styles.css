@@ -453,6 +453,11 @@ input[type="number"].invalid {
   color: var(--red);
 }
 
+input[type="text"].invalid {
+  border-color: var(--red);
+  color: var(--red);
+}
+
 input[type="number"]:disabled {
   background: var(--surface-soft);
   color: var(--muted);
@@ -537,6 +542,52 @@ input[type="search"] {
   grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+
+.runner-brief {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.runner-brief-card {
+  min-width: 0;
+  min-height: 132px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  border-radius: 8px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.runner-brief-card span {
+  color: var(--muted);
+  font-size: var(--font-label);
+  font-weight: 760;
+}
+
+.runner-brief-card strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 26px;
+  line-height: 1.12;
+}
+
+.runner-brief-card small {
+  color: var(--muted);
+  font-size: var(--font-label);
+  font-weight: 700;
+}
+
+.runner-brief-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--font-control);
+  line-height: 1.35;
 }
 
 .kpi-summary-heading {
@@ -771,6 +822,61 @@ input[type="search"] {
   margin-top: 14px;
   padding: 12px 0 2px;
   border-top: 1px solid var(--border);
+}
+
+.race-target-panel {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(240px, 0.8fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.race-target-controls {
+  min-width: 0;
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.race-target-controls h3 {
+  margin: 2px 0 0;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.race-target-time-field {
+  width: min(150px, 100%);
+}
+
+.race-target-time-field input {
+  height: 34px;
+}
+
+.race-target-summary {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  justify-items: end;
+  text-align: right;
+}
+
+.race-target-summary strong {
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.race-target-summary span,
+.race-target-summary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-label);
 }
 
 .analysis-profile-heading {
@@ -1669,6 +1775,7 @@ td.activity-name {
   .analysis-grid,
   .analysis-profile-grid,
   .personal-best-overview-grid,
+  .runner-brief,
   .personal-best-grid {
     grid-template-columns: 1fr;
   }
@@ -1725,6 +1832,15 @@ td.activity-name {
   .onboarding-panel {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .race-target-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .race-target-summary {
+    justify-items: start;
+    text-align: left;
   }
 
   .setup-steps {
