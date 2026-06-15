@@ -2,9 +2,13 @@ const DEFAULT_RIEGEL_EXPONENT = 1.06;
 const RIEGEL_EXPONENT_STORAGE_KEY = "runasis.riegelExponent.value";
 const RIEGEL_EXPONENT_MODE_STORAGE_KEY = "runasis.riegelExponent.mode.v2";
 const RIEGEL_SOURCE_DISTANCE_STORAGE_KEY = "runasis.riegel.sourceDistance";
+const RACE_TARGET_DISTANCE_STORAGE_KEY = "runasis.raceTarget.distance";
+const RACE_TARGET_TIME_STORAGE_KEY = "runasis.raceTarget.time";
 const RIEGEL_REFERENCE_COLOR = "#17201a";
 const RIEGEL_EXPONENT_MODES = new Set(["default", "median", "custom"]);
 const DEFAULT_RIEGEL_EXPONENT_MODE = "median";
+const DEFAULT_RACE_TARGET_DISTANCE = "Marathon";
+const DEFAULT_RACE_TARGET_TIME = "4:00:00";
 const DEFAULT_STRAVA_SCOPE = "activity:read_all";
 const PERSONAL_BEST_DEFAULT_LIMIT = 3;
 const PERSONAL_BEST_EXPANDED_LIMIT = 20;
@@ -24,6 +28,8 @@ const REPOSITORY_URL = "";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const YEAR_DAYS = 365.25;
 const DEFAULT_DASHBOARD_METRIC_KEY = "distance";
+const ANNUAL_DISTANCE_GOAL_KM = 1000;
+const COMMON_RECORD_TARGETS = ["5K", "10K", "Half-Marathon", "Marathon"];
 const TEN_MILE_KM = 16.09;
 const HALF_MARATHON_KM = 21.097;
 const DISTANCE_DISTRIBUTION_BINS = [
@@ -107,6 +113,8 @@ const appState = {
   riegelCustomExponent: DEFAULT_RIEGEL_EXPONENT,
   riegelExponentMode: DEFAULT_RIEGEL_EXPONENT_MODE,
   riegelSourceDistanceName: "5K",
+  raceTargetDistanceName: DEFAULT_RACE_TARGET_DISTANCE,
+  raceTargetTimeText: DEFAULT_RACE_TARGET_TIME,
   rangeDays: "all",
   selectedKpiMetric: DEFAULT_DASHBOARD_METRIC_KEY,
   activityListOpen: false,
@@ -197,6 +205,16 @@ function cacheElements() {
     "activityCount",
     "detailSync",
     "trainingInsight",
+    "runnerBrief",
+    "runnerBriefLatestValue",
+    "runnerBriefLatestMeta",
+    "runnerBriefLatestDetail",
+    "runnerBriefTodayValue",
+    "runnerBriefTodayMeta",
+    "runnerBriefTodayDetail",
+    "runnerBriefYearValue",
+    "runnerBriefYearMeta",
+    "runnerBriefYearDetail",
     "dashboardView",
     "activityListView",
     "pbView",
@@ -204,6 +222,12 @@ function cacheElements() {
     "timeView",
     "paceView",
     "analysisView",
+    "raceTargetPanel",
+    "raceTargetDistanceSelect",
+    "raceTargetTimeInput",
+    "raceTargetValue",
+    "raceTargetMeta",
+    "raceTargetDetail",
     "analysisDistanceView",
     "analysisTimeView",
     "analysisPaceView",
@@ -365,6 +389,8 @@ function loadPreferences() {
     || (isValidRiegelExponent(savedExponent) && savedExponent !== DEFAULT_RIEGEL_EXPONENT ? "custom" : DEFAULT_RIEGEL_EXPONENT_MODE);
   appState.riegelExponent = appState.riegelExponentMode === "custom" ? appState.riegelCustomExponent : DEFAULT_RIEGEL_EXPONENT;
   appState.riegelSourceDistanceName = readSavedRiegelSourceDistanceName() || "5K";
+  appState.raceTargetDistanceName = readSavedRaceTargetDistanceName() || DEFAULT_RACE_TARGET_DISTANCE;
+  appState.raceTargetTimeText = readSavedRaceTargetTimeText() || DEFAULT_RACE_TARGET_TIME;
   updateRiegelExponentControls();
 }
 
@@ -589,6 +615,35 @@ function bindEvents() {
       els.riegelExponentInput.classList.remove("invalid");
     }
   });
+
+  if (els.raceTargetDistanceSelect) {
+    els.raceTargetDistanceSelect.addEventListener("change", () => {
+      appState.raceTargetDistanceName = els.raceTargetDistanceSelect.value || DEFAULT_RACE_TARGET_DISTANCE;
+      saveRaceTargetDistanceName(appState.raceTargetDistanceName);
+      renderAnalysisView();
+    });
+  }
+
+  if (els.raceTargetTimeInput) {
+    els.raceTargetTimeInput.addEventListener("input", () => {
+      appState.raceTargetTimeText = els.raceTargetTimeInput.value.trim();
+      const valid = Boolean(parseRaceGoalTime(appState.raceTargetTimeText));
+      els.raceTargetTimeInput.classList.toggle("invalid", !valid);
+      if (valid) {
+        saveRaceTargetTimeText(appState.raceTargetTimeText);
+        renderAnalysisView();
+      }
+    });
+    els.raceTargetTimeInput.addEventListener("blur", () => {
+      if (!parseRaceGoalTime(appState.raceTargetTimeText)) {
+        appState.raceTargetTimeText = DEFAULT_RACE_TARGET_TIME;
+        els.raceTargetTimeInput.value = DEFAULT_RACE_TARGET_TIME;
+        els.raceTargetTimeInput.classList.remove("invalid");
+        saveRaceTargetTimeText(appState.raceTargetTimeText);
+        renderAnalysisView();
+      }
+    });
+  }
 
   els.personalBestGrid.addEventListener("click", handlePersonalBestToggle);
   if (els.personalBestDurationGrid) {
@@ -873,6 +928,38 @@ function saveRiegelSourceDistanceName(name) {
   }
 }
 
+function readSavedRaceTargetDistanceName() {
+  try {
+    return window.localStorage.getItem(RACE_TARGET_DISTANCE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveRaceTargetDistanceName(name) {
+  try {
+    window.localStorage.setItem(RACE_TARGET_DISTANCE_STORAGE_KEY, String(name || DEFAULT_RACE_TARGET_DISTANCE));
+  } catch {
+    // Persistence is optional; the current session value still applies.
+  }
+}
+
+function readSavedRaceTargetTimeText() {
+  try {
+    return window.localStorage.getItem(RACE_TARGET_TIME_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveRaceTargetTimeText(value) {
+  try {
+    window.localStorage.setItem(RACE_TARGET_TIME_STORAGE_KEY, String(value || DEFAULT_RACE_TARGET_TIME));
+  } catch {
+    // Persistence is optional; the current session value still applies.
+  }
+}
+
 function normalizeRiegelExponentMode(mode) {
   return RIEGEL_EXPONENT_MODES.has(mode) ? mode : null;
 }
@@ -1134,6 +1221,7 @@ function render() {
   const activities = getFilteredActivities();
   const metrics = calculateMetrics(activities);
   const previousMetrics = calculatePreviousPeriodMetrics();
+  renderDashboardRunnerBrief();
   renderKpiRangeCaption(activities);
   renderKpis(metrics, previousMetrics);
   renderKpiSelection();
@@ -1203,6 +1291,242 @@ function buildRecentTrainingInsight(activities = appState.activities) {
   if (delta > 0.05) trend = `up ${formatNumber(delta, 1)} km`;
   if (delta < -0.05) trend = `down ${formatNumber(Math.abs(delta), 1)} km`;
   return `Last 30 days: ${formatNumber(currentKm, 1)} km, ${trend} vs previous 30 days`;
+}
+
+function buildRunnerBrief(activities = appState.activities, personalBests = appState.personalBests) {
+  const analysisProfile = buildAnalysisProfile();
+  const improveSignal = analysisProfile?.improveSignal || null;
+  return {
+    latestRun: buildLatestRunComparison(activities, personalBests),
+    today: buildTodayRunSuggestion(activities, improveSignal),
+    yearGoal: buildYearGoalProgress(activities)
+  };
+}
+
+function getSortedRuns(activities = appState.activities) {
+  return [...(activities || [])]
+    .filter(isRun)
+    .sort((a, b) => getActivityStartTime(b) - getActivityStartTime(a));
+}
+
+function buildLatestRunComparison(activities = appState.activities, personalBests = appState.personalBests) {
+  const runs = getSortedRuns(activities);
+  const latest = runs[0] || null;
+  if (!latest) {
+    return {
+      title: "Latest Run",
+      value: "-",
+      meta: "No saved runs",
+      detail: "Import activities to compare your latest run.",
+      state: "empty"
+    };
+  }
+
+  const distanceKm = Number(latest.distance || 0) / 1000;
+  const comparison = selectLatestRunRecordComparison(latest, personalBests);
+  const rank = comparison ? null : buildRunDistanceRank(latest, runs);
+  const detail = comparison
+    ? formatLatestRunRecordComparison(comparison, latest)
+    : `#${rank.rank} by distance among ${formatInteger(rank.total)} saved runs.`;
+
+  return {
+    title: latest.name || "Latest Run",
+    value: `${formatNumber(distanceKm, 2)} km`,
+    meta: `${formatDate(latest.start_date_local || latest.start_date)} · ${formatPaceWithUnit(calculateActivityPaceSecondsPerKm(latest))} · ${formatDuration(latest.moving_time || 0)}`,
+    detail,
+    state: comparison?.isCurrentBest ? "best" : "ready"
+  };
+}
+
+function selectLatestRunRecordComparison(latestRun, personalBests = appState.personalBests) {
+  const latestDistanceKm = Number(latestRun?.distance || 0) / 1000;
+  if (!Number.isFinite(latestDistanceKm) || latestDistanceKm <= 0) return null;
+  const candidates = (personalBests?.distances || [])
+    .map((distance) => {
+      const targetDistanceKm = Number(distance.distanceKm || 0);
+      const effort = distance.top?.[0] || null;
+      if (!distance.name || !effort || !Number.isFinite(targetDistanceKm) || targetDistanceKm <= 0) return null;
+      if (targetDistanceKm > latestDistanceKm + 0.05) return null;
+      return {
+        name: distance.name,
+        distanceKm: targetDistanceKm,
+        effort,
+        commonIndex: COMMON_RECORD_TARGETS.indexOf(distance.name)
+      };
+    })
+    .filter(Boolean);
+  if (!candidates.length) return null;
+  const common = candidates.filter((candidate) => candidate.commonIndex !== -1);
+  const pool = common.length ? common : candidates;
+  return pool.sort((a, b) => b.distanceKm - a.distanceKm || a.name.localeCompare(b.name))[0] || null;
+}
+
+function formatLatestRunRecordComparison(comparison, latestRun) {
+  const bestTime = Number(comparison.effort?.movingTime || comparison.effort?.moving_time || 0);
+  const latestTime = Number(latestRun?.moving_time || 0);
+  const isCurrentBest = String(comparison.effort?.activityId || "") === String(latestRun?.id || "");
+  comparison.isCurrentBest = isCurrentBest;
+  if (isCurrentBest) return `Current ${comparison.name} best: ${formatClockDuration(bestTime)}.`;
+  if (!Number.isFinite(bestTime) || bestTime <= 0 || !Number.isFinite(latestTime) || latestTime <= 0) {
+    return `${comparison.name} best is available in Personal Bests.`;
+  }
+  const delta = latestTime - bestTime;
+  if (!Math.round(delta)) return `${comparison.name} best is ${formatClockDuration(bestTime)}; latest run matched it overall.`;
+  const direction = delta > 0 ? "slower" : "faster";
+  return `${comparison.name} best is ${formatClockDuration(bestTime)}; latest run was ${formatClockDuration(Math.abs(delta))} ${direction} overall.`;
+}
+
+function buildRunDistanceRank(activity, runs = getSortedRuns(appState.activities)) {
+  const sorted = [...runs].sort((a, b) => Number(b.distance || 0) - Number(a.distance || 0));
+  const index = sorted.findIndex((item) => String(item.id || "") === String(activity?.id || ""));
+  return {
+    rank: index === -1 ? sorted.length : index + 1,
+    total: sorted.length
+  };
+}
+
+function calculateActivityPaceSecondsPerKm(activity) {
+  const distanceKm = Number(activity?.distance || 0) / 1000;
+  const movingTime = Number(activity?.moving_time || 0);
+  return distanceKm > 0 && movingTime > 0 ? movingTime / distanceKm : null;
+}
+
+function buildTodayRunSuggestion(activities = appState.activities, improveSignal = null) {
+  const runs = getSortedRuns(activities);
+  if (!runs.length) {
+    return {
+      title: "Easy start",
+      value: "No saved runs",
+      meta: "Based on saved runs",
+      detail: "Import runs before using Runasis for today guidance.",
+      state: "empty"
+    };
+  }
+
+  const today = startOfLocalDay(new Date());
+  const latestDay = getActivityLocalDay(runs[0]);
+  const daysSinceLastRun = latestDay ? daysBetweenLocalDates(latestDay, today) : null;
+  const current7Km = sumRunDistanceKmBetween(activities, addLocalDays(today, -6), today);
+  const current30Km = sumRunDistanceKmBetween(activities, addLocalDays(today, -29), today);
+  const weeklyBaselineKm = current30Km > 0 ? (current30Km / 30) * 7 : 0;
+  const consecutiveRunDays = countConsecutiveRunDays(activities, latestDay || today);
+
+  if (daysSinceLastRun === 0) {
+    return {
+      title: "Recovery or rest",
+      value: "Keep it light",
+      meta: "Ran today",
+      detail: "You already have a saved run today; keep any extra work very easy based on saved runs.",
+      state: "caution"
+    };
+  }
+
+  if (consecutiveRunDays >= 3 && daysSinceLastRun <= 1) {
+    return {
+      title: "Recovery or rest",
+      value: "Keep it light",
+      meta: `${formatInteger(consecutiveRunDays)} run days in a row`,
+      detail: "Recent saved runs show consecutive run days; choose low stress before another demanding session.",
+      state: "caution"
+    };
+  }
+
+  if (current7Km > Math.max(16, weeklyBaselineKm * 1.6)) {
+    return {
+      title: "Easy aerobic run",
+      value: "Reduce intensity",
+      meta: `${formatNumber(current7Km, 1)} km in 7 days`,
+      detail: `Recent distance is above the ${formatNumber(weeklyBaselineKm, 1)} km weekly baseline from saved runs.`,
+      state: "caution"
+    };
+  }
+
+  if (Number.isFinite(daysSinceLastRun) && daysSinceLastRun >= 4) {
+    return {
+      title: "Easy re-entry",
+      value: "20-40 min easy",
+      meta: `${formatInteger(daysSinceLastRun)} days since last run`,
+      detail: "Restart with easy volume before chasing pace, based on saved runs.",
+      state: "easy"
+    };
+  }
+
+  if (improveSignal?.name) {
+    return {
+      title: "Controlled workout",
+      value: "Keep it controlled",
+      meta: "Stable recent load",
+      detail: `Use ${improveSignal.name} as the focus; keep one low-stress day after demanding work.`,
+      state: "workout"
+    };
+  }
+
+  return {
+    title: "Easy aerobic run",
+    value: "30-45 min easy",
+    meta: `${formatNumber(current7Km, 1)} km in 7 days`,
+    detail: "No strong caution signal from saved runs; keep the effort conversational.",
+    state: "easy"
+  };
+}
+
+function countConsecutiveRunDays(activities, endDate) {
+  if (!endDate) return 0;
+  const runDays = new Set((activities || [])
+    .filter(isRun)
+    .map(getActivityLocalDay)
+    .filter(Boolean)
+    .map(localDateKey));
+  let count = 0;
+  for (let day = startOfLocalDay(endDate); runDays.has(localDateKey(day)); day = addLocalDays(day, -1)) {
+    count += 1;
+  }
+  return count;
+}
+
+function buildYearGoalProgress(activities = appState.activities, targetKm = ANNUAL_DISTANCE_GOAL_KM) {
+  const today = startOfLocalDay(new Date());
+  const yearStart = new Date(today.getFullYear(), 0, 1);
+  const yearEnd = new Date(today.getFullYear(), 11, 31);
+  const completedKm = roundTo(sumRunDistanceKmBetween(activities, yearStart, today), 1);
+  const remainingKm = roundTo(Math.max(0, targetKm - completedKm), 1);
+  const remainingDays = Math.max(1, daysBetweenLocalDates(today, yearEnd) + 1);
+  const neededKmPerWeek = roundTo(remainingKm / (remainingDays / 7), 1);
+  const percent = targetKm > 0 ? Math.min(999, Math.round((completedKm / targetKm) * 100)) : 0;
+
+  return {
+    title: "Year Goal",
+    value: `${formatNumber(completedKm, 1)} / ${formatInteger(targetKm)} km`,
+    meta: `${formatInteger(percent)}% complete · ${formatNumber(remainingKm, 1)} km left`,
+    detail: `${formatNumber(neededKmPerWeek, 1)} km/week needed through Dec 31.`,
+    targetKm,
+    completedKm,
+    remainingKm,
+    neededKmPerWeek,
+    state: remainingKm <= 0 ? "best" : "ready"
+  };
+}
+
+function renderDashboardRunnerBrief() {
+  const brief = buildRunnerBrief(appState.activities, appState.personalBests);
+  renderRunnerBriefCard("Latest", brief.latestRun);
+  renderRunnerBriefCard("Today", brief.today);
+  renderRunnerBriefCard("Year", brief.yearGoal);
+}
+
+function renderRunnerBriefCard(slot, card) {
+  const value = els[`runnerBrief${slot}Value`];
+  const meta = els[`runnerBrief${slot}Meta`];
+  const detail = els[`runnerBrief${slot}Detail`];
+  if (!value || !meta || !detail) return;
+  value.textContent = card?.value || "-";
+  meta.textContent = card?.meta || "";
+  detail.textContent = card?.detail || "";
+}
+
+function roundTo(value, digits = 0) {
+  const factor = 10 ** digits;
+  return Math.round((Number(value) || 0) * factor) / factor;
 }
 
 function sumRunDistanceKmBetween(activities, start, end) {
@@ -1451,7 +1775,7 @@ function renderCumulativeMetricChart(activities) {
     `;
   }).join("");
 
-  els.cumulativeDistanceCaption.textContent = "";
+  els.cumulativeDistanceCaption.textContent = analysis.caption || "";
   els.cumulativeDistanceChart.innerHTML = `
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(analysis.ariaLabel)}">
       ${grid}
@@ -3260,7 +3584,110 @@ function renderAnalysisView() {
   const distanceAnalysis = activeTab === "distance" ? renderRiegelAnalysis() : buildRiegelAnalysis();
   const timeAnalysis = activeTab === "time" ? renderTimeRiegelAnalysis() : buildTimeRiegelAnalysis();
   const paceAnalysis = activeTab === "pace" ? renderPaceRiegelAnalysis() : buildPaceRiegelAnalysis();
+  renderRaceTargetPanel(distanceAnalysis);
   renderAnalysisProfile(buildAnalysisProfile({ distanceAnalysis, timeAnalysis, paceAnalysis }));
+}
+
+function renderRaceTargetPanel(distanceAnalysis = buildRiegelAnalysis()) {
+  if (!els.raceTargetPanel || !els.raceTargetValue || !els.raceTargetMeta || !els.raceTargetDetail) return;
+  const targets = getRiegelProjectionTargets();
+  const selectedTarget = targets.find((target) => target.name === appState.raceTargetDistanceName)
+    || targets.find((target) => target.name === DEFAULT_RACE_TARGET_DISTANCE)
+    || targets[0]
+    || { name: DEFAULT_RACE_TARGET_DISTANCE, distanceKm: 42.195 };
+  appState.raceTargetDistanceName = selectedTarget.name;
+  renderRaceTargetDistanceOptions(targets, selectedTarget.name);
+
+  if (els.raceTargetTimeInput && document.activeElement !== els.raceTargetTimeInput) {
+    els.raceTargetTimeInput.value = appState.raceTargetTimeText || DEFAULT_RACE_TARGET_TIME;
+  }
+
+  const goalSeconds = parseRaceGoalTime(appState.raceTargetTimeText || DEFAULT_RACE_TARGET_TIME);
+  const selectedSeries = distanceAnalysis?.selectedSeries || getSelectedRiegelSeries();
+  const expectedSeries = (distanceAnalysis?.expectedPaceSeries || []).find((item) => item.key === selectedSeries.key)
+    || distanceAnalysis?.expectedPaceSeries?.[0]
+    || null;
+  const status = buildRaceTargetStatus({
+    targetName: selectedTarget.name,
+    goalSeconds,
+    expectedRows: expectedSeries?.points || [],
+    fallbackDistanceKm: selectedTarget.distanceKm
+  });
+  els.raceTargetValue.textContent = status.value;
+  els.raceTargetMeta.textContent = status.meta;
+  els.raceTargetDetail.textContent = status.detail;
+}
+
+function renderRaceTargetDistanceOptions(targets, selectedName) {
+  if (!els.raceTargetDistanceSelect) return;
+  const options = (targets || []).filter((target) => target.name && Number(target.distanceKm) > 0);
+  els.raceTargetDistanceSelect.innerHTML = options.map((target) => `
+    <option value="${escapeHtml(target.name)}"${target.name === selectedName ? " selected" : ""}>${escapeHtml(target.name)}</option>
+  `).join("");
+  els.raceTargetDistanceSelect.value = selectedName || "";
+}
+
+function buildRaceTargetStatus({ targetName, goalSeconds, expectedRows = [], fallbackDistanceKm = null } = {}) {
+  const row = (expectedRows || []).find((item) => item.name === targetName) || null;
+  const distanceKm = Number(row?.distanceKm || fallbackDistanceKm || 0);
+  const projectedTime = Number(row?.predictedTime || 0);
+  if (!targetName || !Number.isFinite(goalSeconds) || goalSeconds <= 0 || !Number.isFinite(distanceKm) || distanceKm <= 0) {
+    return {
+      value: "Set a goal time",
+      meta: targetName || "Race target",
+      detail: "Enter a goal like 4:00:00 to compare against your projection."
+    };
+  }
+  const goalPace = goalSeconds / distanceKm;
+  if (!Number.isFinite(projectedTime) || projectedTime <= 0) {
+    return {
+      value: "Collect more best efforts",
+      meta: `${targetName} · Goal ${formatClockDuration(goalSeconds)} · ${formatPaceWithUnit(goalPace)}`,
+      detail: "Runasis needs comparable personal bests before it can project this target."
+    };
+  }
+
+  const deltaSeconds = projectedTime - goalSeconds;
+  if (!Math.round(deltaSeconds)) {
+    return {
+      value: "On target",
+      meta: `${targetName} · Goal ${formatClockDuration(goalSeconds)} · ${formatPaceWithUnit(goalPace)}`,
+      detail: `Projected ${formatClockDuration(projectedTime)} matches the target from saved best efforts.`
+    };
+  }
+
+  if (deltaSeconds < 0) {
+    return {
+      value: `On track by ${formatClockDuration(Math.abs(deltaSeconds))}`,
+      meta: `${targetName} · Goal ${formatClockDuration(goalSeconds)} · ${formatPaceWithUnit(goalPace)}`,
+      detail: `Projected ${formatClockDuration(projectedTime)} is faster than the target from saved best efforts.`
+    };
+  }
+
+  const secondsPerKm = Math.max(1, Math.round(deltaSeconds / distanceKm));
+  return {
+    value: `Need ${formatClockDuration(deltaSeconds)} faster`,
+    meta: `${targetName} · Goal ${formatClockDuration(goalSeconds)} · ${formatPaceWithUnit(goalPace)}`,
+    detail: `Projected ${formatClockDuration(projectedTime)}; need about ${formatInteger(secondsPerKm)} sec/km faster.`
+  };
+}
+
+function parseRaceGoalTime(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text) * 60;
+  const parts = text.split(":").map((part) => part.trim());
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  const numbers = parts.map(Number);
+  if (numbers.some((number) => !Number.isFinite(number))) return null;
+  if (numbers.length === 2) {
+    const [minutes, seconds] = numbers;
+    if (seconds >= 60) return null;
+    return minutes * 60 + seconds;
+  }
+  const [hours, minutes, seconds] = numbers;
+  if (minutes >= 60 || seconds >= 60) return null;
+  return hours * 3600 + minutes * 60 + seconds;
 }
 
 function renderRiegelAnalysis() {
@@ -3931,6 +4358,7 @@ function buildAnalysisProfile(existing = {}) {
       profileCard("Weakness", weakness, "No clear weakness yet"),
       profileCard("Improvement", improve, "Collect more comparable records")
     ],
+    improveSignal: improve,
     schedule: buildTrainingSchedule(improve)
   };
 }
@@ -3975,10 +4403,19 @@ function timePaceAnalysisSignals(analysis, label) {
 
 function buildTrainingSchedule(improveSignal = null) {
   const target = improveSignal?.name || "Current limiter";
+  const today = buildTodayRunSuggestion(appState.activities, improveSignal);
+  if (today.state === "caution") {
+    return [
+      { focus: "Recovery", detail: `${today.title}: ${today.detail}` },
+      { focus: "Endurance", detail: "Keep easy volume available without chasing pace." },
+      { focus: "Threshold", detail: `${target}: save controlled efforts for a lower-stress day.` },
+      { focus: "Specific", detail: `${target}: repeat the target context after recovery/easy work.` }
+    ];
+  }
   return [
     { focus: "Endurance", detail: `${target}: extend easy volume without chasing pace.` },
     { focus: "Threshold", detail: `${target}: hold controlled efforts near sustainable pace.` },
-    { focus: "Recovery", detail: "Keep one low-stress day between demanding sessions." },
+    { focus: "Recovery", detail: "Keep one low-stress day between demanding options." },
     { focus: "Specific", detail: `${target}: repeat the target distance, time, or pace context.` }
   ];
 }

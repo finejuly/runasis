@@ -96,6 +96,26 @@
         <div class="view-section-heading">
           <h2 id="dashboardViewTitle">Dashboard</h2>
         </div>
+        <section class="runner-brief" id="runnerBrief" aria-label="Runner brief">
+          <article class="runner-brief-card">
+            <span>Latest Run</span>
+            <strong id="runnerBriefLatestValue">-</strong>
+            <small id="runnerBriefLatestMeta">No saved runs</small>
+            <p id="runnerBriefLatestDetail">Import activities to compare your latest run.</p>
+          </article>
+          <article class="runner-brief-card">
+            <span>Today</span>
+            <strong id="runnerBriefTodayValue">-</strong>
+            <small id="runnerBriefTodayMeta">Based on saved runs</small>
+            <p id="runnerBriefTodayDetail">Import activities for a conservative suggestion.</p>
+          </article>
+          <article class="runner-brief-card">
+            <span>Year Goal</span>
+            <strong id="runnerBriefYearValue">0.0 / 1,000 km</strong>
+            <small id="runnerBriefYearMeta">Current year</small>
+            <p id="runnerBriefYearDetail">No current-year runs saved.</p>
+          </article>
+        </section>
         <div class="kpi-summary-heading">
           <div>
             <h2>Choose metric to chart</h2>
@@ -505,6 +525,27 @@
             </div>
           </div>
         </div>
+        <section class="race-target-panel" id="raceTargetPanel" aria-label="Race target">
+          <div class="race-target-controls">
+            <div>
+              <span class="section-kicker">Race Target</span>
+              <h3>Goal check</h3>
+            </div>
+            <label class="select-field">
+              <span>Distance</span>
+              <select id="raceTargetDistanceSelect" aria-label="Race target distance"></select>
+            </label>
+            <label class="setup-field race-target-time-field">
+              <span>Goal time</span>
+              <input id="raceTargetTimeInput" type="text" inputmode="numeric" autocomplete="off" value="4:00:00" aria-label="Race target goal time">
+            </label>
+          </div>
+          <div class="race-target-summary">
+            <strong id="raceTargetValue">Collect more best efforts</strong>
+            <span id="raceTargetMeta">Marathon · Goal 4:00:00</span>
+            <p id="raceTargetDetail">Runasis will compare the selected target with your Riegel projection.</p>
+          </div>
+        </section>
         <section class="analysis-overview-panel" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext">
           <div class="analysis-subview-heading analysis-profile-heading">
             <h3 id="analysisProfileHeading">Overall Diagnostic Profile</h3>
@@ -674,14 +715,14 @@
 
         <details class="analysis-detail-shell analysis-schedule-shell">
           <summary class="dashboard-detail-summary analysis-detail-summary">
-            <span>Training schedule</span>
-            <small>How the diagnostic profile might translate into workouts</small>
+            <span>Next run options</span>
+            <small>How recent load and the diagnostic profile can shape options</small>
           </summary>
           <div class="analysis-detail-content">
             <section class="analysis-grid analysis-support-grid">
               <article class="records-panel analysis-panel analysis-panel--full-row">
                 <div class="panel-title">
-                  <h2>Training Schedule</h2>
+                  <h2>Next Run Options</h2>
                 </div>
                 <ol class="training-schedule-list" id="trainingScheduleList"></ol>
               </article>

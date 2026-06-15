@@ -288,6 +288,160 @@ test("recent training insight summarizes last 30 days before details", () => {
   assert.equal(result, "Last 30 days: 10.0 km, up 5.0 km vs previous 30 days");
 });
 
+test("buildLatestRunComparison summarizes latest run against matching personal best", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.personalBests = {
+      distances: [{
+        name: "5K",
+        distanceKm: 5,
+        top: [{ activityId: "pb", movingTime: 1500, paceSecondsPerKm: 300 }]
+      }]
+    };
+    buildLatestRunComparison([
+      ${JSON.stringify(runActivity("latest", "2026-06-10T07:00:00", { distance: 6000, moving_time: 1560 }))},
+      ${JSON.stringify(runActivity("pb", "2026-05-10T07:00:00", { distance: 5000, moving_time: 1500 }))}
+    ]);
+  `, app);
+
+  assert.equal(result.title, "Run latest");
+  assert.equal(result.value, "6.00 km");
+  assert.equal(result.meta, "06/10/2026 · 4:20/km · 26m");
+  assert.equal(result.detail, "5K best is 25:00; latest run was 1:00 slower overall.");
+});
+
+test("buildLatestRunComparison falls back to distance rank without personal best data", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    buildLatestRunComparison([
+      ${JSON.stringify(runActivity("latest", "2026-06-10T07:00:00", { distance: 6000, moving_time: 1800 }))},
+      ${JSON.stringify(runActivity("long", "2026-05-10T07:00:00", { distance: 10000, moving_time: 3600 }))}
+    ], { distances: [] });
+  `, app);
+
+  assert.equal(result.title, "Run latest");
+  assert.equal(result.detail, "#2 by distance among 2 saved runs.");
+});
+
+test("buildTodayRunSuggestion uses saved recent load without overclaiming", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    buildTodayRunSuggestion([
+      ${JSON.stringify(runActivity("today", "2026-06-15T07:00:00", { distance: 5000 }))},
+      ${JSON.stringify(runActivity("yesterday", "2026-06-14T07:00:00", { distance: 5000 }))}
+    ]);
+  `, app);
+
+  assert.equal(result.title, "Recovery or rest");
+  assert.equal(result.value, "Keep it light");
+  assert.match(result.detail, /saved runs/);
+});
+
+test("buildTodayRunSuggestion allows controlled work after stable recent load", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    buildTodayRunSuggestion([
+      ${JSON.stringify(runActivity("two-days", "2026-06-13T07:00:00", { distance: 6000 }))},
+      ${JSON.stringify(runActivity("five-days", "2026-06-10T07:00:00", { distance: 6000 }))},
+      ${JSON.stringify(runActivity("previous", "2026-05-27T07:00:00", { distance: 12000 }))}
+    ], { name: "Distance 10K" });
+  `, app);
+
+  assert.equal(result.title, "Controlled workout");
+  assert.match(result.detail, /Distance 10K/);
+});
+
+test("buildYearGoalProgress returns fixed annual goal progress", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    buildYearGoalProgress([
+      ${JSON.stringify(runActivity("one", "2026-01-02T07:00:00", { distance: 100000 }))},
+      ${JSON.stringify(runActivity("old", "2025-12-31T07:00:00", { distance: 100000 }))}
+    ]);
+  `, app);
+
+  assert.equal(result.targetKm, 1000);
+  assert.equal(result.completedKm, 100);
+  assert.equal(result.remainingKm, 900);
+  assert.equal(result.value, "100.0 / 1,000 km");
+  assert.ok(result.neededKmPerWeek > 0);
+});
+
+test("renderCumulativeMetricChart keeps the computed caption visible", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    appState.rangeDays = "7";
+    appState.selectedKpiMetric = "distance";
+    els.rangeSelect = { selectedIndex: 0, options: [{ textContent: "Last 7 days" }] };
+    els.cumulativeMetricTitle = { textContent: "" };
+    els.cumulativeDistanceCaption = { textContent: "" };
+    els.cumulativeDistanceChart = { innerHTML: "" };
+    appState.activities = [
+      ${JSON.stringify(runActivity("current", "2026-06-14T07:00:00", { distance: 10000 }))},
+      ${JSON.stringify(runActivity("previous", "2026-06-07T07:00:00", { distance: 5000 }))}
+    ];
+    renderCumulativeMetricChart(appState.activities);
+    els.cumulativeDistanceCaption.textContent;
+  `, app);
+
+  assert.match(result, /Last 7 days/);
+  assert.match(result, /Previous/);
+});
+
+test("Training Schedule copy is reframed as Next Run Options", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  assert.match(html, /Next Run Options/);
+  assert.doesNotMatch(html, />Training Schedule</);
+});
+
+test("dashboard exposes Runner Brief before metric controls", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  assert.match(html, /id="runnerBrief"/);
+  assert.ok(html.indexOf("id=\"runnerBrief\"") < html.indexOf("class=\"kpi-summary-heading\""));
+});
+
+test("renderDashboardRunnerBrief fills latest, today, and year goal cards", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    els.runnerBriefLatestValue = { textContent: "" };
+    els.runnerBriefLatestMeta = { textContent: "" };
+    els.runnerBriefLatestDetail = { textContent: "" };
+    els.runnerBriefTodayValue = { textContent: "" };
+    els.runnerBriefTodayMeta = { textContent: "" };
+    els.runnerBriefTodayDetail = { textContent: "" };
+    els.runnerBriefYearValue = { textContent: "" };
+    els.runnerBriefYearMeta = { textContent: "" };
+    els.runnerBriefYearDetail = { textContent: "" };
+    appState.activities = [
+      ${JSON.stringify(runActivity("latest", "2026-06-14T07:00:00", { distance: 10000, moving_time: 3600 }))}
+    ];
+    renderDashboardRunnerBrief();
+    ({
+      latest: els.runnerBriefLatestValue.textContent,
+      today: els.runnerBriefTodayValue.textContent,
+      year: els.runnerBriefYearValue.textContent
+    });
+  `, app);
+
+  assert.equal(result.latest, "10.00 km");
+  assert.ok(result.today.length > 0);
+  assert.match(result.year, /10.0 \/ 1,000 km/);
+});
+
 test("Strava local timestamp strings keep their calendar date", () => {
   const previousTimezone = process.env.TZ;
   process.env.TZ = "America/Los_Angeles";
@@ -3598,7 +3752,7 @@ test("Analysis page discloses model detail and comparison tables progressively",
   assert.match(analysisView, /<details class="analysis-detail-shell"[\s\S]*id="riegelSummaryGrid"[\s\S]*id="riegelFiveKChart"[\s\S]*id="riegelProjectionTable"/);
   assert.match(analysisView, /More comparison rows[\s\S]*id="timeRiegelTable"/);
   assert.match(analysisView, /More comparison rows[\s\S]*id="paceRiegelTable"/);
-  assert.match(analysisView, /Training schedule[\s\S]*id="trainingScheduleList"/);
+  assert.match(analysisView, /Next run options[\s\S]*id="trainingScheduleList"/);
   assert.match(css, /\.analysis-detail-shell:not\(\[open\]\) > \.analysis-detail-content\s*{[^}]*display:\s*none;/);
 });
 
@@ -4236,6 +4390,117 @@ test("buildRiegelAnalysis estimates personal exponent from all valid distance pa
   assert.equal(result.rowCount, 10);
   assert.ok(Math.abs(result.medianExponent - 1.220) < 0.001);
   assert.ok(Math.abs(result.samplePair.exponent - 1.214) < 0.001);
+});
+
+test("buildRaceTargetStatus compares projected marathon with sub-4 goal", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    buildRaceTargetStatus({
+      targetName: "Marathon",
+      goalSeconds: 4 * 60 * 60,
+      expectedRows: [{ name: "Marathon", predictedTime: 4 * 60 * 60 + 120, distanceKm: 42.195 }]
+    });
+  `, app);
+
+  assert.equal(result.value, "Need 2:00 faster");
+  assert.match(result.detail, /3 sec\/km faster/);
+});
+
+test("Analysis exposes Race Target controls", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  assert.match(html, /id="raceTargetPanel"/);
+  assert.match(html, /id="raceTargetDistanceSelect"/);
+  assert.match(html, /id="raceTargetTimeInput"/);
+});
+
+test("Race Target goal time waits for a valid value before saving", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const listeners = {};
+    const saved = [];
+    const fakeElement = () => ({ addEventListener() {} });
+    const input = {
+      value: "4:00:00",
+      classList: {
+        values: new Set(),
+        toggle(name, active) {
+          if (active) this.values.add(name);
+          else this.values.delete(name);
+        },
+        add(name) { this.values.add(name); },
+        remove(name) { this.values.delete(name); },
+        contains(name) { return this.values.has(name); }
+      },
+      addEventListener(type, handler) {
+        listeners[type] = handler;
+      }
+    };
+
+    window.localStorage.setItem = (key, value) => saved.push({ key, value });
+    els.setupForm = fakeElement();
+    els.connectButton = fakeElement();
+    els.syncButton = fakeElement();
+    els.clearButton = fakeElement();
+    els.openActivityListButton = fakeElement();
+    els.backActivityListButton = fakeElement();
+    els.rangeSelect = fakeElement();
+    els.allActivitySearchInput = fakeElement();
+    els.allActivityRunOnlyInput = fakeElement();
+    els.allActivityDetailStatusSelect = fakeElement();
+    els.allActivityTable = fakeElement();
+    els.activityListView = fakeElement();
+    els.personalBestTrendDistanceSelect = fakeElement();
+    els.timeBestTrendDurationSelect = fakeElement();
+    els.personalBestGrid = fakeElement();
+    els.riegelExponentInput = fakeElement();
+    els.raceTargetTimeInput = input;
+    els.kpiCards = [];
+    els.viewTabs = [];
+    els.personalBestScaleButtons = [];
+    els.timeBestScaleButtons = [];
+    els.personalBestTrendLimitButtons = [];
+    els.timeBestTrendLimitButtons = [];
+    els.allActivitySortButtons = [];
+    els.riegelFiveKScaleButtons = [];
+    els.riegelFiveKSeriesButtons = [];
+    els.riegelExponentModeButtons = [];
+    renderAnalysisView = () => {};
+
+    bindEvents();
+    input.value = "";
+    listeners.input();
+    const afterInput = {
+      text: appState.raceTargetTimeText,
+      invalid: input.classList.contains("invalid"),
+      savedCount: saved.length
+    };
+    listeners.blur();
+
+    ({
+      afterInput,
+      afterBlur: {
+        text: appState.raceTargetTimeText,
+        inputValue: input.value,
+        invalid: input.classList.contains("invalid"),
+        savedValue: saved.at(-1)?.value
+      }
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.afterInput)), {
+    text: "",
+    invalid: true,
+    savedCount: 0
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(result.afterBlur)), {
+    text: "4:00:00",
+    inputValue: "4:00:00",
+    invalid: false,
+    savedValue: "4:00:00"
+  });
 });
 
 test("time and pace Riegel analysis compare actual endurance with expected distance", () => {
