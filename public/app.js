@@ -11,6 +11,8 @@ const PERSONAL_BEST_EXPANDED_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT_OPTIONS = new Set([5, 10, 20]);
 const PERSONAL_BEST_TABS = new Set(["distance", "time", "pace"]);
+const PERSONAL_BEST_MODES = new Set(["records", "curve", "timing", "trend"]);
+const DEFAULT_ACTIVITY_VISIBLE_LIMIT = 50;
 const ANALYSIS_TABS = new Set(["distance", "time", "pace"]);
 const ANALYSIS_TAB_CONTEXT = {
   distance: "Pace by Distance compares race bests across target distances. A positive gap means your pace beats the expected result.",
@@ -95,6 +97,8 @@ const appState = {
   paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   currentView: "dashboard",
   personalBestTab: "distance",
+  personalBestModes: { distance: "records", time: "records", pace: "records" },
+  selectedPersonalBestTargets: { distance: null, time: null, pace: null },
   analysisTab: "distance",
   personalBestScale: "linear",
   riegelFiveKScale: "linear",
@@ -110,6 +114,7 @@ const appState = {
   allActivityRunOnly: false,
   allActivityDetailStatus: "all",
   allActivitySort: { key: "date", direction: "desc" },
+  allActivityVisibleLimit: DEFAULT_ACTIVITY_VISIBLE_LIMIT,
   csrfToken: "",
   loading: false,
   syncing: false,
@@ -176,6 +181,11 @@ function cacheElements() {
     "riegelProjectionInfoDialog",
     "riegelProjectionInfoCloseButton",
     "setupAlert",
+    "onboardingPanel",
+    "onboardingMessage",
+    "setupStepCredentials",
+    "setupStepConnect",
+    "setupStepImport",
     "setupForm",
     "stravaClientIdInput",
     "stravaClientSecretInput",
@@ -204,6 +214,8 @@ function cacheElements() {
     "allActivitySearchInput",
     "allActivityRunOnlyInput",
     "allActivityDetailStatusSelect",
+    "activitySummaryList",
+    "allActivityShowMoreButton",
     "allActivityTable",
     "rangeSelect",
     "kpiRangeCaption",
@@ -278,6 +290,8 @@ function cacheElements() {
   }
   els.viewTabs = Array.from(document.querySelectorAll(".view-tab"));
   els.personalBestTabOptions = Array.from(document.querySelectorAll(".personal-best-tab-option"));
+  els.personalBestModeOptions = Array.from(document.querySelectorAll(".personal-best-mode-option"));
+  els.personalBestModePanes = Array.from(document.querySelectorAll(".personal-best-mode-pane"));
   els.analysisTabOptions = Array.from(document.querySelectorAll(".analysis-tab-option"));
   els.kpiCards = Array.from(document.querySelectorAll(".dashboard-kpi-card"));
   els.allActivitySortButtons = Array.from(document.querySelectorAll("[data-activity-sort]"));
@@ -369,39 +383,47 @@ function bindEvents() {
   });
 
   els.openActivityListButton.addEventListener("click", () => {
-    appState.currentView = "dashboard";
-    appState.activityListOpen = true;
-    setActiveViewTab("dashboard");
+    appState.currentView = "activities";
+    appState.activityListOpen = false;
+    setActiveViewTab("activities");
     render();
   });
 
   els.backActivityListButton.addEventListener("click", () => {
+    appState.currentView = "dashboard";
     appState.activityListOpen = false;
+    setActiveViewTab("dashboard");
     render();
   });
 
   els.allActivitySearchInput.addEventListener("input", () => {
     appState.allActivitySearch = els.allActivitySearchInput.value;
+    resetAllActivityVisibleLimit();
     renderAllActivities();
   });
 
   els.allActivityRunOnlyInput.addEventListener("change", () => {
     appState.allActivityRunOnly = els.allActivityRunOnlyInput.checked;
+    resetAllActivityVisibleLimit();
     renderAllActivities();
   });
 
   els.allActivityDetailStatusSelect.addEventListener("change", () => {
     appState.allActivityDetailStatus = els.allActivityDetailStatusSelect.value || "all";
+    resetAllActivityVisibleLimit();
     renderAllActivities();
   });
 
   for (const button of els.allActivitySortButtons) {
     button.addEventListener("click", () => {
       toggleAllActivitySort(button.dataset.activitySort);
+      resetAllActivityVisibleLimit();
       renderAllActivities();
     });
   }
 
+  els.allActivityShowMoreButton?.addEventListener("click", showMoreActivities);
+  els.activitySummaryList?.addEventListener("click", handleAllActivityAction);
   els.allActivityTable.addEventListener("click", handleAllActivityAction);
 
   els.clearButton.addEventListener("click", async () => {
@@ -439,6 +461,12 @@ function bindEvents() {
   for (const tab of els.personalBestTabOptions || []) {
     tab.addEventListener("click", () => {
       selectPersonalBestTab(tab.dataset.personalBestTab);
+    });
+  }
+
+  for (const button of els.personalBestModeOptions || []) {
+    button.addEventListener("click", () => {
+      selectPersonalBestMode(button.dataset.pbMode, button.dataset.personalBestModeTab);
     });
   }
 
@@ -611,6 +639,43 @@ function selectAnalysisTab(tab) {
 
 function normalizePersonalBestTab(tab) {
   return PERSONAL_BEST_TABS.has(tab) ? tab : "distance";
+}
+
+function normalizePersonalBestMode(mode) {
+  return PERSONAL_BEST_MODES.has(mode) ? mode : "records";
+}
+
+function getPersonalBestMode(tab = appState.personalBestTab) {
+  const normalizedTab = normalizePersonalBestTab(tab);
+  if (!appState.personalBestModes) appState.personalBestModes = {};
+  const normalizedMode = normalizePersonalBestMode(appState.personalBestModes[normalizedTab]);
+  appState.personalBestModes[normalizedTab] = normalizedMode;
+  return normalizedMode;
+}
+
+function selectPersonalBestMode(mode, tab = appState.personalBestTab) {
+  const normalizedTab = normalizePersonalBestTab(tab);
+  if (!appState.personalBestModes) appState.personalBestModes = {};
+  appState.personalBestModes[normalizedTab] = normalizePersonalBestMode(mode);
+  updatePersonalBestModeVisibility(normalizedTab);
+}
+
+function updatePersonalBestModeVisibility(tab = appState.personalBestTab) {
+  const activeTab = normalizePersonalBestTab(tab);
+  const activeMode = getPersonalBestMode(activeTab);
+
+  for (const button of els.personalBestModeOptions || []) {
+    const buttonTab = normalizePersonalBestTab(button.dataset.personalBestModeTab);
+    const isActive = buttonTab === activeTab && normalizePersonalBestMode(button.dataset.pbMode) === activeMode;
+    button.classList.toggle("active", isActive);
+    button.setAttribute?.("aria-pressed", isActive ? "true" : "false");
+  }
+
+  for (const pane of els.personalBestModePanes || []) {
+    const paneTab = normalizePersonalBestTab(pane.dataset.personalBestModeTab);
+    const paneMode = normalizePersonalBestMode(pane.dataset.pbPane);
+    pane.classList.toggle("hidden", paneTab !== activeTab || paneMode !== activeMode);
+  }
 }
 
 function normalizeAnalysisTab(tab) {
@@ -1055,7 +1120,7 @@ function render() {
     renderAnalysisView();
     return;
   }
-  if (appState.activityListOpen) {
+  if (appState.currentView === "activities" || appState.activityListOpen) {
     renderAllActivities();
     return;
   }
@@ -1074,6 +1139,7 @@ function render() {
 function renderStatus() {
   const status = appState.status || {};
   els.setupAlert.classList.toggle("hidden", status.configured !== false);
+  renderOnboardingStatus(status);
   els.connectionStatus.classList.remove("connected", "missing");
 
   if (!status.configured) {
@@ -1112,6 +1178,41 @@ function renderStatus() {
     : "";
   els.detailSync.textContent = `Best efforts ${formatInteger(detailStatus.fetchedRunCount || 0)}/${formatInteger(detailStatus.runCount || 0)}${streamStatus}${failedDetails ? ` · ${formatInteger(failedDetails)} failed` : ""}`;
   updateActionButtons();
+}
+
+function renderOnboardingStatus(status) {
+  if (!els.onboardingPanel) return;
+  const hasStatus = Boolean(appState.status);
+  const configured = status.configured !== false && status.configured !== undefined;
+  const connected = Boolean(status.connected);
+  const imported = Number(status.runCount || status.activityCount || 0) > 0;
+  const shouldShow = hasStatus && (!configured || !connected || !imported);
+
+  els.onboardingPanel.classList.toggle("hidden", !shouldShow);
+  if (!shouldShow) return;
+
+  if (!configured) {
+    els.onboardingMessage.textContent = "Paste the Client ID and Client Secret from your Strava app, then save them locally.";
+  } else if (!connected) {
+    els.onboardingMessage.textContent = "Credentials are saved. Connect to Strava so Runasis can read your activities.";
+  } else {
+    els.onboardingMessage.textContent = "Strava is connected. Import activities to populate charts, records, and analysis.";
+  }
+
+  updateSetupStep(els.setupStepCredentials, configured, !configured);
+  updateSetupStep(els.setupStepConnect, connected, configured && !connected);
+  updateSetupStep(els.setupStepImport, imported, connected && !imported);
+}
+
+function updateSetupStep(element, done, active) {
+  if (!element) return;
+  element.classList.toggle("done", Boolean(done));
+  element.classList.toggle("active", Boolean(active));
+  if (active) {
+    element.setAttribute("aria-current", "step");
+  } else {
+    element.removeAttribute("aria-current");
+  }
 }
 
 function getFilteredActivities() {
@@ -1221,7 +1322,7 @@ function setActiveViewTab(view) {
 }
 
 function renderView() {
-  const showActivityList = appState.currentView === "dashboard" && appState.activityListOpen;
+  const showActivityList = appState.currentView === "activities" || (appState.currentView === "dashboard" && appState.activityListOpen);
   const showPersonalBests = appState.currentView === "pb";
   const personalBestTab = normalizePersonalBestTab(appState.personalBestTab);
   const analysisTab = normalizeAnalysisTab(appState.analysisTab);
@@ -1477,7 +1578,8 @@ function renderWeeklyMetricChart(activities) {
   const previousWeeks = previousRange
     ? groupByWeek(getActivitiesInDateRange(previousRange), metric, previousRange)
     : [];
-  const maxVisibleLabels = els.monthlyChart.clientWidth < 700 ? 6 : 8;
+  const chartPixelWidth = els.monthlyChart.clientWidth || 760;
+  const maxVisibleLabels = chartPixelWidth < 700 ? 6 : 8;
   const labelEvery = weeks.length <= maxVisibleLabels ? 1 : Math.ceil(weeks.length / maxVisibleLabels);
   els.monthlyCaption.textContent = "";
   return renderMetricBucketBarChart({
@@ -1721,12 +1823,12 @@ function renderTable(activities) {
 
   els.activityTable.innerHTML = rows.map((activity) => `
     <tr>
-      <td>${formatDate(activity.start_date_local || activity.start_date)}</td>
-      <td class="activity-name">${escapeHtml(activity.name || "Untitled")}</td>
-      <td>${escapeHtml(formatSport(activity))}</td>
-      <td>${formatNumber(Number(activity.distance || 0) / 1000, 2)} km</td>
-      <td>${formatPaceForActivity(activity)}</td>
-      <td>${formatDuration(activity.moving_time || 0)}</td>
+      <td data-label="Date">${formatDate(activity.start_date_local || activity.start_date)}</td>
+      <td class="activity-name" data-label="Name">${escapeHtml(activity.name || "Untitled")}</td>
+      <td data-label="Type">${escapeHtml(formatSport(activity))}</td>
+      <td data-label="Distance">${formatNumber(Number(activity.distance || 0) / 1000, 2)} km</td>
+      <td data-label="Pace">${formatPaceForActivity(activity)}</td>
+      <td data-label="Time">${formatDuration(activity.moving_time || 0)}</td>
     </tr>
   `).join("");
 }
@@ -1744,13 +1846,25 @@ function renderAllActivities() {
 
   updateAllActivitySortButtons();
   const rows = getVisibleAllActivities();
-  els.allActivityCountCaption.textContent = `${formatInteger(rows.length)} shown · ${formatInteger(appState.activities.length)} saved`;
+  const visibleLimit = normalizeAllActivityVisibleLimit();
+  const visibleRows = rows.slice(0, visibleLimit);
+  els.allActivityCountCaption.textContent = rows.length > visibleRows.length
+    ? `${formatInteger(visibleRows.length)} shown · ${formatInteger(rows.length)} matching · ${formatInteger(appState.activities.length)} saved`
+    : `${formatInteger(rows.length)} shown · ${formatInteger(appState.activities.length)} saved`;
+  updateAllActivityShowMoreButton(rows.length, visibleRows.length);
   if (!rows.length) {
+    if (els.activitySummaryList) {
+      els.activitySummaryList.innerHTML = `<div class="activity-empty-state">No matching activities</div>`;
+    }
     els.allActivityTable.innerHTML = `<tr><td colspan="10">No matching activities</td></tr>`;
     return;
   }
 
-  els.allActivityTable.innerHTML = rows.map((activity) => {
+  if (els.activitySummaryList) {
+    els.activitySummaryList.innerHTML = visibleRows.map(renderActivitySummaryCard).join("");
+  }
+
+  els.allActivityTable.innerHTML = visibleRows.map((activity) => {
     const activityId = String(activity.id || "").trim();
     const canRefresh = activityId && isRun(activity);
     const isRefreshing = activityId && activityId === appState.refreshingActivityId;
@@ -1762,19 +1876,73 @@ function renderAllActivities() {
       : "";
     return `
       <tr>
-        <td>${formatDate(activity.start_date_local || activity.start_date)}</td>
-        <td class="activity-name">${escapeHtml(activityName)}</td>
-        <td>${escapeHtml(formatSport(activity))}</td>
-        <td>${formatNumber(Number(activity.distance || 0) / 1000, 2)} km</td>
-        <td>${formatPaceForActivity(activity)}</td>
-        <td>${formatDuration(activity.moving_time || 0)}</td>
-        <td>${formatElevationCell(activity.total_elevation_gain)}</td>
-        <td>${formatHeartRateCell(activity.average_heartrate)}</td>
-        <td>${renderActivityDetailStatus(activity)}</td>
-        <td>${action}</td>
+        <td data-label="Date">${formatDate(activity.start_date_local || activity.start_date)}</td>
+        <td class="activity-name" data-label="Name">${escapeHtml(activityName)}</td>
+        <td data-label="Sport">${escapeHtml(formatSport(activity))}</td>
+        <td data-label="Distance">${formatNumber(Number(activity.distance || 0) / 1000, 2)} km</td>
+        <td data-label="Pace">${formatPaceForActivity(activity)}</td>
+        <td data-label="Time">${formatDuration(activity.moving_time || 0)}</td>
+        <td data-label="Elev.">${formatElevationCell(activity.total_elevation_gain)}</td>
+        <td data-label="Avg HR">${formatHeartRateCell(activity.average_heartrate)}</td>
+        <td data-label="Best efforts">${renderActivityDetailStatus(activity)}</td>
+        <td data-label="Actions">${action}</td>
       </tr>
     `;
   }).join("");
+}
+
+function normalizeAllActivityVisibleLimit() {
+  const limit = Number(appState.allActivityVisibleLimit);
+  if (Number.isFinite(limit) && limit > 0) return Math.floor(limit);
+  appState.allActivityVisibleLimit = DEFAULT_ACTIVITY_VISIBLE_LIMIT;
+  return DEFAULT_ACTIVITY_VISIBLE_LIMIT;
+}
+
+function resetAllActivityVisibleLimit() {
+  appState.allActivityVisibleLimit = DEFAULT_ACTIVITY_VISIBLE_LIMIT;
+}
+
+function showMoreActivities() {
+  appState.allActivityVisibleLimit = normalizeAllActivityVisibleLimit() + DEFAULT_ACTIVITY_VISIBLE_LIMIT;
+  renderAllActivities();
+}
+
+function updateAllActivityShowMoreButton(totalRows, visibleRows) {
+  if (!els.allActivityShowMoreButton) return;
+  const remaining = Math.max(0, totalRows - visibleRows);
+  els.allActivityShowMoreButton.classList.toggle("hidden", remaining <= 0);
+  if (remaining > 0) {
+    els.allActivityShowMoreButton.textContent = `Show ${formatInteger(Math.min(DEFAULT_ACTIVITY_VISIBLE_LIMIT, remaining))} more`;
+  }
+}
+
+function renderActivitySummaryCard(activity) {
+  const activityId = String(activity.id || "").trim();
+  const canRefresh = activityId && isRun(activity);
+  const isRefreshing = activityId && activityId === appState.refreshingActivityId;
+  const activityName = activity.name || "Untitled";
+  const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
+  const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
+  const action = canRefresh
+    ? `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`
+    : "";
+  return `
+    <article class="activity-summary-card">
+      <div class="activity-summary-main">
+        <span>${formatDate(activity.start_date_local || activity.start_date)}</span>
+        <strong>${escapeHtml(activityName)}</strong>
+      </div>
+      <div class="activity-summary-metrics" aria-label="Activity metrics">
+        <span>${formatNumber(Number(activity.distance || 0) / 1000, 2)} km</span>
+        <span>${formatPaceForActivity(activity)}</span>
+        <span>${formatDuration(activity.moving_time || 0)}</span>
+      </div>
+      <div class="activity-summary-state">
+        ${renderActivityDetailStatus(activity)}
+        ${action}
+      </div>
+    </article>
+  `;
 }
 
 function getVisibleAllActivities() {
@@ -1905,7 +2073,10 @@ function formatHeartRateCell(value) {
 function handleAllActivityAction(event) {
   if (!(event.target instanceof Element)) return;
   const refreshButton = event.target.closest("[data-refresh-activity-id]");
-  if (!refreshButton || !els.allActivityTable.contains(refreshButton)) return;
+  if (!refreshButton) return;
+  const insideTable = els.allActivityTable?.contains(refreshButton);
+  const insideSummary = els.activitySummaryList?.contains(refreshButton);
+  if (!insideTable && !insideSummary) return;
   refreshActivityDetail(refreshButton.dataset.refreshActivityId);
 }
 
@@ -1915,10 +2086,12 @@ function renderPersonalBestTab() {
   updatePersonalBestTabControls(tab);
   if (tab === "pace") {
     renderPaceBestsView();
+    updatePersonalBestModeVisibility(tab);
     return;
   }
   if (tab === "time") {
     renderTimeBestsView();
+    updatePersonalBestModeVisibility(tab);
     return;
   }
 
@@ -1926,6 +2099,7 @@ function renderPersonalBestTab() {
   renderPersonalBestRecencyChart();
   renderPersonalBestTrendChart();
   renderPersonalBests();
+  updatePersonalBestModeVisibility(tab);
 }
 
 function updatePersonalBestTabControls(tab = normalizePersonalBestTab(appState.personalBestTab)) {
@@ -1968,9 +2142,10 @@ function renderPersonalBests() {
       : "No data";
   }
 
-  els.personalBestGrid.innerHTML = renderBestRecordPanels({
+  els.personalBestGrid.innerHTML = renderFocusedBestRecordPanel({
     groups: distances,
     type: "distance",
+    targetType: "distance",
     expandedSet: appState.expandedPersonalBestDistances,
     toggleAttribute: "personal-best-toggle",
     emptyText: "No best effort data",
@@ -2004,9 +2179,10 @@ function renderTimeLimitedBests(durations, payload = {}) {
       : "No stream data";
   }
 
-  els.personalBestDurationGrid.innerHTML = renderBestRecordPanels({
+  els.personalBestDurationGrid.innerHTML = renderFocusedBestRecordPanel({
     groups: durations,
     type: "time",
+    targetType: "time",
     expandedSet: appState.expandedTimeBestDurations,
     toggleAttribute: "time-best-toggle",
     emptyText: "No time-limited best data",
@@ -2024,9 +2200,10 @@ function renderPaceLimitedBests(paces, payload = {}) {
       : "No stream data";
   }
 
-  els.personalBestPaceGrid.innerHTML = renderBestRecordPanels({
+  els.personalBestPaceGrid.innerHTML = renderFocusedBestRecordPanel({
     groups: paces,
     type: "pace",
+    targetType: "pace",
     expandedSet: appState.expandedPaceBestTargets,
     toggleAttribute: "pace-best-toggle",
     emptyText: "No pace best data",
@@ -2036,29 +2213,58 @@ function renderPaceLimitedBests(paces, payload = {}) {
   });
 }
 
+function renderFocusedBestRecordPanel({ groups, type, targetType, expandedSet, toggleAttribute, emptyText, noRecordsText, tableClass, countLabel }) {
+  if (!groups.length) return `<div class="chart-empty">${emptyText}</div>`;
+  const selectedGroup = resolveSelectedBestRecordGroup(groups, targetType);
+  return `
+    <div class="record-target-browser">
+      ${renderRecordTargetList(groups, selectedGroup, targetType, type)}
+      ${renderBestRecordPanel({
+        group: selectedGroup,
+        type,
+        expandedSet,
+        toggleAttribute,
+        noRecordsText,
+        tableClass,
+        countLabel
+      })}
+    </div>
+  `;
+}
+
 function renderBestRecordPanels({ groups, type, expandedSet, toggleAttribute, emptyText, noRecordsText, tableClass, countLabel }) {
   if (!groups.length) return `<div class="chart-empty">${emptyText}</div>`;
+  return groups.map((group) => renderBestRecordPanel({
+    group,
+    type,
+    expandedSet,
+    toggleAttribute,
+    noRecordsText,
+    tableClass,
+    countLabel
+  })).join("");
+}
+
+function renderBestRecordPanel({ group, type, expandedSet, toggleAttribute, noRecordsText, tableClass, countLabel }) {
   const columns = getBestRecordColumns(type);
   const colspan = columns.length + 2;
   const tableClasses = ["personal-best-table", tableClass].filter(Boolean).join(" ");
+  const topEfforts = group.top || [];
+  const isExpanded = expandedSet.has(group.name);
+  const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
+  const visibleEfforts = topEfforts.slice(0, visibleLimit);
+  const rows = visibleEfforts.length
+    ? visibleEfforts.map((effort, index) => renderBestRecordRow(effort, index, columns)).join("")
+    : `<tr><td colspan="${colspan}">${noRecordsText}</td></tr>`;
+  const toggle = renderBestRecordMoreToggle({
+    hasMore: topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT,
+    isExpanded,
+    visibleCount: visibleEfforts.length,
+    toggleAttribute,
+    name: group.name
+  });
 
-  return groups.map((group) => {
-    const topEfforts = group.top || [];
-    const isExpanded = expandedSet.has(group.name);
-    const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
-    const visibleEfforts = topEfforts.slice(0, visibleLimit);
-    const rows = visibleEfforts.length
-      ? visibleEfforts.map((effort, index) => renderBestRecordRow(effort, index, columns)).join("")
-      : `<tr><td colspan="${colspan}">${noRecordsText}</td></tr>`;
-    const toggle = renderBestRecordMoreToggle({
-      hasMore: topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT,
-      isExpanded,
-      visibleCount: visibleEfforts.length,
-      toggleAttribute,
-      name: group.name
-    });
-
-    return `
+  return `
       <article class="records-panel personal-best-panel">
         <div class="panel-title">
           <h2>${escapeHtml(group.name)}</h2>
@@ -2080,7 +2286,51 @@ function renderBestRecordPanels({ groups, type, expandedSet, toggleAttribute, em
         ${toggle}
       </article>
     `;
-  }).join("");
+}
+
+function resolveSelectedBestRecordGroup(groups, targetType) {
+  if (!appState.selectedPersonalBestTargets) {
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
+  }
+  const normalizedType = normalizePersonalBestTab(targetType);
+  const selectedName = appState.selectedPersonalBestTargets[normalizedType];
+  const selectedGroup = groups.find((group) => group.name === selectedName) || groups[0];
+  appState.selectedPersonalBestTargets[normalizedType] = selectedGroup.name;
+  return selectedGroup;
+}
+
+function renderRecordTargetList(groups, selectedGroup, targetType, recordType) {
+  const label = targetType === "time" ? "Time targets" : targetType === "pace" ? "Pace targets" : "Distance targets";
+  return `
+    <div class="record-target-list" role="list" aria-label="${label}">
+      ${groups.map((group) => {
+        const isActive = group.name === selectedGroup.name;
+        const stateAttribute = isActive ? ` data-record-target-state="active"` : "";
+        return `
+          <button class="record-target-option${isActive ? " active" : ""}" type="button" data-record-target-type="${escapeHtml(targetType)}" data-record-target-name="${escapeHtml(group.name)}"${stateAttribute} aria-pressed="${isActive ? "true" : "false"}">
+            <span class="record-target-name">${escapeHtml(group.name)}</span>
+            <span class="record-target-meta">${formatRecordTargetCount(group, recordType)}</span>
+            <strong>${formatRecordTargetPreview(group, recordType)}</strong>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function formatRecordTargetCount(group, recordType) {
+  const count = Number(group.count || 0);
+  if (recordType === "time") return `${formatInteger(count)} ${count === 1 ? "window" : "windows"}`;
+  if (recordType === "pace") return `${formatInteger(count)} ${count === 1 ? "segment" : "segments"}`;
+  return `${formatInteger(count)} best efforts`;
+}
+
+function formatRecordTargetPreview(group, recordType) {
+  const best = group.top?.[0];
+  if (!best) return "No records";
+  if (recordType === "time") return formatDistanceKm(Number(best.distanceKm || 0));
+  if (recordType === "pace") return formatClockDuration(best.durationSeconds || best.movingTime || 0);
+  return formatClockDuration(best.movingTime || 0);
 }
 
 function renderBestRecordMoreToggle({ hasMore, isExpanded, visibleCount, toggleAttribute, name }) {
@@ -2841,6 +3091,15 @@ async function handlePersonalBestToggle(event) {
     return;
   }
 
+  const targetButton = event.target.closest("[data-record-target-type][data-record-target-name]");
+  const inTargetDistanceGrid = targetButton && els.personalBestGrid.contains(targetButton);
+  const inTargetDurationGrid = targetButton && els.personalBestDurationGrid?.contains(targetButton);
+  const inTargetPaceGrid = targetButton && els.personalBestPaceGrid?.contains(targetButton);
+  if (targetButton && (inTargetDistanceGrid || inTargetDurationGrid || inTargetPaceGrid)) {
+    selectPersonalBestRecordTarget(targetButton.dataset.recordTargetType, targetButton.dataset.recordTargetName);
+    return;
+  }
+
   const button = event.target.closest("[data-personal-best-toggle]");
   if (button && els.personalBestGrid.contains(button)) {
     const distanceName = button.dataset.personalBestToggle;
@@ -2881,6 +3140,22 @@ async function handlePersonalBestToggle(event) {
     appState.expandedPaceBestTargets.add(paceName);
   }
   renderPaceBestsView();
+}
+
+function selectPersonalBestRecordTarget(type, name) {
+  const normalizedType = normalizePersonalBestTab(type);
+  if (!name) return;
+  if (!appState.selectedPersonalBestTargets) {
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
+  }
+  appState.selectedPersonalBestTargets[normalizedType] = name;
+  if (normalizedType === "time") {
+    renderTimeBestsView();
+  } else if (normalizedType === "pace") {
+    renderPaceBestsView();
+  } else {
+    renderPersonalBests();
+  }
 }
 
 function renderAnalysisView() {
@@ -5648,7 +5923,7 @@ function setActivityRefreshing(activityId) {
   appState.refreshingActivityId = activityId ? String(activityId) : null;
   updateActionButtons();
   if (appState.currentView === "pb") renderPersonalBestTab();
-  if (appState.currentView === "dashboard" && appState.activityListOpen) renderAllActivities();
+  if (appState.currentView === "activities" || (appState.currentView === "dashboard" && appState.activityListOpen)) renderAllActivities();
 }
 
 function setRecordExcluding(recordKey) {
@@ -5670,8 +5945,11 @@ function updateActionButtons() {
   els.syncButton.disabled = busy || !status.connected;
   els.clearButton.disabled = busy;
   els.stravaConfigSaveButton.disabled = busy;
-  els.syncButton.textContent = appState.syncing || appState.detailSyncing ? "Syncing" : "Sync";
-  els.stravaConfigSaveButton.textContent = appState.configSaving ? "Saving" : "Save Settings";
+  const hasImportedActivities = Number(status.activityCount || status.runCount || 0) > 0;
+  els.syncButton.textContent = appState.syncing || appState.detailSyncing
+    ? "Syncing"
+    : hasImportedActivities ? "Update from Strava" : "Import Activities";
+  els.stravaConfigSaveButton.textContent = appState.configSaving ? "Saving" : "Save credentials";
   updateExcludedRecordsToggleButtons(busy);
 }
 
