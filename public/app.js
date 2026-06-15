@@ -28,7 +28,6 @@ const REPOSITORY_URL = "";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const YEAR_DAYS = 365.25;
 const DEFAULT_DASHBOARD_METRIC_KEY = "distance";
-const ANNUAL_DISTANCE_GOAL_KM = 1000;
 const COMMON_RECORD_TARGETS = ["5K", "10K", "Half-Marathon", "Marathon"];
 const TEN_MILE_KM = 16.09;
 const HALF_MARATHON_KM = 21.097;
@@ -115,7 +114,7 @@ const appState = {
   riegelSourceDistanceName: "5K",
   raceTargetDistanceName: DEFAULT_RACE_TARGET_DISTANCE,
   raceTargetTimeText: DEFAULT_RACE_TARGET_TIME,
-  rangeDays: "all",
+  rangeDays: "30",
   selectedKpiMetric: DEFAULT_DASHBOARD_METRIC_KEY,
   activityListOpen: false,
   allActivitySearch: "",
@@ -1451,6 +1450,21 @@ function buildTodayRunSuggestion(activities = appState.activities, improveSignal
     };
   }
 
+  const recentRunCount = runs.filter((activity) => {
+    const date = getActivityLocalDay(activity);
+    return date && date >= addLocalDays(today, -29) && date <= today;
+  }).length;
+  const hasWorkoutEvidence = runs.length >= 8 && recentRunCount >= 4 && improveSignal?.name;
+  if (!hasWorkoutEvidence) {
+    return {
+      title: "Need more evidence",
+      value: "No workout recommendation",
+      meta: `${formatInteger(recentRunCount)} runs in 30 days`,
+      detail: "There is not enough recent history and diagnostic signal to recommend a workout.",
+      state: "insufficient"
+    };
+  }
+
   if (improveSignal?.name) {
     return {
       title: "Controlled workout",
@@ -1462,11 +1476,11 @@ function buildTodayRunSuggestion(activities = appState.activities, improveSignal
   }
 
   return {
-    title: "Easy aerobic run",
-    value: "30-45 min easy",
+    title: "Need more evidence",
+    value: "No workout recommendation",
     meta: `${formatNumber(current7Km, 1)} km in 7 days`,
-    detail: "No strong caution signal from saved runs; keep the effort conversational.",
-    state: "easy"
+    detail: "No strong caution signal was found, but there is not enough diagnostic signal to recommend a session.",
+    state: "insufficient"
   };
 }
 
@@ -1484,26 +1498,23 @@ function countConsecutiveRunDays(activities, endDate) {
   return count;
 }
 
-function buildYearGoalProgress(activities = appState.activities, targetKm = ANNUAL_DISTANCE_GOAL_KM) {
+function buildYearGoalProgress(activities = appState.activities) {
   const today = startOfLocalDay(new Date());
   const yearStart = new Date(today.getFullYear(), 0, 1);
-  const yearEnd = new Date(today.getFullYear(), 11, 31);
   const completedKm = roundTo(sumRunDistanceKmBetween(activities, yearStart, today), 1);
-  const remainingKm = roundTo(Math.max(0, targetKm - completedKm), 1);
-  const remainingDays = Math.max(1, daysBetweenLocalDates(today, yearEnd) + 1);
-  const neededKmPerWeek = roundTo(remainingKm / (remainingDays / 7), 1);
-  const percent = targetKm > 0 ? Math.min(999, Math.round((completedKm / targetKm) * 100)) : 0;
+  const elapsedDays = Math.max(1, daysBetweenLocalDates(yearStart, today) + 1);
+  const averageKmPerWeek = roundTo(completedKm / (elapsedDays / 7), 1);
 
   return {
-    title: "Year Goal",
-    value: `${formatNumber(completedKm, 1)} / ${formatInteger(targetKm)} km`,
-    meta: `${formatInteger(percent)}% complete · ${formatNumber(remainingKm, 1)} km left`,
-    detail: `${formatNumber(neededKmPerWeek, 1)} km/week needed through Dec 31.`,
-    targetKm,
+    title: "Year to Date",
+    value: `${formatNumber(completedKm, 1)} km`,
+    meta: "Current year total",
+    detail: completedKm > 0
+      ? `${formatNumber(averageKmPerWeek, 1)} km/week average since Jan 1.`
+      : "No current-year runs saved.",
     completedKm,
-    remainingKm,
-    neededKmPerWeek,
-    state: remainingKm <= 0 ? "best" : "ready"
+    averageKmPerWeek,
+    state: completedKm > 0 ? "ready" : "empty"
   };
 }
 
@@ -2225,13 +2236,8 @@ function renderAllActivities() {
   els.allActivityTable.innerHTML = visibleRows.map((activity) => {
     const activityId = String(activity.id || "").trim();
     const canRefresh = activityId && isRun(activity);
-    const isRefreshing = activityId && activityId === appState.refreshingActivityId;
     const activityName = activity.name || "Untitled";
-    const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
-    const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
-    const action = canRefresh
-      ? `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`
-      : "";
+    const action = renderActivityRefreshAction(activity, canRefresh);
     return `
       <tr>
         <td data-label="Date">${formatDate(activity.start_date_local || activity.start_date)}</td>
@@ -2277,13 +2283,8 @@ function updateAllActivityShowMoreButton(totalRows, visibleRows) {
 function renderActivitySummaryCard(activity) {
   const activityId = String(activity.id || "").trim();
   const canRefresh = activityId && isRun(activity);
-  const isRefreshing = activityId && activityId === appState.refreshingActivityId;
   const activityName = activity.name || "Untitled";
-  const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
-  const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
-  const action = canRefresh
-    ? `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`
-    : "";
+  const action = renderActivityRefreshAction(activity, canRefresh);
   return `
     <article class="activity-summary-card">
       <div class="activity-summary-main">
@@ -2301,6 +2302,18 @@ function renderActivitySummaryCard(activity) {
       </div>
     </article>
   `;
+}
+
+function renderActivityRefreshAction(activity, canRefresh = false) {
+  const activityId = String(activity?.id || "").trim();
+  if (!canRefresh || !activityId) {
+    return `<span class="activity-action-spacer" aria-hidden="true"></span>`;
+  }
+  const isRefreshing = activityId === appState.refreshingActivityId;
+  const activityName = activity.name || "Untitled";
+  const refreshLabel = isRefreshing ? "Refreshing" : "Refresh Activity";
+  const refreshAriaLabel = isRefreshing ? `Refreshing ${activityName}` : `Refresh ${activityName}`;
+  return `<button class="button ghost personal-best-refresh${isRefreshing ? " is-refreshing" : ""}" type="button" data-refresh-activity-id="${escapeHtml(activityId)}" aria-label="${escapeHtml(refreshAriaLabel)}" title="${escapeHtml(refreshLabel)}"${isRefreshing ? " disabled" : ""}>${renderRefreshIcon()}</button>`;
 }
 
 function getVisibleAllActivities() {
@@ -2474,7 +2487,7 @@ function renderPersonalBestOverview(payload = appState.personalBests || {}) {
     {
       label: "Distance records",
       value: distances.length
-        ? `${formatInteger(distances.length)} ${distances.length === 1 ? "target" : "targets"}`
+        ? "Records ready"
         : "No distance records yet",
       detail: distances.length
         ? formatRecordEffortCount(distanceEfforts)
@@ -2483,7 +2496,7 @@ function renderPersonalBestOverview(payload = appState.personalBests || {}) {
     {
       label: "Time records",
       value: durations.length
-        ? `${formatInteger(durations.length)} ${durations.length === 1 ? "time target" : "time targets"}`
+        ? "Time bests ready"
         : "No time records yet",
       detail: durations.length
         ? formatRecordEffortCount(durationEfforts)
@@ -2492,7 +2505,7 @@ function renderPersonalBestOverview(payload = appState.personalBests || {}) {
     {
       label: "Pace records",
       value: paces.length
-        ? `${formatInteger(paces.length)} ${paces.length === 1 ? "pace target" : "pace targets"}`
+        ? "Pace bests ready"
         : "No pace records yet",
       detail: paces.length
         ? formatRecordEffortCount(paceEfforts)
@@ -4404,6 +4417,13 @@ function timePaceAnalysisSignals(analysis, label) {
 function buildTrainingSchedule(improveSignal = null) {
   const target = improveSignal?.name || "Current limiter";
   const today = buildTodayRunSuggestion(appState.activities, improveSignal);
+  if (today.state === "insufficient" || today.state === "empty") {
+    return [
+      { focus: "Evidence", detail: today.detail },
+      { focus: "Recent load", detail: "Use saved runs to check whether today is a recovery, easy, or workout day." },
+      { focus: "Detail coverage", detail: "Refresh run details when personal-best comparisons look incomplete." }
+    ];
+  }
   if (today.state === "caution") {
     return [
       { focus: "Recovery", detail: `${today.title}: ${today.detail}` },
