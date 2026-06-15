@@ -91,6 +91,50 @@ input {
   flex-wrap: wrap;
 }
 
+.topbar-tools {
+  position: relative;
+}
+
+.topbar-tools summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.topbar-tools summary::-webkit-details-marker {
+  display: none;
+}
+
+.topbar-tools summary::after {
+  content: "\25BE";
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.topbar-tools[open] summary {
+  border-color: var(--green-light);
+  background: var(--green-soft);
+}
+
+.topbar-tool-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 168px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.topbar-tool-menu .button,
+.topbar-tool-menu .topbar-icon-link {
+  width: 100%;
+}
+
 .topbar-icon-link {
   width: 42px;
   height: 42px;
@@ -821,6 +865,32 @@ input[type="search"] {
   margin-top: 14px;
   padding: 12px 0 2px;
   border-top: 1px solid var(--border);
+}
+
+.analysis-model-settings {
+  margin-top: 14px;
+}
+
+.analysis-model-settings .compact-detail-summary {
+  width: 100%;
+  justify-content: center;
+}
+
+.analysis-model-settings[open] .compact-detail-summary {
+  border-color: var(--green-light);
+  background: var(--green-soft);
+}
+
+.analysis-model-settings-content {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .race-target-panel {
@@ -1815,6 +1885,17 @@ td.activity-name {
 
   .topbar-actions {
     width: 100%;
+  }
+
+  .topbar-tools,
+  .topbar-tools summary {
+    width: 100%;
+  }
+
+  .topbar-tool-menu {
+    position: static;
+    margin-top: 8px;
+    box-shadow: none;
   }
 
   .button,

@@ -3310,15 +3310,74 @@ test("renderPersonalBestOverview summarizes records before details", () => {
   `, app);
 
   assert.match(result, /Distance records/);
-  assert.match(result, /Records ready/);
-  assert.doesNotMatch(result, /targets/);
+  assert.match(result, /2 distances/);
   assert.match(result, /3 record efforts/);
   assert.match(result, /Time records/);
-  assert.match(result, /Time bests ready/);
-  assert.doesNotMatch(result, /time target/);
+  assert.match(result, /1 time target/);
   assert.match(result, /Pace records/);
   assert.match(result, /No pace records yet/);
   assert.match(result, /Update run details to calculate pace records/);
+});
+
+test("Personal Bests overview reports coverage counts instead of generic readiness", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.personalBestOverviewGrid = { innerHTML: "" };
+    renderPersonalBestOverview({
+      distances: [
+        { name: "5K", count: 2, top: [{ movingTime: 1500 }] },
+        { name: "10K", count: 1, top: [{ movingTime: 3200 }] }
+      ],
+      durations: [
+        { name: "30 min", count: 3, top: [{ distanceKm: 6.4 }] }
+      ],
+      paces: []
+    });
+    els.personalBestOverviewGrid.innerHTML;
+  `, app);
+
+  assert.match(result, /2 distances/);
+  assert.match(result, /1 time target/);
+  assert.doesNotMatch(result, /Records ready/);
+  assert.doesNotMatch(result, /Time bests ready/);
+});
+
+test("dashboard labels metric controls as range volume rather than chart setup", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+
+  assert.match(html, />Training volume<\/h2>/);
+  assert.doesNotMatch(html, />Choose metric to chart<\/h2>/);
+});
+
+test("low-frequency destructive data action is disclosed under data tools", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const topbarActions = html.match(/<div class="topbar-actions">[\s\S]*?<\/div>\s*<\/header>/)?.[0] || "";
+
+  assert.match(topbarActions, /<details class="topbar-tools"/);
+  assert.match(topbarActions, /<summary[^>]*>Data tools<\/summary>/);
+  assert.ok(topbarActions.indexOf('id="clearButton"') > topbarActions.indexOf('Data tools'));
+});
+
+test("dashboard detail captions state the selected-range role", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.longRunCaption = { textContent: "" };
+    els.longRunList = { innerHTML: "" };
+    els.recentCaption = { textContent: "" };
+    els.activityTable = { innerHTML: "" };
+    const activities = [
+      ${JSON.stringify(runActivity("a", "2026-06-10T07:00:00", { distance: 7000 }))},
+      ${JSON.stringify(runActivity("b", "2026-06-09T07:00:00", { distance: 5000 }))}
+    ];
+    renderLongRuns(activities);
+    renderTable(activities);
+    ({ longRunCaption: els.longRunCaption.textContent, recentCaption: els.recentCaption.textContent });
+  `, app);
+
+  assert.equal(result.longRunCaption, "Top 2 in selected range");
+  assert.equal(result.recentCaption, "Latest 2 in selected range");
 });
 
 test("weekly dashboard chart uses a stable width when hidden in disclosure", () => {
@@ -3890,6 +3949,18 @@ test("Analysis view groups pace-by-distance, pace-by-time, and distance-by-pace 
   assert.match(analysisView, /id="trainingScheduleList"/);
   assert.doesNotMatch(analysisView, /Record History/);
   assert.doesNotMatch(analysisView, /id="recordHistoryTable"/);
+});
+
+test("Analysis model settings are disclosed after goal and diagnostic summary", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
+
+  assert.match(analysisView, /<details class="analysis-model-settings"/);
+  assert.match(analysisView, /<summary class="compact-detail-summary">[\s\S]*Model settings/);
+  assert.ok(analysisView.indexOf('id="raceTargetPanel"') < analysisView.indexOf('id="analysisProfileGrid"'));
+  assert.ok(analysisView.indexOf('id="analysisProfileGrid"') < analysisView.indexOf('class="analysis-model-settings"'));
+  assert.ok(analysisView.indexOf('class="analysis-model-settings"') < analysisView.indexOf('class="personal-best-tabs analysis-tabs scale-toggle"'));
+  assert.match(analysisView, /class="analysis-model-settings"[\s\S]*id="analysisRankControl"[\s\S]*class="scale-toggle exponent-mode-toggle"/);
 });
 
 test("Analysis view labels the shared diagnostic profile", () => {
