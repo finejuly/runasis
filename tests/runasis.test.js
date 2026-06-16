@@ -2124,6 +2124,17 @@ test("visual state tokens are defined", () => {
   assert.match(css, /--green-light:\s*#[0-9a-fA-F]{6};/);
 });
 
+test("stylesheet defines warm command-center design tokens", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+
+  assert.match(css, /--bg:\s*#fffefb;/);
+  assert.match(css, /--surface-soft:\s*#f8f4f0;/);
+  assert.match(css, /--surface-strong:\s*#201515;/);
+  assert.match(css, /--orange:\s*#ff4f00;/);
+  assert.match(css, /\.command-primary-card\s*{[\s\S]*background:\s*var\(--surface-strong\);/);
+  assert.match(css, /\.common-pb-list\s*{[\s\S]*display:\s*grid;/);
+});
+
 test("configureRepositoryLink shows the repository link only when a URL is configured", () => {
   const app = loadAppContext();
 
