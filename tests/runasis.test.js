@@ -749,6 +749,27 @@ test("submitDashboardActivitySearch opens Activities with query and resets visib
 
   const result = vm.runInContext(`
     {
+      const makeButton = (view) => ({
+        dataset: { view },
+        active: false,
+        attributes: {},
+        classList: {
+          toggle(name, active) {
+            if (name === "active") this.owner.active = Boolean(active);
+          }
+        },
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        }
+      });
+      const dashboardTab = makeButton("dashboard");
+      const activitiesTab = makeButton("activities");
+      const pbTab = makeButton("pb");
+      const analysisTab = makeButton("analysis");
+      dashboardTab.classList.owner = dashboardTab;
+      activitiesTab.classList.owner = activitiesTab;
+      pbTab.classList.owner = pbTab;
+      analysisTab.classList.owner = analysisTab;
       const renders = [];
       render = () => renders.push({
         view: appState.currentView,
@@ -758,11 +779,16 @@ test("submitDashboardActivitySearch opens Activities with query and resets visib
       appState.currentView = "dashboard";
       appState.allActivityVisibleLimit = 100;
       els.dashboardActivitySearchInput = { value: "tempo" };
+      els.viewTabs = [dashboardTab, activitiesTab, pbTab, analysisTab];
       submitDashboardActivitySearch({ preventDefault() {} });
       ({
         view: appState.currentView,
         query: appState.allActivitySearch,
         limit: appState.allActivityVisibleLimit,
+        dashboardActive: dashboardTab.active,
+        activitiesActive: activitiesTab.active,
+        dashboardPressed: dashboardTab.attributes["aria-pressed"],
+        activitiesPressed: activitiesTab.attributes["aria-pressed"],
         renders
       });
     }
@@ -771,6 +797,10 @@ test("submitDashboardActivitySearch opens Activities with query and resets visib
   assert.equal(result.view, "activities");
   assert.equal(result.query, "tempo");
   assert.equal(result.limit, 50);
+  assert.equal(result.dashboardActive, false);
+  assert.equal(result.activitiesActive, true);
+  assert.equal(result.dashboardPressed, "false");
+  assert.equal(result.activitiesPressed, "true");
   assert.deepEqual(JSON.parse(JSON.stringify(result.renders)), [
     { view: "activities", query: "tempo", limit: 50 }
   ]);

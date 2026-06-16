@@ -1631,6 +1631,7 @@ function submitDashboardActivitySearch(event) {
   appState.allActivitySearch = els.dashboardActivitySearchInput?.value?.trim() || "";
   resetAllActivityVisibleLimit();
   appState.currentView = "activities";
+  setActiveViewTab(appState.currentView);
   render();
 }
 
