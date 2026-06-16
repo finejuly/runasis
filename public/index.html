@@ -44,26 +44,7 @@
           <span id="lastSync">No sync yet</span>
           <span id="activityCount">0 activities · 0 runs</span>
           <span id="detailSync">Best efforts 0/0</span>
-          <span id="trainingInsight">No recent training summary</span>
         </div>
-      </section>
-
-      <section class="setup-alert hidden" id="setupAlert" aria-live="polite">
-        <div class="setup-copy">
-          <strong>Strava app setup required</strong>
-          <span>Save the Client ID and Client Secret from your Strava app.</span>
-        </div>
-        <form class="setup-form" id="setupForm" autocomplete="off">
-          <label class="setup-field">
-            <span>Client ID</span>
-            <input id="stravaClientIdInput" type="text" inputmode="numeric" autocomplete="off" required>
-          </label>
-          <label class="setup-field">
-            <span>Client Secret</span>
-            <input id="stravaClientSecretInput" type="password" autocomplete="off" required>
-          </label>
-          <button class="button primary" id="stravaConfigSaveButton" type="submit">Save credentials</button>
-        </form>
       </section>
 
       <section class="onboarding-panel hidden" id="onboardingPanel" aria-label="Setup progress">
@@ -71,6 +52,17 @@
           <span class="section-kicker">Setup progress</span>
           <h2>Bring your running history into focus</h2>
           <p id="onboardingMessage">Save your Strava credentials, connect your account, then import activities.</p>
+          <form class="setup-form onboarding-setup-form" id="setupForm" autocomplete="off">
+            <label class="setup-field">
+              <span>Client ID</span>
+              <input id="stravaClientIdInput" type="text" inputmode="numeric" autocomplete="off" required>
+            </label>
+            <label class="setup-field">
+              <span>Client Secret</span>
+              <input id="stravaClientSecretInput" type="password" autocomplete="off" required>
+            </label>
+            <button class="button primary" id="stravaConfigSaveButton" type="submit">Save credentials</button>
+          </form>
         </div>
         <ol class="setup-steps" aria-label="Runasis setup steps">
           <li class="setup-step" id="setupStepCredentials">
@@ -236,7 +228,6 @@
               <p class="analysis-subview-context activity-list-context">Find a run, check detail coverage, and refresh best-effort data.</p>
               <span id="allActivityCountCaption">No activities</span>
             </div>
-            <button class="button ghost panel-compact-button hidden" id="backActivityListButton" type="button">Back to Dashboard</button>
           </div>
         </div>
         <article class="records-panel table-panel activity-list-panel">
@@ -245,26 +236,21 @@
               <span>Search</span>
               <input id="allActivitySearchInput" type="search" autocomplete="off" placeholder="Name, sport, or id">
             </label>
-            <details class="activity-filter-shell">
-              <summary class="compact-detail-summary">
-                <span>More filters</span>
-              </summary>
-              <div class="activity-filter-content">
-                <label class="field checkbox-field">
-                  <input id="allActivityRunOnlyInput" type="checkbox">
-                  <span>Runs only</span>
-                </label>
-                <label class="select-field">
-                  <span>Detail</span>
-                  <select id="allActivityDetailStatusSelect" aria-label="Detail status">
-                    <option value="all">All</option>
-                    <option value="fetched">Fetched</option>
-                    <option value="missing">Missing</option>
-                    <option value="failed">Failed</option>
-                  </select>
-                </label>
-              </div>
-            </details>
+            <div class="activity-filter-content" aria-label="Activity filters">
+              <label class="field checkbox-field">
+                <input id="allActivityRunOnlyInput" type="checkbox">
+                <span>Runs only</span>
+              </label>
+              <label class="select-field">
+                <span>Detail</span>
+                <select id="allActivityDetailStatusSelect" aria-label="Detail status">
+                  <option value="all">All</option>
+                  <option value="fetched">Fetched</option>
+                  <option value="missing">Missing</option>
+                  <option value="failed">Failed</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div class="activity-summary-list" id="activitySummaryList" aria-label="Activity summaries"></div>
           <button class="button ghost activity-show-more-button hidden" id="allActivityShowMoreButton" type="button">Show more</button>
@@ -305,12 +291,16 @@
           <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="time" aria-pressed="false">Time</button>
           <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="pace" aria-pressed="false">Pace</button>
         </div>
-        <div class="personal-best-overview-panel" aria-labelledby="personalBestOverviewTitle" aria-describedby="personalBestOverviewContext">
-          <div class="analysis-subview-heading personal-best-overview-heading">
-            <h3 id="personalBestOverviewTitle">Best efforts at a glance</h3>
-            <p class="analysis-subview-context" id="personalBestOverviewContext">Quick record coverage before charts, trends, and ranked efforts.</p>
-          </div>
-          <div class="kpi-grid personal-best-overview-grid" id="personalBestOverviewGrid" role="group" aria-label="Personal best summary"></div>
+        <div class="personal-best-tools">
+          <label class="select-field personal-best-rank-field">
+            <span>Target rank</span>
+            <select id="recordTargetRankSelect" aria-label="Personal best target rank">
+              <option value="3">Top 3</option>
+              <option value="5">Top 5</option>
+              <option value="10" selected>Top 10</option>
+              <option value="20">Top 20</option>
+            </select>
+          </label>
         </div>
 
         <div class="personal-best-subview" id="personalBestDistanceView">
@@ -535,10 +525,10 @@
         </section>
         <section class="analysis-overview-panel" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext">
           <div class="analysis-subview-heading analysis-profile-heading">
-            <h3 id="analysisProfileHeading">Overall Diagnostic Profile</h3>
-            <p class="analysis-subview-context" id="analysisProfileContext">Common strength, weakness, and improvement signal across all Analysis tabs.</p>
+            <h3 id="analysisProfileHeading">Performance Focus</h3>
+            <p class="analysis-subview-context" id="analysisProfileContext">Strength, limiter, and next focus from saved best efforts across Analysis tabs.</p>
           </div>
-          <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Strength, Weakness, Improvement" id="analysisProfileGrid"></section>
+          <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Strength, Limiter, Next Focus, Expected PRs" id="analysisProfileGrid"></section>
         </section>
         <details class="analysis-model-settings">
           <summary class="compact-detail-summary">
@@ -727,7 +717,7 @@
         <details class="analysis-detail-shell analysis-schedule-shell">
           <summary class="dashboard-detail-summary analysis-detail-summary">
             <span>Next run options</span>
-            <small>How recent load and the diagnostic profile can shape options</small>
+            <small>How recent load and performance focus can shape options</small>
           </summary>
           <div class="analysis-detail-content">
             <section class="analysis-grid analysis-support-grid">
@@ -749,7 +739,7 @@
         <p id="clearConfirmMessage">This deletes locally saved Strava tokens and activity data. You will need to reconnect Strava and sync again to view them.</p>
         <div class="confirm-actions">
           <button class="button ghost" id="clearConfirmCancelButton" type="button">Cancel</button>
-          <button class="button danger confirm-danger" id="clearConfirmDeleteButton" type="button">Delete</button>
+          <button class="button danger confirm-danger" id="clearConfirmDeleteButton" type="button">Clear saved data</button>
         </div>
       </div>
     </div>
