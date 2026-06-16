@@ -2364,4 +2364,6 @@ function startServer(port, attemptsLeft = 20) {
   });
 }
 
-startServer(REQUESTED_PORT);
+if (typeof module !== "undefined" && require.main === module) {
+  startServer(REQUESTED_PORT);
+}

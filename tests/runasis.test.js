@@ -67,17 +67,60 @@ function runActivity(id, startDateLocal, values = {}) {
   };
 }
 
-function loadServerContext() {
-  const code = fs
-    .readFileSync(path.join(ROOT, "server.js"), "utf8")
-    .replace(/\nstartServer\(REQUESTED_PORT\);\s*$/, "\n");
+test("server module does not listen when imported", () => {
+  const code = fs.readFileSync(path.join(ROOT, "server.js"), "utf8");
+  const module = { exports: {} };
+  let listenCalls = 0;
+  const fakeRequire = (name) => {
+    if (name === "node:http") {
+      return {
+        createServer() {
+          return {
+            listen() {
+              listenCalls += 1;
+            },
+            once() {
+              return this;
+            }
+          };
+        }
+      };
+    }
+    return require(name);
+  };
+  fakeRequire.main = { filename: "test-runner.js" };
+
   const context = {
     __dirname: ROOT,
     Buffer,
     URL,
     clearTimeout,
     console,
+    exports: module.exports,
     fetch() {},
+    module,
+    process,
+    require: fakeRequire,
+    setTimeout
+  };
+  vm.createContext(context);
+  vm.runInContext(code, context);
+
+  assert.equal(listenCalls, 0);
+});
+
+function loadServerContext() {
+  const code = fs.readFileSync(path.join(ROOT, "server.js"), "utf8");
+  const module = { exports: {} };
+  const context = {
+    __dirname: ROOT,
+    Buffer,
+    URL,
+    clearTimeout,
+    console,
+    exports: module.exports,
+    fetch() {},
+    module,
     process,
     require,
     setTimeout
@@ -202,6 +245,45 @@ test("buildLinearLogXAxisScale maps linear and log values consistently", () => {
       atMiddle: 55,
       atEnd: 100
     }
+  });
+});
+
+test("storage preference helpers normalize values and tolerate storage errors", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    {
+      const writes = [];
+      window.localStorage = {
+        getItem(key) {
+          if (key === "broken-read") throw new Error("blocked");
+          if (key === "saved") return "42";
+          return null;
+        },
+        setItem(key, value) {
+          if (key === "broken-write") throw new Error("blocked");
+          writes.push({ key, value });
+        }
+      };
+
+      ({
+        parsed: readStoragePreference("saved", null, Number),
+        missing: readStoragePreference("missing", "fallback"),
+        broken: readStoragePreference("broken-read", "fallback", Number),
+        writes: (() => {
+          writeStoragePreference("saved", 42);
+          writeStoragePreference("broken-write", 7);
+          return writes;
+        })()
+      });
+    }
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    parsed: 42,
+    missing: null,
+    broken: "fallback",
+    writes: [{ key: "saved", value: "42" }]
   });
 });
 
