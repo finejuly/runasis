@@ -590,11 +590,15 @@ test("Training Schedule copy is reframed as Next Run Options", () => {
   assert.doesNotMatch(html, />Training Schedule</);
 });
 
-test("dashboard exposes the command center before metric controls", () => {
+test("dashboard exposes training volume before command center", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
 
-  assert.match(html, /id="dashboardCommandCenter"/);
-  assert.ok(html.indexOf("id=\"dashboardCommandCenter\"") < html.indexOf("class=\"kpi-summary-heading\""));
+  assert.match(dashboardView, /class="kpi-summary-heading"/);
+  assert.match(dashboardView, /id="dashboardCommandCenter"/);
+  assert.ok(dashboardView.indexOf('class="kpi-summary-heading"') < dashboardView.indexOf('id="dashboardCommandCenter"'));
+  assert.ok(dashboardView.indexOf('id="dashboardKpiGrid"') < dashboardView.indexOf('id="dashboardCommandCenter"'));
+  assert.ok(dashboardView.indexOf('class="chart-panel cumulative-distance-panel"') < dashboardView.indexOf('id="dashboardCommandCenter"'));
 });
 
 test("dashboard keeps high-frequency information in the content hierarchy without shortcut buttons", () => {
@@ -604,8 +608,9 @@ test("dashboard keeps high-frequency information in the content hierarchy withou
   const kpiIndex = html.indexOf("class=\"kpi-summary-heading\"");
 
   assert.ok(commandCenterIndex > -1, "command center should exist");
-  assert.ok(kpiIndex > commandCenterIndex, "training volume should follow the command center");
-  assert.ok(detailIndex > kpiIndex, "secondary detail should stay below primary dashboard information");
+  assert.ok(kpiIndex > -1, "training volume should exist");
+  assert.ok(kpiIndex < commandCenterIndex, "training volume should lead the dashboard");
+  assert.ok(detailIndex > commandCenterIndex, "secondary detail should stay below primary dashboard information");
   assert.doesNotMatch(html, /dashboard-fast-actions/);
   assert.doesNotMatch(html, /dashboardActivitySearchButton|dashboardPersonalBestsButton|dashboardGoalCheckButton/);
 });

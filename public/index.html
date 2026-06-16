@@ -93,6 +93,54 @@
         <div class="view-section-heading">
           <h2 id="dashboardViewTitle">Dashboard</h2>
         </div>
+        <div class="kpi-summary-heading">
+          <div>
+            <h2>Training volume</h2>
+            <span id="kpiRangeCaption">No range</span>
+          </div>
+          <label class="field dashboard-range-field">
+            <span>Range</span>
+            <select id="rangeSelect">
+              <option value="all">All</option>
+              <option value="365">Last year</option>
+              <option value="180">Last 6 months</option>
+              <option value="90">Last 90 days</option>
+              <option value="30" selected>Last 30 days</option>
+              <option value="7">Last 7 days</option>
+            </select>
+          </label>
+        </div>
+        <section class="kpi-grid" id="dashboardKpiGrid" aria-label="Key metrics">
+          <article class="kpi-card dashboard-kpi-card selected" data-kpi-metric="distance" role="button" tabindex="0" aria-pressed="true" aria-label="Show distance chart">
+            <span>Distance</span>
+            <strong id="kpiDistance">0 km</strong>
+            <small id="kpiDistanceSub">Based on saved runs</small>
+          </article>
+          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="activities" role="button" tabindex="0" aria-pressed="false" aria-label="Show activity chart">
+            <span>Activities</span>
+            <strong id="kpiActivities">0</strong>
+            <small id="kpiActivitiesSub">Filtered</small>
+          </article>
+          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="time" role="button" tabindex="0" aria-pressed="false" aria-label="Show time chart">
+            <span>Time</span>
+            <strong id="kpiTime">0 h</strong>
+            <small id="kpiTimeSub">moving time</small>
+          </article>
+          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="elevation" role="button" tabindex="0" aria-pressed="false" aria-label="Show elevation gain chart">
+            <span>Elevation Gain</span>
+            <strong id="kpiElevation">0 m</strong>
+            <small id="kpiElevationSub">Total climb</small>
+          </article>
+        </section>
+
+        <article class="chart-panel cumulative-distance-panel">
+          <div class="panel-title">
+            <h2 id="cumulativeMetricTitle">Cumulative Distance</h2>
+            <span id="cumulativeDistanceCaption">No data</span>
+          </div>
+          <div class="chart-box cumulative-distance-chart" id="cumulativeDistanceChart" aria-label="Cumulative distance by date chart"></div>
+        </article>
+
         <section class="dashboard-command-center" id="dashboardCommandCenter" aria-label="Runner command center">
           <article class="command-primary-card" aria-labelledby="commandTodayTitle">
             <div class="command-card-heading">
@@ -150,53 +198,6 @@
             <div class="common-pb-list" id="commonPbSummaryList"></div>
           </article>
         </section>
-        <div class="kpi-summary-heading">
-          <div>
-            <h2>Training volume</h2>
-            <span id="kpiRangeCaption">No range</span>
-          </div>
-          <label class="field dashboard-range-field">
-            <span>Range</span>
-            <select id="rangeSelect">
-              <option value="all">All</option>
-              <option value="365">Last year</option>
-              <option value="180">Last 6 months</option>
-              <option value="90">Last 90 days</option>
-              <option value="30" selected>Last 30 days</option>
-              <option value="7">Last 7 days</option>
-            </select>
-          </label>
-        </div>
-        <section class="kpi-grid" id="dashboardKpiGrid" aria-label="Key metrics">
-          <article class="kpi-card dashboard-kpi-card selected" data-kpi-metric="distance" role="button" tabindex="0" aria-pressed="true" aria-label="Show distance chart">
-            <span>Distance</span>
-            <strong id="kpiDistance">0 km</strong>
-            <small id="kpiDistanceSub">Based on saved runs</small>
-          </article>
-          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="activities" role="button" tabindex="0" aria-pressed="false" aria-label="Show activity chart">
-            <span>Activities</span>
-            <strong id="kpiActivities">0</strong>
-            <small id="kpiActivitiesSub">Filtered</small>
-          </article>
-          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="time" role="button" tabindex="0" aria-pressed="false" aria-label="Show time chart">
-            <span>Time</span>
-            <strong id="kpiTime">0 h</strong>
-            <small id="kpiTimeSub">moving time</small>
-          </article>
-          <article class="kpi-card dashboard-kpi-card" data-kpi-metric="elevation" role="button" tabindex="0" aria-pressed="false" aria-label="Show elevation gain chart">
-            <span>Elevation Gain</span>
-            <strong id="kpiElevation">0 m</strong>
-            <small id="kpiElevationSub">Total climb</small>
-          </article>
-        </section>
-
-        <article class="chart-panel cumulative-distance-panel">
-          <div class="panel-title">
-            <h2 id="cumulativeMetricTitle">Cumulative Distance</h2>
-            <span id="cumulativeDistanceCaption">No data</span>
-          </div>
-          <div class="chart-box cumulative-distance-chart" id="cumulativeDistanceChart" aria-label="Cumulative distance by date chart"></div>
-        </article>
 
         <details class="dashboard-detail-shell">
           <summary class="dashboard-detail-summary">
