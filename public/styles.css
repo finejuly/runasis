@@ -1265,6 +1265,21 @@ input[type="search"] {
   margin-top: 14px;
 }
 
+.analysis-guidance-shell {
+  margin-top: 22px;
+}
+
+.analysis-guidance-shell .dashboard-detail-summary {
+  background: var(--surface-soft);
+  border-style: dashed;
+}
+
+.analysis-guidance-shell .analysis-overview-panel {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
 .training-schedule-list {
   margin: 0;
   padding-left: 22px;

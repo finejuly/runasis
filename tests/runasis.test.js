@@ -509,6 +509,40 @@ test("buildTodayRunSuggestion avoids workout recommendations with shallow eviden
   assert.match(result.detail, /not enough/i);
 });
 
+test("buildRecentLoadSummary keeps the dashboard lead card factual", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    buildRecentLoadSummary([
+      ${JSON.stringify(runActivity("today", "2026-06-15T07:00:00", { distance: 5000 }))},
+      ${JSON.stringify(runActivity("yesterday", "2026-06-14T07:00:00", { distance: 7000 }))},
+      ${JSON.stringify(runActivity("older", "2026-05-27T07:00:00", { distance: 12000 }))}
+    ]);
+  `, app);
+
+  assert.equal(result.title, "Recent Load");
+  assert.equal(result.value, "12.0 km");
+  assert.equal(result.meta, "2 runs in 7 days");
+  assert.match(result.detail, /30-day weekly baseline/);
+  assert.doesNotMatch(`${result.title} ${result.value} ${result.meta} ${result.detail}`, /recommend|workout|intensity|focus/i);
+});
+
+test("buildRunnerBrief does not depend on strength analysis for dashboard guidance", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const result = vm.runInContext(`
+    buildAnalysisProfile = () => { throw new Error("analysis should stay out of dashboard brief"); };
+    buildRunnerBrief([
+      ${JSON.stringify(runActivity("today", "2026-06-15T07:00:00", { distance: 5000 }))}
+    ], { distances: [] });
+  `, app);
+
+  assert.equal(result.today.title, "Recent Load");
+  assert.equal(result.today.value, "5.0 km");
+});
+
 test("buildYearGoalProgress reports current year distance without a fixed goal", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-06-15T12:00:00");
@@ -3876,12 +3910,15 @@ test("Dashboard exposes the command center structure", () => {
   const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
 
   assert.match(dashboardView, /<section class="dashboard-command-center" id="dashboardCommandCenter" aria-label="Runner command center">/);
+  assert.match(dashboardView, />Recent Load</);
+  assert.match(dashboardView, />Saved-run summary</);
   assert.match(dashboardView, /id="commandTodayValue"/);
   assert.match(dashboardView, /id="commandLatestValue"/);
   assert.match(dashboardView, /id="commandYearValue"/);
   assert.match(dashboardView, /id="commandRaceTargetValue"/);
   assert.match(dashboardView, /id="dashboardActivitySearchInput"/);
   assert.match(dashboardView, /id="commonPbSummaryList"/);
+  assert.doesNotMatch(dashboardView, /Run decision|today guidance/i);
 });
 
 test("dashboard marks the default KPI as selected before data loads", () => {
@@ -4478,7 +4515,7 @@ test("Analysis page discloses model detail and comparison tables progressively",
   assert.match(analysisView, /<details class="analysis-detail-shell"[\s\S]*id="riegelSummaryGrid"[\s\S]*id="riegelFiveKChart"[\s\S]*id="riegelProjectionTable"/);
   assert.match(analysisView, /More comparison rows[\s\S]*id="timeRiegelTable"/);
   assert.match(analysisView, /More comparison rows[\s\S]*id="paceRiegelTable"/);
-  assert.match(analysisView, /Next run options[\s\S]*id="trainingScheduleList"/);
+  assert.match(analysisView, /Experimental guidance[\s\S]*id="analysisProfileGrid"[\s\S]*Next Run Options[\s\S]*id="trainingScheduleList"/);
   assert.match(css, /\.analysis-detail-shell:not\(\[open\]\) > \.analysis-detail-content\s*{[^}]*display:\s*none;/);
 });
 
@@ -4538,27 +4575,28 @@ test("Analysis view groups pace-by-distance, pace-by-time, and distance-by-pace 
   assert.doesNotMatch(analysisView, /id="recordHistoryTable"/);
 });
 
-test("Analysis model settings are disclosed after goal and performance focus", () => {
+test("Analysis model settings stay ahead of experimental guidance", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
 
   assert.match(analysisView, /<details class="analysis-model-settings"/);
   assert.match(analysisView, /<summary class="compact-detail-summary">[\s\S]*Model settings/);
-  assert.ok(analysisView.indexOf('id="raceTargetPanel"') < analysisView.indexOf('id="analysisProfileGrid"'));
-  assert.ok(analysisView.indexOf('id="analysisProfileGrid"') < analysisView.indexOf('class="analysis-model-settings"'));
+  assert.ok(analysisView.indexOf('id="raceTargetPanel"') < analysisView.indexOf('class="analysis-model-settings"'));
   assert.ok(analysisView.indexOf('class="analysis-model-settings"') < analysisView.indexOf('class="personal-best-tabs analysis-tabs scale-toggle"'));
+  assert.ok(analysisView.indexOf('class="personal-best-tabs analysis-tabs scale-toggle"') < analysisView.indexOf('class="analysis-detail-shell analysis-guidance-shell"'));
   assert.match(analysisView, /class="analysis-model-settings"[\s\S]*id="analysisRankControl"[\s\S]*class="scale-toggle exponent-mode-toggle"/);
 });
 
-test("Analysis view labels the shared performance focus", () => {
+test("Analysis hides strength and run options in experimental guidance", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const analysisView = html.match(/<section class="analysis-view hidden" id="analysisView"[\s\S]*?<\/section>\s*<\/main>/)?.[0] || "";
 
-  assert.match(analysisView, /<section class="analysis-overview-panel" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext">/);
-  assert.match(analysisView, /<h3 id="analysisProfileHeading">Performance Focus<\/h3>/);
-  assert.match(analysisView, /<p class="analysis-subview-context" id="analysisProfileContext">Strength, limiter, and next focus from saved best efforts across Analysis tabs\.<\/p>/);
-  assert.match(analysisView, /<section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Strength, Limiter, Next Focus, Expected PRs" id="analysisProfileGrid">/);
-  assert.ok(analysisView.indexOf('class="analysis-overview-panel"') < analysisView.indexOf('class="personal-best-tabs analysis-tabs scale-toggle"'));
+  assert.match(analysisView, /<details class="analysis-detail-shell analysis-guidance-shell">/);
+  assert.match(analysisView, /Experimental guidance/);
+  assert.match(analysisView, /<h3 id="analysisProfileHeading">Model Guidance<\/h3>/);
+  assert.match(analysisView, /<p class="analysis-subview-context" id="analysisProfileContext">Experimental strength, limiter, and next-run signals from model comparisons\.<\/p>/);
+  assert.match(analysisView, /<section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Experimental strength, limiter, next focus, and expected PRs" id="analysisProfileGrid">/);
+  assert.ok(analysisView.indexOf('class="personal-best-tabs analysis-tabs scale-toggle"') < analysisView.indexOf('id="analysisProfileGrid"'));
 });
 
 test("Analysis sub tabs carry matching context copy", () => {

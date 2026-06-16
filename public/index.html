@@ -96,12 +96,12 @@
         <section class="dashboard-command-center" id="dashboardCommandCenter" aria-label="Runner command center">
           <article class="command-primary-card" aria-labelledby="commandTodayTitle">
             <div class="command-card-heading">
-              <span class="section-kicker">Today</span>
-              <small id="commandTodayMeta">Based on saved runs</small>
+              <span class="section-kicker">Recent Load</span>
+              <small id="commandTodayMeta">Last 7 days</small>
             </div>
-            <h2 id="commandTodayTitle">Run decision</h2>
+            <h2 id="commandTodayTitle">Saved-run summary</h2>
             <strong id="commandTodayValue">-</strong>
-            <p id="commandTodayDetail">Import runs before using Runasis for today guidance.</p>
+            <p id="commandTodayDetail">Import runs to see recent training load.</p>
             <div class="command-brief-grid" aria-label="Runner brief">
               <div class="command-brief-item">
                 <span>Latest</span>
@@ -556,13 +556,6 @@
             <p id="raceTargetDetail">Runasis will compare the selected target with your Riegel projection.</p>
           </div>
         </section>
-        <section class="analysis-overview-panel" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext">
-          <div class="analysis-subview-heading analysis-profile-heading">
-            <h3 id="analysisProfileHeading">Performance Focus</h3>
-            <p class="analysis-subview-context" id="analysisProfileContext">Strength, limiter, and next focus from saved best efforts across Analysis tabs.</p>
-          </div>
-          <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Strength, Limiter, Next Focus, Expected PRs" id="analysisProfileGrid"></section>
-        </section>
         <details class="analysis-model-settings">
           <summary class="compact-detail-summary">
             <span>Model settings</span>
@@ -747,12 +740,19 @@
           </details>
         </div>
 
-        <details class="analysis-detail-shell analysis-schedule-shell">
+        <details class="analysis-detail-shell analysis-guidance-shell">
           <summary class="dashboard-detail-summary analysis-detail-summary">
-            <span>Next run options</span>
-            <small>How recent load and performance focus can shape options</small>
+            <span>Experimental guidance</span>
+            <small>Model-derived strength cards and run options, hidden by default</small>
           </summary>
           <div class="analysis-detail-content">
+            <section class="analysis-overview-panel" aria-labelledby="analysisProfileHeading" aria-describedby="analysisProfileContext">
+              <div class="analysis-subview-heading analysis-profile-heading">
+                <h3 id="analysisProfileHeading">Model Guidance</h3>
+                <p class="analysis-subview-context" id="analysisProfileContext">Experimental strength, limiter, and next-run signals from model comparisons.</p>
+              </div>
+              <section class="kpi-grid analysis-kpi-grid analysis-profile-grid" aria-label="Experimental strength, limiter, next focus, and expected PRs" id="analysisProfileGrid"></section>
+            </section>
             <section class="analysis-grid analysis-support-grid">
               <article class="records-panel analysis-panel analysis-panel--full-row">
                 <div class="panel-title">

@@ -1269,11 +1269,9 @@ function renderStatus() {
 }
 
 function buildRunnerBrief(activities = appState.activities, personalBests = appState.personalBests) {
-  const analysisProfile = buildAnalysisProfile();
-  const improveSignal = analysisProfile?.improveSignal || null;
   return {
     latestRun: buildLatestRunComparison(activities, personalBests, { rankLimit: appState.recordTargetRank }),
-    today: buildTodayRunSuggestion(activities, improveSignal),
+    today: buildRecentLoadSummary(activities),
     yearGoal: buildYearGoalProgress(activities)
   };
 }
@@ -1375,6 +1373,52 @@ function calculateActivityPaceSecondsPerKm(activity) {
   const distanceKm = Number(activity?.distance || 0) / 1000;
   const movingTime = Number(activity?.moving_time || 0);
   return distanceKm > 0 && movingTime > 0 ? movingTime / distanceKm : null;
+}
+
+function buildRecentLoadSummary(activities = appState.activities) {
+  const runs = getSortedRuns(activities);
+  if (!runs.length) {
+    return {
+      title: "Recent Load",
+      value: "No saved runs",
+      meta: "Last 7 days",
+      detail: "Import runs to see recent training load.",
+      state: "empty"
+    };
+  }
+
+  const today = startOfLocalDay(new Date());
+  const sevenDayStart = addLocalDays(today, -6);
+  const thirtyDayStart = addLocalDays(today, -29);
+  const recentRuns = runs.filter((activity) => {
+    const date = getActivityLocalDay(activity);
+    return date && date >= sevenDayStart && date <= today;
+  });
+  const current7Km = sumRunDistanceKmBetween(activities, sevenDayStart, today);
+  const current30Km = sumRunDistanceKmBetween(activities, thirtyDayStart, today);
+  const weeklyBaselineKm = current30Km > 0 ? (current30Km / 30) * 7 : 0;
+  const latestDay = getActivityLocalDay(runs[0]);
+  const daysSinceLastRun = latestDay ? daysBetweenLocalDates(latestDay, today) : null;
+  let lastRunText = "last run date unavailable";
+  if (Number.isFinite(daysSinceLastRun)) {
+    if (daysSinceLastRun === 0) {
+      lastRunText = "last run today";
+    } else if (daysSinceLastRun === 1) {
+      lastRunText = "last run yesterday";
+    } else {
+      lastRunText = `last run ${formatInteger(daysSinceLastRun)} days ago`;
+    }
+  }
+
+  return {
+    title: "Recent Load",
+    value: `${formatNumber(current7Km, 1)} km`,
+    meta: `${formatInteger(recentRuns.length)} ${recentRuns.length === 1 ? "run" : "runs"} in 7 days`,
+    detail: current30Km > 0
+      ? `30-day weekly baseline ${formatNumber(weeklyBaselineKm, 1)} km; ${lastRunText}.`
+      : `No 30-day baseline yet; ${lastRunText}.`,
+    state: current7Km > 0 ? "ready" : "empty"
+  };
 }
 
 function buildTodayRunSuggestion(activities = appState.activities, improveSignal = null, personalBests = appState.personalBests) {
@@ -1551,7 +1595,7 @@ function renderDashboardCommandCenter() {
 
 function renderCommandToday(card) {
   if (els.commandTodayValue) els.commandTodayValue.textContent = card?.value || "-";
-  if (els.commandTodayMeta) els.commandTodayMeta.textContent = card?.meta || "Based on saved runs";
+  if (els.commandTodayMeta) els.commandTodayMeta.textContent = card?.meta || "Last 7 days";
   if (els.commandTodayDetail) els.commandTodayDetail.textContent = card?.detail || "";
 }
 

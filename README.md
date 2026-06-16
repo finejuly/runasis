@@ -78,7 +78,7 @@ Raw detailed activity payloads are saved locally under `data/strava/activities/r
 
 ### Dashboard
 
-The dashboard is the main training overview. Use the range selector and metric cards to switch between distance, activity count, moving time, elevation gain, and time windows. The `Recent Activities` panel also links to a searchable activity list.
+The dashboard is the main training overview. It leads with recent saved-run load, latest run context, common personal bests, and volume charts. Use the range selector and metric cards to switch between distance, activity count, moving time, elevation gain, and time windows. The `Recent Activities` panel also links to a searchable activity list.
 
 ### Personal Bests
 
@@ -86,7 +86,7 @@ The `Personal Bests` tab calculates your best efforts across standard distances 
 
 ### Analysis
 
-The `Analysis` tab uses the [Riegel model](https://en.wikipedia.org/wiki/Peter_Riegel#Race_time_prediction) to compare pace by distance, pace by time, and distance by pace, estimate equivalent performances, and highlight stronger or weaker patterns. You can use the default exponent, estimate one from all valid best-effort distance pairs, or set a custom value. The same screen also summarizes deterministic training suggestions from your saved activities.
+The `Analysis` tab uses the [Riegel model](https://en.wikipedia.org/wiki/Peter_Riegel#Race_time_prediction) to compare pace by distance, pace by time, and distance by pace, and estimate equivalent performances. You can use the default exponent, estimate one from all valid best-effort distance pairs, or set a custom value. Model-derived strength/limiter cards and run-option guidance are kept under `Experimental guidance` and hidden by default.
 
 ## macOS App Wrapper
 
