@@ -14,6 +14,8 @@ const PERSONAL_BEST_DEFAULT_LIMIT = 3;
 const PERSONAL_BEST_EXPANDED_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT_OPTIONS = new Set([5, 10, 20]);
+const DEFAULT_RECORD_TARGET_RANK = 10;
+const RECORD_TARGET_RANK_OPTIONS = [3, 5, 10, 20];
 const PERSONAL_BEST_TABS = new Set(["distance", "time", "pace"]);
 const PERSONAL_BEST_MODES = new Set(["records", "curve", "timing", "trend"]);
 const DEFAULT_ACTIVITY_VISIBLE_LIMIT = 50;
@@ -26,6 +28,7 @@ const ANALYSIS_TAB_CONTEXT = {
 const RECENT_ACTIVITY_LIMIT = 5;
 const REPOSITORY_URL = "";
 const DAY_MS = 24 * 60 * 60 * 1000;
+const STANDARD_YEAR_DAYS = 365;
 const YEAR_DAYS = 365.25;
 const DEFAULT_DASHBOARD_METRIC_KEY = "distance";
 const COMMON_RECORD_TARGETS = ["5K", "10K", "Half-Marathon", "Marathon"];
@@ -94,6 +97,7 @@ const appState = {
   expandedPaceBestTargets: new Set(),
   personalBestTrendDistanceName: null,
   personalBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
+  recordTargetRank: DEFAULT_RECORD_TARGET_RANK,
   timeBestTrendDurationName: null,
   timeBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   timeBestScale: "linear",
@@ -116,7 +120,6 @@ const appState = {
   raceTargetTimeText: DEFAULT_RACE_TARGET_TIME,
   rangeDays: "30",
   selectedKpiMetric: DEFAULT_DASHBOARD_METRIC_KEY,
-  activityListOpen: false,
   allActivitySearch: "",
   allActivityRunOnly: false,
   allActivityDetailStatus: "all",
@@ -187,7 +190,6 @@ function cacheElements() {
     "riegelProjectionInfoButton",
     "riegelProjectionInfoDialog",
     "riegelProjectionInfoCloseButton",
-    "setupAlert",
     "onboardingPanel",
     "onboardingMessage",
     "setupStepCredentials",
@@ -203,7 +205,6 @@ function cacheElements() {
     "lastSync",
     "activityCount",
     "detailSync",
-    "trainingInsight",
     "runnerBrief",
     "runnerBriefLatestValue",
     "runnerBriefLatestMeta",
@@ -233,7 +234,6 @@ function cacheElements() {
     "analysisProfileGrid",
     "analysisRankControl",
     "openActivityListButton",
-    "backActivityListButton",
     "allActivityCountCaption",
     "allActivitySearchInput",
     "allActivityRunOnlyInput",
@@ -263,6 +263,7 @@ function cacheElements() {
     "longRunCaption",
     "activityTable",
     "recentCaption",
+    "recordTargetRankSelect",
     "personalBestChart",
     "personalBestChartCaption",
     "personalBestRecencyChart",
@@ -270,7 +271,6 @@ function cacheElements() {
     "personalBestTrendChart",
     "personalBestTrendCaption",
     "personalBestTrendDistanceSelect",
-    "personalBestOverviewGrid",
     "personalBestDurationGrid",
     "personalBestDurationCaption",
     "personalBestPaceGrid",
@@ -417,15 +417,7 @@ function bindEvents() {
 
   els.openActivityListButton.addEventListener("click", () => {
     appState.currentView = "activities";
-    appState.activityListOpen = false;
     setActiveViewTab("activities");
-    render();
-  });
-
-  els.backActivityListButton.addEventListener("click", () => {
-    appState.currentView = "dashboard";
-    appState.activityListOpen = false;
-    setActiveViewTab("dashboard");
     render();
   });
 
@@ -502,6 +494,11 @@ function bindEvents() {
       selectPersonalBestMode(button.dataset.pbMode, button.dataset.personalBestModeTab);
     });
   }
+
+  els.recordTargetRankSelect?.addEventListener("change", () => {
+    appState.recordTargetRank = normalizeRecordTargetRank(els.recordTargetRankSelect.value);
+    render();
+  });
 
   for (const tab of els.analysisTabOptions || []) {
     tab.addEventListener("click", () => {
@@ -678,7 +675,6 @@ function selectView(view) {
   } else {
     appState.currentView = view || "dashboard";
   }
-  appState.activityListOpen = false;
   setActiveViewTab(appState.currentView);
   render();
 }
@@ -686,7 +682,6 @@ function selectView(view) {
 function selectPersonalBestTab(tab) {
   appState.currentView = "pb";
   appState.personalBestTab = normalizePersonalBestTab(tab);
-  appState.activityListOpen = false;
   setActiveViewTab("pb");
   render();
 }
@@ -694,7 +689,6 @@ function selectPersonalBestTab(tab) {
 function selectAnalysisTab(tab) {
   appState.currentView = "analysis";
   appState.analysisTab = normalizeAnalysisTab(tab);
-  appState.activityListOpen = false;
   setActiveViewTab("analysis");
   render();
 }
@@ -1212,7 +1206,7 @@ function render() {
     renderAnalysisView();
     return;
   }
-  if (appState.currentView === "activities" || appState.activityListOpen) {
+  if (appState.currentView === "activities") {
     renderAllActivities();
     return;
   }
@@ -1231,7 +1225,6 @@ function render() {
 
 function renderStatus() {
   const status = appState.status || {};
-  els.setupAlert.classList.toggle("hidden", status.configured !== false);
   renderOnboardingStatus(status);
   els.connectionStatus.classList.remove("connected", "missing");
 
@@ -1270,33 +1263,14 @@ function renderStatus() {
     ? ` · Streams ${formatInteger(detailStatus.rawStreamRunCount || 0)}/${formatInteger(detailStatus.runCount || 0)}`
     : "";
   els.detailSync.textContent = `Best efforts ${formatInteger(detailStatus.fetchedRunCount || 0)}/${formatInteger(detailStatus.runCount || 0)}${streamStatus}${failedDetails ? ` · ${formatInteger(failedDetails)} failed` : ""}`;
-  if (els.trainingInsight) {
-    els.trainingInsight.textContent = buildRecentTrainingInsight(appState.activities);
-  }
   updateActionButtons();
-}
-
-function buildRecentTrainingInsight(activities = appState.activities) {
-  const end = getDashboardRangeEndDate(activities);
-  if (!end) return "No recent training summary";
-  const start = addLocalDays(end, -29);
-  const previousEnd = addLocalDays(start, -1);
-  const previousStart = addLocalDays(previousEnd, -29);
-  const currentKm = sumRunDistanceKmBetween(activities, start, end);
-  const previousKm = sumRunDistanceKmBetween(activities, previousStart, previousEnd);
-  if (currentKm <= 0) return "Last 30 days: no runs saved";
-  const delta = currentKm - previousKm;
-  let trend = "even with";
-  if (delta > 0.05) trend = `up ${formatNumber(delta, 1)} km`;
-  if (delta < -0.05) trend = `down ${formatNumber(Math.abs(delta), 1)} km`;
-  return `Last 30 days: ${formatNumber(currentKm, 1)} km, ${trend} vs previous 30 days`;
 }
 
 function buildRunnerBrief(activities = appState.activities, personalBests = appState.personalBests) {
   const analysisProfile = buildAnalysisProfile();
   const improveSignal = analysisProfile?.improveSignal || null;
   return {
-    latestRun: buildLatestRunComparison(activities, personalBests),
+    latestRun: buildLatestRunComparison(activities, personalBests, { rankLimit: appState.recordTargetRank }),
     today: buildTodayRunSuggestion(activities, improveSignal),
     yearGoal: buildYearGoalProgress(activities)
   };
@@ -1308,7 +1282,7 @@ function getSortedRuns(activities = appState.activities) {
     .sort((a, b) => getActivityStartTime(b) - getActivityStartTime(a));
 }
 
-function buildLatestRunComparison(activities = appState.activities, personalBests = appState.personalBests) {
+function buildLatestRunComparison(activities = appState.activities, personalBests = appState.personalBests, options = {}) {
   const runs = getSortedRuns(activities);
   const latest = runs[0] || null;
   if (!latest) {
@@ -1322,10 +1296,11 @@ function buildLatestRunComparison(activities = appState.activities, personalBest
   }
 
   const distanceKm = Number(latest.distance || 0) / 1000;
+  const rankLimit = normalizeRecordTargetRank(options.rankLimit ?? appState.recordTargetRank);
   const comparison = selectLatestRunRecordComparison(latest, personalBests);
   const rank = comparison ? null : buildRunDistanceRank(latest, runs);
   const detail = comparison
-    ? formatLatestRunRecordComparison(comparison, latest)
+    ? formatLatestRunRecordComparison(comparison, latest, rankLimit)
     : `#${rank.rank} by distance among ${formatInteger(rank.total)} saved runs.`;
 
   return {
@@ -1346,10 +1321,14 @@ function selectLatestRunRecordComparison(latestRun, personalBests = appState.per
       const effort = distance.top?.[0] || null;
       if (!distance.name || !effort || !Number.isFinite(targetDistanceKm) || targetDistanceKm <= 0) return null;
       if (targetDistanceKm > latestDistanceKm + 0.05) return null;
+      const latestRankIndex = (distance.top || [])
+        .findIndex((item) => String(item?.activityId || "") === String(latestRun?.id || ""));
       return {
         name: distance.name,
         distanceKm: targetDistanceKm,
         effort,
+        latestEffort: latestRankIndex >= 0 ? distance.top[latestRankIndex] : null,
+        latestRank: latestRankIndex >= 0 ? latestRankIndex + 1 : null,
         commonIndex: COMMON_RECORD_TARGETS.indexOf(distance.name)
       };
     })
@@ -1360,19 +1339,25 @@ function selectLatestRunRecordComparison(latestRun, personalBests = appState.per
   return pool.sort((a, b) => b.distanceKm - a.distanceKm || a.name.localeCompare(b.name))[0] || null;
 }
 
-function formatLatestRunRecordComparison(comparison, latestRun) {
+function formatLatestRunRecordComparison(comparison, latestRun, rankLimit = appState.recordTargetRank) {
   const bestTime = Number(comparison.effort?.movingTime || comparison.effort?.moving_time || 0);
-  const latestTime = Number(latestRun?.moving_time || 0);
+  const latestTime = Number(comparison.latestEffort?.movingTime || comparison.latestEffort?.moving_time || latestRun?.moving_time || 0);
   const isCurrentBest = String(comparison.effort?.activityId || "") === String(latestRun?.id || "");
   comparison.isCurrentBest = isCurrentBest;
   if (isCurrentBest) return `Current ${comparison.name} best: ${formatClockDuration(bestTime)}.`;
+  const normalizedRankLimit = normalizeRecordTargetRank(rankLimit);
+  const rankPrefix = comparison.latestRank && comparison.latestRank <= normalizedRankLimit
+    ? `${formatTopRankLabel(normalizedRankLimit)} ${comparison.name} (#${comparison.latestRank}); `
+    : "";
   if (!Number.isFinite(bestTime) || bestTime <= 0 || !Number.isFinite(latestTime) || latestTime <= 0) {
-    return `${comparison.name} best is available in Personal Bests.`;
+    return `${rankPrefix}${comparison.name} best is available in Personal Bests.`;
   }
   const delta = latestTime - bestTime;
-  if (!Math.round(delta)) return `${comparison.name} best is ${formatClockDuration(bestTime)}; latest run matched it overall.`;
+  if (!Math.round(delta)) return `${rankPrefix}${comparison.name} best is ${formatClockDuration(bestTime)}; latest effort matched it.`;
   const direction = delta > 0 ? "slower" : "faster";
-  return `${comparison.name} best is ${formatClockDuration(bestTime)}; latest run was ${formatClockDuration(Math.abs(delta))} ${direction} overall.`;
+  const subject = comparison.latestEffort ? "latest effort" : "latest run";
+  const suffix = comparison.latestEffort ? "." : " overall.";
+  return `${rankPrefix}${comparison.name} best is ${formatClockDuration(bestTime)}; ${subject} was ${formatClockDuration(Math.abs(delta))} ${direction}${suffix}`;
 }
 
 function buildRunDistanceRank(activity, runs = getSortedRuns(appState.activities)) {
@@ -1390,7 +1375,7 @@ function calculateActivityPaceSecondsPerKm(activity) {
   return distanceKm > 0 && movingTime > 0 ? movingTime / distanceKm : null;
 }
 
-function buildTodayRunSuggestion(activities = appState.activities, improveSignal = null) {
+function buildTodayRunSuggestion(activities = appState.activities, improveSignal = null, personalBests = appState.personalBests) {
   const runs = getSortedRuns(activities);
   if (!runs.length) {
     return {
@@ -1466,11 +1451,15 @@ function buildTodayRunSuggestion(activities = appState.activities, improveSignal
   }
 
   if (improveSignal?.name) {
+    const paceBands = buildTodayPaceBands(personalBests);
+    const paceDetail = paceBands
+      ? ` Easy ${paceBands.easy}, steady ${paceBands.steady}, controlled ${paceBands.controlled}.`
+      : "";
     return {
       title: "Controlled workout",
-      value: "Keep it controlled",
+      value: paceBands?.controlled || "Keep it controlled",
       meta: "Stable recent load",
-      detail: `Use ${improveSignal.name} as the focus; keep one low-stress day after demanding work.`,
+      detail: `Use ${improveSignal.name} as the focus.${paceDetail} Keep one low-stress day after demanding work.`,
       state: "workout"
     };
   }
@@ -1482,6 +1471,37 @@ function buildTodayRunSuggestion(activities = appState.activities, improveSignal
     detail: "No strong caution signal was found, but there is not enough diagnostic signal to recommend a session.",
     state: "insufficient"
   };
+}
+
+function buildTodayPaceBands(personalBests = appState.personalBests) {
+  const source = selectPaceBandSource(personalBests);
+  if (!source) return null;
+  return {
+    sourceName: source.name,
+    easy: formatPaceWithUnit(source.paceSecondsPerKm + 75),
+    steady: formatPaceWithUnit(source.paceSecondsPerKm + 30),
+    controlled: formatPaceWithUnit(source.paceSecondsPerKm)
+  };
+}
+
+function selectPaceBandSource(personalBests = appState.personalBests) {
+  const distances = personalBests?.distances || [];
+  const candidates = distances
+    .map((distance) => {
+      const effort = distance.top?.[0] || null;
+      const distanceKm = Number(distance.distanceKm || 0);
+      const paceSecondsPerKm = Number(effort?.paceSecondsPerKm || (effort?.movingTime && distanceKm ? effort.movingTime / distanceKm : 0));
+      if (!distance.name || !Number.isFinite(distanceKm) || distanceKm <= 0 || !Number.isFinite(paceSecondsPerKm) || paceSecondsPerKm <= 0) return null;
+      return {
+        name: distance.name,
+        distanceKm,
+        paceSecondsPerKm,
+        priority: distance.name === "10K" ? 0 : distance.name === "Half-Marathon" ? 1 : distance.name === "5K" ? 2 : 3
+      };
+    })
+    .filter(Boolean);
+  if (!candidates.length) return null;
+  return candidates.sort((a, b) => a.priority - b.priority || b.distanceKm - a.distanceKm)[0];
 }
 
 function countConsecutiveRunDays(activities, endDate) {
@@ -1558,6 +1578,7 @@ function renderOnboardingStatus(status) {
   const shouldShow = hasStatus && (!configured || !connected || !imported);
 
   els.onboardingPanel.classList.toggle("hidden", !shouldShow);
+  els.setupForm?.classList.toggle("hidden", configured || !shouldShow);
   if (!shouldShow) return;
 
   if (!configured) {
@@ -1643,18 +1664,29 @@ function renderKpis(metrics, previousMetrics = null) {
   els.kpiTime.textContent = `${formatNumber(metrics.movingHours, 1)} h`;
   els.kpiElevation.textContent = `${formatInteger(Math.round(metrics.elevation))} m`;
 
+  const distanceSubContent = [
+    previousMetrics ? formatKpiDelta(metrics.distanceKm - previousMetrics.distanceKm, formatSignedDistanceKm, "higher") : "",
+    formatAnnualizedDistanceProjection(metrics.distanceKm)
+  ].filter(Boolean).join(" · ");
+  setKpiSubContent(els.kpiDistanceSub, distanceSubContent);
+
   if (previousMetrics) {
-    setKpiSubContent(els.kpiDistanceSub, formatKpiDelta(metrics.distanceKm - previousMetrics.distanceKm, formatSignedDistanceKm, "higher"));
     setKpiSubContent(els.kpiActivitiesSub, formatKpiDelta(metrics.count - previousMetrics.count, formatSignedInteger, "higher"));
     setKpiSubContent(els.kpiTimeSub, formatKpiDelta(metrics.movingHours - previousMetrics.movingHours, formatSignedHours, "higher"));
     setKpiSubContent(els.kpiElevationSub, formatKpiDelta(metrics.elevation - previousMetrics.elevation, formatSignedMeters, "higher"));
     return;
   }
 
-  setKpiSubContent(els.kpiDistanceSub);
   setKpiSubContent(els.kpiActivitiesSub);
   setKpiSubContent(els.kpiTimeSub);
   setKpiSubContent(els.kpiElevationSub);
+}
+
+function formatAnnualizedDistanceProjection(distanceKm, rangeDays = appState.rangeDays) {
+  const normalizedRangeDays = Number(rangeDays);
+  if (!Number.isFinite(normalizedRangeDays) || normalizedRangeDays <= 0) return "";
+  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return "";
+  return `<span class="kpi-annualized">Annualized ${formatNumber((distanceKm * STANDARD_YEAR_DAYS) / normalizedRangeDays, 1)} km/yr</span>`;
 }
 
 function setKpiSubContent(element, content = "") {
@@ -1691,7 +1723,7 @@ function setActiveViewTab(view) {
 }
 
 function renderView() {
-  const showActivityList = appState.currentView === "activities" || (appState.currentView === "dashboard" && appState.activityListOpen);
+  const showActivityList = appState.currentView === "activities";
   const showPersonalBests = appState.currentView === "pb";
   const personalBestTab = normalizePersonalBestTab(appState.personalBestTab);
   const analysisTab = normalizeAnalysisTab(appState.analysisTab);
@@ -2459,8 +2491,8 @@ function handleAllActivityAction(event) {
 function renderPersonalBestTab() {
   const tab = normalizePersonalBestTab(appState.personalBestTab);
   appState.personalBestTab = tab;
+  updateRecordTargetRankControl();
   updatePersonalBestTabControls(tab);
-  renderPersonalBestOverview();
   if (tab === "pace") {
     renderPaceBestsView();
     updatePersonalBestModeVisibility(tab);
@@ -2477,67 +2509,6 @@ function renderPersonalBestTab() {
   renderPersonalBestTrendChart();
   renderPersonalBests();
   updatePersonalBestModeVisibility(tab);
-}
-
-function renderPersonalBestOverview(payload = appState.personalBests || {}) {
-  if (!els.personalBestOverviewGrid) return;
-  const distances = payload.distances || [];
-  const durations = payload.durations || [];
-  const paces = payload.paces || [];
-  const distanceEfforts = Number(payload.effortCount || countRecordEfforts(distances));
-  const durationEfforts = Number(payload.durationEffortCount || countRecordEfforts(durations));
-  const paceEfforts = Number(payload.paceEffortCount || countRecordEfforts(paces));
-  const cards = [
-    {
-      label: "Distance records",
-      value: distances.length
-        ? formatCoverageTargetCount(distances.length, "distance", "distances")
-        : "No distance records yet",
-      detail: distances.length
-        ? formatRecordEffortCount(distanceEfforts)
-        : "Import activities, then update run details to calculate distance records."
-    },
-    {
-      label: "Time records",
-      value: durations.length
-        ? formatCoverageTargetCount(durations.length, "time target", "time targets")
-        : "No time records yet",
-      detail: durations.length
-        ? formatRecordEffortCount(durationEfforts)
-        : "Update run details to calculate time records."
-    },
-    {
-      label: "Pace records",
-      value: paces.length
-        ? formatCoverageTargetCount(paces.length, "pace target", "pace targets")
-        : "No pace records yet",
-      detail: paces.length
-        ? formatRecordEffortCount(paceEfforts)
-        : "Update run details to calculate pace records."
-    }
-  ];
-
-  els.personalBestOverviewGrid.innerHTML = cards.map((card) => `
-    <article class="kpi-card personal-best-overview-card">
-      <span>${escapeHtml(card.label)}</span>
-      <strong>${escapeHtml(card.value)}</strong>
-      <small>${escapeHtml(card.detail)}</small>
-    </article>
-  `).join("");
-}
-
-function formatCoverageTargetCount(count, singular, plural) {
-  const normalizedCount = Number(count || 0);
-  return `${formatInteger(normalizedCount)} ${normalizedCount === 1 ? singular : plural}`;
-}
-
-function countRecordEfforts(groups = []) {
-  return sum(groups, (group) => Number(group.count || group.top?.length || 0));
-}
-
-function formatRecordEffortCount(count) {
-  const normalizedCount = Number(count || 0);
-  return `${formatInteger(normalizedCount)} ${normalizedCount === 1 ? "record effort" : "record efforts"}`;
 }
 
 function updatePersonalBestTabControls(tab = normalizePersonalBestTab(appState.personalBestTab)) {
@@ -2708,6 +2679,7 @@ function renderBestRecordPanel({ group, type, expandedSet, toggleAttribute, noRe
           <h2>${escapeHtml(group.name)}</h2>
           <span>${countLabel(group)}</span>
         </div>
+        ${renderTopRankTargetSummary(group, type)}
         <div class="table-wrap ${tableClasses}">
           <table>
             ${renderBestRecordColgroup(type)}
@@ -2724,6 +2696,48 @@ function renderBestRecordPanel({ group, type, expandedSet, toggleAttribute, noRe
         ${toggle}
       </article>
     `;
+}
+
+function renderTopRankTargetSummary(group, type, rankLimit = appState.recordTargetRank) {
+  const normalizedRankLimit = normalizeRecordTargetRank(rankLimit);
+  const target = buildTopRankTargetSummary(group, type, normalizedRankLimit);
+  if (!target) return "";
+  return `
+        <div class="record-target-summary">
+          <span>${formatTopRankLabel(normalizedRankLimit)} target today</span>
+          <strong>${escapeHtml(target.value)}</strong>
+          <small>${escapeHtml(target.detail)}</small>
+        </div>
+  `;
+}
+
+function buildTopRankTargetSummary(group, type, rankLimit = appState.recordTargetRank) {
+  const normalizedRankLimit = normalizeRecordTargetRank(rankLimit);
+  const targetEffort = group?.top?.[normalizedRankLimit - 1];
+  if (!targetEffort) return null;
+  if (type === "time") {
+    const distanceKm = Number(targetEffort.distanceKm || 0);
+    if (!Number.isFinite(distanceKm) || distanceKm <= 0) return null;
+    return {
+      value: formatDistanceKm(distanceKm),
+      detail: `Beat this distance for ${group.name}`
+    };
+  }
+  if (type === "pace") {
+    const durationSeconds = Number(targetEffort.durationSeconds || targetEffort.movingTime || 0);
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return null;
+    return {
+      value: formatClockDuration(durationSeconds),
+      detail: `Hold ${group.name} longer than this`
+    };
+  }
+  const movingTime = Number(targetEffort.movingTime || 0);
+  const paceSecondsPerKm = Number(targetEffort.paceSecondsPerKm || 0);
+  if (!Number.isFinite(movingTime) || movingTime <= 0) return null;
+  return {
+    value: formatClockDuration(movingTime),
+    detail: `${formatPaceWithUnit(paceSecondsPerKm)} or faster`
+  };
 }
 
 function resolveSelectedBestRecordGroup(groups, targetType) {
@@ -4116,9 +4130,9 @@ function renderRiegelGapSummaryCards(analysis, label) {
       <small>${strength ? formatSignedDistanceGap(strength.gapKm) : "No clear strength"}</small>
     </article>
     <article class="kpi-card">
-      <span>${escapeHtml(label)} Weakness</span>
+      <span>${escapeHtml(label)} Limiter</span>
       <strong>${weakness ? escapeHtml(weakness.name) : "-"}</strong>
-      <small>${weakness ? formatSignedDistanceGap(weakness.gapKm) : "No clear weakness"}</small>
+      <small>${weakness ? formatSignedDistanceGap(weakness.gapKm) : "No clear limiter"}</small>
     </article>
     <article class="kpi-card kpi-card--value-only">
       <span>${escapeHtml(label)} Exponent</span>
@@ -4373,12 +4387,14 @@ function buildAnalysisProfile(existing = {}) {
   const weakness = signals
     .filter((item) => item.kind === "weakness")
     .sort((a, b) => b.magnitude - a.magnitude)[0] || null;
-  const improve = weakness || signals.sort((a, b) => b.magnitude - a.magnitude)[0] || null;
+  const improve = weakness || [...signals].sort((a, b) => b.magnitude - a.magnitude)[0] || null;
+  const expectedPrCard = buildExpectedPrCandidateCard(signals);
   return {
     cards: [
       profileCard("Strength", strength, "No clear strength yet"),
-      profileCard("Weakness", weakness, "No clear weakness yet"),
-      profileCard("Improvement", improve, "Collect more comparable records")
+      profileCard("Limiter", weakness, "No clear limiter yet"),
+      profileCard("Next Focus", improve, "Collect more comparable records"),
+      expectedPrCard
     ],
     improveSignal: improve,
     schedule: buildTrainingSchedule(improve)
@@ -4390,6 +4406,20 @@ function profileCard(title, signal, fallback) {
     title,
     value: signal?.name || "-",
     detail: signal?.detail || fallback
+  };
+}
+
+function buildExpectedPrCandidateCard(signals = []) {
+  const candidates = signals
+    .filter((item) => item.kind === "weakness")
+    .sort((a, b) => b.magnitude - a.magnitude);
+  const best = candidates[0] || null;
+  return {
+    title: "Expected PRs",
+    value: best?.name || "-",
+    detail: best
+      ? `${formatInteger(candidates.length)} ${candidates.length === 1 ? "candidate" : "candidates"} · ${best.detail}`
+      : "No weaker-than-expected records yet"
   };
 }
 
@@ -5546,6 +5576,24 @@ function normalizePersonalBestTrendLimit(value) {
   return PERSONAL_BEST_TREND_LIMIT_OPTIONS.has(limit) ? limit : PERSONAL_BEST_TREND_LIMIT;
 }
 
+function normalizeRecordTargetRank(value) {
+  const rank = Math.floor(Number(value));
+  if (!Number.isFinite(rank) || rank < 1) return DEFAULT_RECORD_TARGET_RANK;
+  return rank;
+}
+
+function formatTopRankLabel(rankLimit = appState.recordTargetRank) {
+  return `Top ${formatInteger(normalizeRecordTargetRank(rankLimit))}`;
+}
+
+function updateRecordTargetRankControl() {
+  const rank = normalizeRecordTargetRank(appState.recordTargetRank);
+  appState.recordTargetRank = rank;
+  if (!els.recordTargetRankSelect) return;
+  const hasOption = RECORD_TARGET_RANK_OPTIONS.includes(rank);
+  els.recordTargetRankSelect.value = String(hasOption ? rank : DEFAULT_RECORD_TARGET_RANK);
+}
+
 function updatePersonalBestTrendLimitButtons() {
   for (const button of els.personalBestTrendLimitButtons || []) {
     setPressedActiveState(button, Number(button.dataset.limit) === appState.personalBestTrendLimit);
@@ -6481,7 +6529,7 @@ function setActivityRefreshing(activityId) {
   appState.refreshingActivityId = activityId ? String(activityId) : null;
   updateActionButtons();
   if (appState.currentView === "pb") renderPersonalBestTab();
-  if (appState.currentView === "activities" || (appState.currentView === "dashboard" && appState.activityListOpen)) renderAllActivities();
+  if (appState.currentView === "activities") renderAllActivities();
 }
 
 function setRecordExcluding(recordKey) {
