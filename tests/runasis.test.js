@@ -556,21 +556,21 @@ test("Training Schedule copy is reframed as Next Run Options", () => {
   assert.doesNotMatch(html, />Training Schedule</);
 });
 
-test("dashboard exposes Runner Brief before metric controls", () => {
+test("dashboard exposes the command center before metric controls", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
 
-  assert.match(html, /id="runnerBrief"/);
-  assert.ok(html.indexOf("id=\"runnerBrief\"") < html.indexOf("class=\"kpi-summary-heading\""));
+  assert.match(html, /id="dashboardCommandCenter"/);
+  assert.ok(html.indexOf("id=\"dashboardCommandCenter\"") < html.indexOf("class=\"kpi-summary-heading\""));
 });
 
 test("dashboard keeps high-frequency information in the content hierarchy without shortcut buttons", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const detailIndex = html.indexOf("More training detail");
-  const runnerBriefIndex = html.indexOf('id="runnerBrief"');
+  const commandCenterIndex = html.indexOf('id="dashboardCommandCenter"');
   const kpiIndex = html.indexOf("class=\"kpi-summary-heading\"");
 
-  assert.ok(runnerBriefIndex > -1, "runner brief should exist");
-  assert.ok(kpiIndex > runnerBriefIndex, "training volume should follow the runner brief");
+  assert.ok(commandCenterIndex > -1, "command center should exist");
+  assert.ok(kpiIndex > commandCenterIndex, "training volume should follow the command center");
   assert.ok(detailIndex > kpiIndex, "secondary detail should stay below primary dashboard information");
   assert.doesNotMatch(html, /dashboard-fast-actions/);
   assert.doesNotMatch(html, /dashboardActivitySearchButton|dashboardPersonalBestsButton|dashboardGoalCheckButton/);
@@ -3770,6 +3770,19 @@ test("dashboard secondary information is progressively disclosed", () => {
   assert.match(html, /<summary class="dashboard-detail-summary">[\s\S]*More training detail[\s\S]*Weekly patterns, distance mix, longest runs, and recent activities/);
   assert.match(html, /<details class="dashboard-detail-shell"[\s\S]*<section class="chart-grid summary-chart-grid">[\s\S]*<section class="records-grid">/);
   assert.match(css, /\.dashboard-detail-shell:not\(\[open\]\) > \.chart-grid,\s*\.dashboard-detail-shell:not\(\[open\]\) > \.records-grid\s*{[^}]*display:\s*none;/);
+});
+
+test("Dashboard exposes the command center structure", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
+
+  assert.match(dashboardView, /<section class="dashboard-command-center" id="dashboardCommandCenter" aria-label="Runner command center">/);
+  assert.match(dashboardView, /id="commandTodayValue"/);
+  assert.match(dashboardView, /id="commandLatestValue"/);
+  assert.match(dashboardView, /id="commandYearValue"/);
+  assert.match(dashboardView, /id="commandRaceTargetValue"/);
+  assert.match(dashboardView, /id="dashboardActivitySearchInput"/);
+  assert.match(dashboardView, /id="commonPbSummaryList"/);
 });
 
 test("dashboard marks the default KPI as selected before data loads", () => {
