@@ -252,14 +252,8 @@
               </label>
             </div>
           </div>
-          <div class="activity-summary-list" id="activitySummaryList" aria-label="Activity summaries"></div>
-          <button class="button ghost activity-show-more-button hidden" id="allActivityShowMoreButton" type="button">Show more</button>
-          <details class="activity-table-shell">
-            <summary class="dashboard-detail-summary activity-table-summary">
-              <span>Advanced table</span>
-              <small>Sort by sport, elevation, heart rate, detail state, and refresh actions</small>
-            </summary>
-            <div class="table-wrap all-activity-table-wrap">
+          <div class="activity-results-shell">
+            <div class="table-wrap all-activity-table-wrap activity-table-shell" aria-label="Sortable activity table">
               <table class="all-activity-table">
                 <thead>
                   <tr>
@@ -278,7 +272,9 @@
                 <tbody id="allActivityTable"></tbody>
               </table>
             </div>
-          </details>
+            <div class="activity-summary-list" id="activitySummaryList" aria-label="Activity summaries"></div>
+          </div>
+          <button class="button ghost activity-show-more-button hidden" id="allActivityShowMoreButton" type="button">Show more</button>
         </article>
       </section>
 

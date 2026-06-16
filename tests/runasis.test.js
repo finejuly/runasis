@@ -481,6 +481,31 @@ test("dashboard exposes Runner Brief before metric controls", () => {
   assert.ok(html.indexOf("id=\"runnerBrief\"") < html.indexOf("class=\"kpi-summary-heading\""));
 });
 
+test("dashboard keeps high-frequency information in the content hierarchy without shortcut buttons", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const detailIndex = html.indexOf("More training detail");
+  const runnerBriefIndex = html.indexOf('id="runnerBrief"');
+  const kpiIndex = html.indexOf("class=\"kpi-summary-heading\"");
+
+  assert.ok(runnerBriefIndex > -1, "runner brief should exist");
+  assert.ok(kpiIndex > runnerBriefIndex, "training volume should follow the runner brief");
+  assert.ok(detailIndex > kpiIndex, "secondary detail should stay below primary dashboard information");
+  assert.doesNotMatch(html, /dashboard-fast-actions/);
+  assert.doesNotMatch(html, /dashboardActivitySearchButton|dashboardPersonalBestsButton|dashboardGoalCheckButton/);
+});
+
+test("Activities puts the sortable table before summary cards without adding a view toggle", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const listIndex = html.indexOf('id="activitySummaryList"');
+  const tableIndex = html.indexOf('id="allActivityTable"');
+
+  assert.ok(tableIndex > -1, "activity table should exist");
+  assert.ok(listIndex > -1, "activity summaries should still exist");
+  assert.ok(tableIndex < listIndex, "sortable table should be reached before summary cards");
+  assert.doesNotMatch(html, /Activity result view/);
+  assert.doesNotMatch(html, /activity-view-option|data-activity-view/);
+});
+
 test("renderDashboardRunnerBrief fills latest, today, and year goal cards", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-06-15T12:00:00");
@@ -548,6 +573,67 @@ test("formatAnnualizedDistanceProjection annualizes any numeric dashboard range"
   `, app);
 
   assert.match(result, /Annualized 730\.0 km\/yr/);
+});
+
+test("personal best records default to common runner targets when available", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
+    ({
+      distance: resolveSelectedBestRecordGroup([
+        { name: "100m", top: [] },
+        { name: "5K", top: [] },
+        { name: "10K", top: [] }
+      ], "distance").name,
+      time: resolveSelectedBestRecordGroup([
+        { name: "15s", top: [] },
+        { name: "20m", top: [] },
+        { name: "1h", top: [] }
+      ], "time").name,
+      pace: resolveSelectedBestRecordGroup([
+        { name: "3:30/km", top: [] },
+        { name: "5:00/km", top: [] },
+        { name: "6:00/km", top: [] }
+      ], "pace").name
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    distance: "5K",
+    time: "20m",
+    pace: "5:00/km"
+  });
+});
+
+test("personal best target lists preserve target order while defaulting to common targets", () => {
+  const app = loadAppContext();
+
+  const html = vm.runInContext(`
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
+    renderFocusedBestRecordPanel({
+      groups: [
+        { name: "100m", count: 3, top: [{ movingTime: 20, paceSecondsPerKm: 200, activityName: "Run" }] },
+        { name: "5K", count: 3, top: [{ movingTime: 1500, paceSecondsPerKm: 300, activityName: "Run" }] },
+        { name: "10K", count: 3, top: [{ movingTime: 3300, paceSecondsPerKm: 330, activityName: "Run" }] }
+      ],
+      type: "distance",
+      targetType: "distance",
+      expandedSet: new Set(),
+      toggleAttribute: "personal-best-toggle",
+      emptyText: "No best effort data",
+      noRecordsText: "No best efforts",
+      tableClass: "",
+      countLabel: (distance) => distance.name
+    });
+  `, app);
+
+  assert.doesNotMatch(html, /class="record-target-pins"/);
+  assert.match(html, /data-record-target-name="5K"/);
+  assert.match(html, /data-record-target-name="10K"/);
+  assert.ok(html.indexOf('data-record-target-name="100m"') < html.indexOf('data-record-target-name="5K"'));
+  assert.ok(html.indexOf('data-record-target-name="5K"') < html.indexOf('data-record-target-name="10K"'));
+  assert.match(html, /data-record-target-name="5K"[^>]+data-record-target-state="active"/);
 });
 
 test("Strava local timestamp strings keep their calendar date", () => {
@@ -3336,17 +3422,23 @@ test("activities are available as a top-level workflow", () => {
   assert.doesNotMatch(html, /id="backActivityListButton"/);
 });
 
-test("Activities page defaults to compact summaries with advanced controls disclosed", () => {
+test("Activities page keeps the sortable table at the top of results", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const activitiesView = html.match(/<section class="analysis-view hidden" id="activityListView"[\s\S]*?<section class="analysis-view hidden" id="pbView"/)?.[0] || "";
+  const tableIndex = activitiesView.indexOf('id="allActivityTable"');
+  const cardsIndex = activitiesView.indexOf('id="activitySummaryList"');
 
   assert.match(activitiesView, /id="activitySummaryList"/);
   assert.match(activitiesView, /Find a run, check detail coverage, and refresh best-effort data/);
   assert.match(activitiesView, /<div class="activity-filter-content" aria-label="Activity filters">/);
+  assert.ok(tableIndex > -1, "activity table should exist");
+  assert.ok(cardsIndex > -1, "activity summaries should exist");
+  assert.ok(tableIndex < cardsIndex, "activity table should precede summary cards");
+  assert.doesNotMatch(activitiesView, /aria-label="Activity result view"/);
+  assert.doesNotMatch(activitiesView, /data-activity-view/);
   assert.doesNotMatch(activitiesView, /More filters/);
   assert.doesNotMatch(activitiesView, /<details class="activity-filter-shell"/);
-  assert.match(activitiesView, /<details class="activity-table-shell"/);
-  assert.match(activitiesView, /Advanced table/);
+  assert.doesNotMatch(activitiesView, /<details class="activity-table-shell"/);
   assert.doesNotMatch(activitiesView, /Back to Dashboard/);
 });
 
