@@ -32,6 +32,13 @@ const STANDARD_YEAR_DAYS = 365;
 const YEAR_DAYS = 365.25;
 const DEFAULT_DASHBOARD_METRIC_KEY = "distance";
 const COMMON_RECORD_TARGETS = ["5K", "10K", "Half-Marathon", "Marathon"];
+const COMMON_TIME_RECORD_TARGETS = ["20m", "1h"];
+const COMMON_PACE_RECORD_TARGETS = ["4:30/km", "5:00/km", "5:27/km", "6:00/km"];
+const DEFAULT_RECORD_TARGETS = {
+  distance: "5K",
+  time: "20m",
+  pace: "5:00/km"
+};
 const TEN_MILE_KM = 16.09;
 const HALF_MARATHON_KM = 21.097;
 const DISTANCE_DISTRIBUTION_BINS = [
@@ -2746,9 +2753,28 @@ function resolveSelectedBestRecordGroup(groups, targetType) {
   }
   const normalizedType = normalizePersonalBestTab(targetType);
   const selectedName = appState.selectedPersonalBestTargets[normalizedType];
-  const selectedGroup = groups.find((group) => group.name === selectedName) || groups[0];
+  const preferredName = getDefaultBestRecordTargetName(groups, normalizedType);
+  const selectedGroup = groups.find((group) => group.name === selectedName)
+    || groups.find((group) => group.name === preferredName)
+    || groups[0];
   appState.selectedPersonalBestTargets[normalizedType] = selectedGroup.name;
   return selectedGroup;
+}
+
+function getDefaultBestRecordTargetName(groups, targetType) {
+  const normalizedType = normalizePersonalBestTab(targetType);
+  const preferred = DEFAULT_RECORD_TARGETS[normalizedType];
+  if (groups.some((group) => group.name === preferred)) return preferred;
+  const firstCommonTarget = getCommonRecordTargetNames(normalizedType)
+    .find((name) => groups.some((group) => group.name === name));
+  return firstCommonTarget || groups[0]?.name || null;
+}
+
+function getCommonRecordTargetNames(targetType) {
+  const normalizedType = normalizePersonalBestTab(targetType);
+  if (normalizedType === "time") return COMMON_TIME_RECORD_TARGETS;
+  if (normalizedType === "pace") return COMMON_PACE_RECORD_TARGETS;
+  return COMMON_RECORD_TARGETS;
 }
 
 function renderRecordTargetList(groups, selectedGroup, targetType, recordType) {

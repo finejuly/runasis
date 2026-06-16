@@ -1465,6 +1465,11 @@ table {
   flex-wrap: wrap;
 }
 
+.activity-results-shell {
+  display: grid;
+  gap: 12px;
+}
+
 .activity-summary-list {
   display: grid;
   gap: 10px;
@@ -1537,18 +1542,10 @@ table {
   height: 32px;
 }
 
-.activity-table-summary {
-  margin-top: 14px;
-}
-
 .activity-show-more-button {
   justify-self: center;
   margin-top: 2px;
   min-width: 150px;
-}
-
-.activity-table-shell:not([open]) .all-activity-table-wrap {
-  display: none;
 }
 
 .checkbox-field {
