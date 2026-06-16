@@ -27,9 +27,9 @@ Use $runasis-triage to run a read-mostly Runasis repo triage. Keep the repo-loca
 
 - 저장소: `finejuly/runasis`
 - 기준 브랜치: `main`
-- 최근 기록된 테스트 기준선: 2026-06-15 daily triage 중 `npm test` 98개 통과.
-- 최근 기록된 커밋: `c2f7bd7 Merge Analysis interaction smoke test`.
-- 현재 작업트리: detached HEAD worktree `2a7b/Runasis`, clean 상태, `obsidian/` 디렉터리는 없음.
+- 최근 기록된 테스트 기준선: 2026-06-16 daily triage 중 `npm test` 153개 통과.
+- 최근 기록된 커밋: `46b1cad Refine dashboard activity layout and PB defaults`.
+- 현재 작업트리: detached HEAD worktree `d575/Runasis`, clean 상태, `obsidian/` 디렉터리는 없음.
 - 주요 리스크 영역: Strava 토큰/설정 처리, 로컬 데이터 삭제, personal-best 계산, Riegel projection, SVG 차트 라벨/레이아웃 회귀, `server.js`와 `public/app.js`의 큰 파일 유지보수성.
 
 ## Obsidian 운영
@@ -43,6 +43,10 @@ Use $runasis-triage to run a read-mostly Runasis repo triage. Keep the repo-loca
 
 ## 최근 실행 메모
 
+- 2026-06-16: detached HEAD worktree `d575/Runasis`에서 triage-only pass를 실행했고, 앱 코드 실패 없이 `npm test` 153개 통과를 확인했다.
+- 2026-06-16: `.agents/skills/runasis-triage/SKILL.md`, 이 자동화 프롬프트, `docs/loop/state.md`, `obsidian/Work/작업.md`는 현재 선호 워크플로와 맞고, 남은 루프 드리프트는 `.agents/skills/runasis-triage/agents/openai.yaml`의 `default_prompt`가 `obsidian/Work/작업.md` 점검, `source_ref`/`managed_by` provenance, detached worktree cleanup 규칙을 아직 충분히 담지 못하는 점이다.
+- 2026-06-16: 현재 worktree에는 `obsidian/` 사본이 없어서 vault 변경은 기본 저장소 `/Users/ilyoungjeong/Documents/Runasis` 정본에만 반영했고, base repo에는 triage 문서와 별개인 앱 코드 변경(`public/app.js`, `server.js`, `tests/runasis.test.js`)이 이미 있어 그대로 보존했다.
+- 2026-06-16: 이번 triage의 작은 후보는 triage 기본 프롬프트 정렬, 저장소 링크 표시 결정, README 기능 설명 드리프트 정리로 유지하고 `Runasis.command` 계약 검토는 Inbox에 남겼다.
 - 2026-06-15: detached HEAD worktree `2a7b/Runasis`에서 triage-only pass를 실행했고, 앱 코드 실패 없이 `npm test` 98개 통과를 다시 확인했다.
 - 2026-06-15: `.agents/skills/runasis-triage/SKILL.md`, 이 자동화 프롬프트, `docs/loop/state.md`, `obsidian/Work/작업.md`는 현재 선호 워크플로와 맞지만 `.agents/skills/runasis-triage/agents/openai.yaml`의 `default_prompt`는 `obsidian/Work/작업.md` 점검, `source_ref`/`managed_by` provenance, detached worktree cleanup 규칙을 아직 빠뜨린다.
 - 2026-06-15: 현재 worktree에는 `obsidian/` 사본이 없어서 vault 변경은 기본 저장소 `/Users/ilyoungjeong/Documents/Runasis` 정본에만 반영했고, tracked `docs/loop/state.md`는 worktree와 base repo copy를 함께 맞췄다.

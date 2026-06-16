@@ -880,84 +880,60 @@ function getFocusableElements(container) {
     .filter((element) => element instanceof HTMLElement && !element.disabled && element.getClientRects().length > 0);
 }
 
-function readSavedRiegelExponent() {
+function readStoragePreference(key, errorFallback = null, normalize = (value) => value) {
   try {
-    return Number(window.localStorage.getItem(RIEGEL_EXPONENT_STORAGE_KEY));
+    return normalize(window.localStorage.getItem(key));
   } catch {
-    return null;
+    return errorFallback;
   }
+}
+
+function writeStoragePreference(key, value) {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // Persistence is optional; the current session value still applies.
+  }
+}
+
+function readSavedRiegelExponent() {
+  return readStoragePreference(RIEGEL_EXPONENT_STORAGE_KEY, null, Number);
 }
 
 function saveRiegelExponent(value) {
-  try {
-    window.localStorage.setItem(RIEGEL_EXPONENT_STORAGE_KEY, String(value));
-  } catch {
-    // Persistence is optional; the current session value still applies.
-  }
+  writeStoragePreference(RIEGEL_EXPONENT_STORAGE_KEY, value);
 }
 
 function readSavedRiegelExponentMode() {
-  try {
-    return normalizeRiegelExponentMode(window.localStorage.getItem(RIEGEL_EXPONENT_MODE_STORAGE_KEY));
-  } catch {
-    return null;
-  }
+  return readStoragePreference(RIEGEL_EXPONENT_MODE_STORAGE_KEY, null, normalizeRiegelExponentMode);
 }
 
 function saveRiegelExponentMode(mode) {
-  try {
-    window.localStorage.setItem(RIEGEL_EXPONENT_MODE_STORAGE_KEY, normalizeRiegelExponentMode(mode) || DEFAULT_RIEGEL_EXPONENT_MODE);
-  } catch {
-    // Persistence is optional; the current session value still applies.
-  }
+  writeStoragePreference(RIEGEL_EXPONENT_MODE_STORAGE_KEY, normalizeRiegelExponentMode(mode) || DEFAULT_RIEGEL_EXPONENT_MODE);
 }
 
 function readSavedRiegelSourceDistanceName() {
-  try {
-    return window.localStorage.getItem(RIEGEL_SOURCE_DISTANCE_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  return readStoragePreference(RIEGEL_SOURCE_DISTANCE_STORAGE_KEY);
 }
 
 function saveRiegelSourceDistanceName(name) {
-  try {
-    window.localStorage.setItem(RIEGEL_SOURCE_DISTANCE_STORAGE_KEY, String(name || "5K"));
-  } catch {
-    // Persistence is optional; the current session value still applies.
-  }
+  writeStoragePreference(RIEGEL_SOURCE_DISTANCE_STORAGE_KEY, name || "5K");
 }
 
 function readSavedRaceTargetDistanceName() {
-  try {
-    return window.localStorage.getItem(RACE_TARGET_DISTANCE_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  return readStoragePreference(RACE_TARGET_DISTANCE_STORAGE_KEY);
 }
 
 function saveRaceTargetDistanceName(name) {
-  try {
-    window.localStorage.setItem(RACE_TARGET_DISTANCE_STORAGE_KEY, String(name || DEFAULT_RACE_TARGET_DISTANCE));
-  } catch {
-    // Persistence is optional; the current session value still applies.
-  }
+  writeStoragePreference(RACE_TARGET_DISTANCE_STORAGE_KEY, name || DEFAULT_RACE_TARGET_DISTANCE);
 }
 
 function readSavedRaceTargetTimeText() {
-  try {
-    return window.localStorage.getItem(RACE_TARGET_TIME_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+  return readStoragePreference(RACE_TARGET_TIME_STORAGE_KEY);
 }
 
 function saveRaceTargetTimeText(value) {
-  try {
-    window.localStorage.setItem(RACE_TARGET_TIME_STORAGE_KEY, String(value || DEFAULT_RACE_TARGET_TIME));
-  } catch {
-    // Persistence is optional; the current session value still applies.
-  }
+  writeStoragePreference(RACE_TARGET_TIME_STORAGE_KEY, value || DEFAULT_RACE_TARGET_TIME);
 }
 
 function normalizeRiegelExponentMode(mode) {
