@@ -222,6 +222,23 @@ function cacheElements() {
     "runnerBriefYearValue",
     "runnerBriefYearMeta",
     "runnerBriefYearDetail",
+    "dashboardCommandCenter",
+    "commandTodayValue",
+    "commandTodayMeta",
+    "commandTodayDetail",
+    "commandLatestValue",
+    "commandLatestMeta",
+    "commandYearValue",
+    "commandYearMeta",
+    "commandRaceTargetValue",
+    "commandRaceTargetMeta",
+    "commandRaceTargetValueSecondary",
+    "commandRaceTargetMetaSecondary",
+    "commandRaceTargetDetail",
+    "dashboardActivitySearchForm",
+    "dashboardActivitySearchInput",
+    "commonPbCaption",
+    "commonPbSummaryList",
     "dashboardView",
     "activityListView",
     "pbView",
@@ -427,6 +444,8 @@ function bindEvents() {
     setActiveViewTab("activities");
     render();
   });
+
+  els.dashboardActivitySearchForm?.addEventListener("submit", submitDashboardActivitySearch);
 
   els.allActivitySearchInput.addEventListener("input", () => {
     appState.allActivitySearch = els.allActivitySearchInput.value;
@@ -1197,7 +1216,7 @@ function render() {
   const activities = getFilteredActivities();
   const metrics = calculateMetrics(activities);
   const previousMetrics = calculatePreviousPeriodMetrics();
-  renderDashboardRunnerBrief();
+  renderDashboardCommandCenter();
   renderKpiRangeCaption(activities);
   renderKpis(metrics, previousMetrics);
   renderKpiSelection();
@@ -1519,6 +1538,100 @@ function buildYearGoalProgress(activities = appState.activities) {
     averageKmPerWeek,
     state: completedKm > 0 ? "ready" : "empty"
   };
+}
+
+function renderDashboardCommandCenter() {
+  const brief = buildRunnerBrief(appState.activities, appState.personalBests);
+  renderCommandToday(brief.today);
+  renderCommandBriefMetric("Latest", brief.latestRun);
+  renderCommandBriefMetric("Year", brief.yearGoal);
+  renderDashboardRaceTargetSummary();
+  renderCommonPersonalBestSummary();
+}
+
+function renderCommandToday(card) {
+  if (els.commandTodayValue) els.commandTodayValue.textContent = card?.value || "-";
+  if (els.commandTodayMeta) els.commandTodayMeta.textContent = card?.meta || "Based on saved runs";
+  if (els.commandTodayDetail) els.commandTodayDetail.textContent = card?.detail || "";
+}
+
+function renderCommandBriefMetric(slot, card) {
+  const value = els[`command${slot}Value`];
+  const meta = els[`command${slot}Meta`];
+  if (value) value.textContent = card?.value || "-";
+  if (meta) meta.textContent = card?.meta || "";
+}
+
+function renderDashboardRaceTargetSummary() {
+  const targets = getRiegelProjectionTargets();
+  const selectedTarget = targets.find((target) => target.name === appState.raceTargetDistanceName)
+    || targets.find((target) => target.name === DEFAULT_RACE_TARGET_DISTANCE)
+    || targets[0]
+    || { name: DEFAULT_RACE_TARGET_DISTANCE, distanceKm: 42.195 };
+  const analysis = buildRiegelAnalysis();
+  const selectedSeries = analysis?.selectedSeries || getSelectedRiegelSeries();
+  const expectedSeries = (analysis?.expectedPaceSeries || []).find((item) => item.key === selectedSeries.key)
+    || analysis?.expectedPaceSeries?.[0]
+    || null;
+  const status = buildRaceTargetStatus({
+    targetName: selectedTarget.name,
+    goalSeconds: parseRaceGoalTime(appState.raceTargetTimeText || DEFAULT_RACE_TARGET_TIME),
+    expectedRows: expectedSeries?.points || [],
+    fallbackDistanceKm: selectedTarget.distanceKm
+  });
+  if (els.commandRaceTargetValue) els.commandRaceTargetValue.textContent = status.value;
+  if (els.commandRaceTargetMeta) els.commandRaceTargetMeta.textContent = status.meta;
+  if (els.commandRaceTargetValueSecondary) els.commandRaceTargetValueSecondary.textContent = status.value;
+  if (els.commandRaceTargetMetaSecondary) els.commandRaceTargetMetaSecondary.textContent = status.meta;
+  if (els.commandRaceTargetDetail) els.commandRaceTargetDetail.textContent = status.detail;
+}
+
+function buildCommonPersonalBestSummary(personalBests = appState.personalBests) {
+  const rows = [];
+  for (const name of COMMON_RECORD_TARGETS) {
+    const group = (personalBests?.distances || []).find((item) => item.name === name);
+    const best = group?.top?.[0];
+    if (best?.movingTime) rows.push({ name, value: formatClockDuration(best.movingTime), meta: "Distance best" });
+  }
+  for (const name of COMMON_TIME_RECORD_TARGETS) {
+    const group = (personalBests?.durations || []).find((item) => item.name === name);
+    const best = group?.top?.[0];
+    if (Number(best?.distanceKm) > 0) rows.push({ name, value: formatDistanceKm(best.distanceKm), meta: "Time best" });
+  }
+  for (const name of COMMON_PACE_RECORD_TARGETS) {
+    const group = (personalBests?.paces || []).find((item) => item.name === name);
+    const best = group?.top?.[0];
+    const durationSeconds = Number(best?.durationSeconds || best?.movingTime || 0);
+    if (durationSeconds > 0) rows.push({ name, value: formatClockDuration(durationSeconds), meta: "Pace best" });
+  }
+  return rows.slice(0, 8);
+}
+
+function renderCommonPersonalBestSummary() {
+  if (!els.commonPbSummaryList) return;
+  const rows = buildCommonPersonalBestSummary(appState.personalBests);
+  if (els.commonPbCaption) {
+    els.commonPbCaption.textContent = rows.length ? `${formatInteger(rows.length)} common targets` : "No best efforts";
+  }
+  if (!rows.length) {
+    els.commonPbSummaryList.innerHTML = `<div class="activity-empty-state">Import best-effort streams to see common targets</div>`;
+    return;
+  }
+  els.commonPbSummaryList.innerHTML = rows.map((row) => `
+    <div class="common-pb-item">
+      <span>${escapeHtml(row.name)}</span>
+      <strong>${escapeHtml(row.value)}</strong>
+      <small>${escapeHtml(row.meta)}</small>
+    </div>
+  `).join("");
+}
+
+function submitDashboardActivitySearch(event) {
+  event?.preventDefault?.();
+  appState.allActivitySearch = els.dashboardActivitySearchInput?.value?.trim() || "";
+  resetAllActivityVisibleLimit();
+  appState.currentView = "activities";
+  render();
 }
 
 function renderDashboardRunnerBrief() {

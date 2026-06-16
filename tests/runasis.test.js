@@ -718,6 +718,64 @@ test("personal best target lists preserve target order while defaulting to commo
   assert.match(html, /data-record-target-name="5K"[^>]+data-record-target-state="active"/);
 });
 
+test("buildCommonPersonalBestSummary returns common distance, time, and pace rows", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    buildCommonPersonalBestSummary({
+      distances: [
+        { name: "5K", top: [{ movingTime: 1320 }] },
+        { name: "10K", top: [{ movingTime: 2820 }] }
+      ],
+      durations: [
+        { name: "20m", top: [{ distanceKm: 4.2 }] }
+      ],
+      paces: [
+        { name: "5:00/km", top: [{ durationSeconds: 1800 }] }
+      ]
+    })
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [
+    { name: "5K", value: "22:00", meta: "Distance best" },
+    { name: "10K", value: "47:00", meta: "Distance best" },
+    { name: "20m", value: "4.20 km", meta: "Time best" },
+    { name: "5:00/km", value: "30:00", meta: "Pace best" }
+  ]);
+});
+
+test("submitDashboardActivitySearch opens Activities with query and resets visible limit", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    {
+      const renders = [];
+      render = () => renders.push({
+        view: appState.currentView,
+        query: appState.allActivitySearch,
+        limit: appState.allActivityVisibleLimit
+      });
+      appState.currentView = "dashboard";
+      appState.allActivityVisibleLimit = 100;
+      els.dashboardActivitySearchInput = { value: "tempo" };
+      submitDashboardActivitySearch({ preventDefault() {} });
+      ({
+        view: appState.currentView,
+        query: appState.allActivitySearch,
+        limit: appState.allActivityVisibleLimit,
+        renders
+      });
+    }
+  `, app);
+
+  assert.equal(result.view, "activities");
+  assert.equal(result.query, "tempo");
+  assert.equal(result.limit, 50);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.renders)), [
+    { view: "activities", query: "tempo", limit: 50 }
+  ]);
+});
+
 test("Strava local timestamp strings keep their calendar date", () => {
   const previousTimezone = process.env.TZ;
   process.env.TZ = "America/Los_Angeles";
