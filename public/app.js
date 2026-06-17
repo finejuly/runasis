@@ -107,8 +107,8 @@ const appState = {
   recordTargetRank: DEFAULT_RECORD_TARGET_RANK,
   timeBestTrendDurationName: null,
   timeBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
-  timeBestScale: "linear",
-  paceBestDistanceScale: "linear",
+  timeBestScale: "log",
+  paceBestDistanceScale: "log",
   paceBestTrendTargetName: null,
   paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   currentView: "dashboard",
@@ -116,8 +116,9 @@ const appState = {
   personalBestModes: { distance: "records", time: "records", pace: "records" },
   selectedPersonalBestTargets: { distance: null, time: null, pace: null },
   analysisTab: "distance",
-  personalBestScale: "linear",
-  riegelFiveKScale: "linear",
+  personalBestScale: "log",
+  riegelFiveKScale: "log",
+  showRecentPersonalBestRecords: false,
   riegelFiveKSeries: "top1",
   riegelExponent: DEFAULT_RIEGEL_EXPONENT,
   riegelCustomExponent: DEFAULT_RIEGEL_EXPONENT,
@@ -228,8 +229,10 @@ function cacheElements() {
     "commandTodayDetail",
     "commandLatestValue",
     "commandLatestMeta",
+    "commandLatestDetail",
     "commandYearValue",
     "commandYearMeta",
+    "commandYearDetail",
     "commandRaceTargetValue",
     "commandRaceTargetMeta",
     "commandRaceTargetValueSecondary",
@@ -287,7 +290,9 @@ function cacheElements() {
     "longRunCaption",
     "activityTable",
     "recentCaption",
+    "recordTargetRankField",
     "recordTargetRankSelect",
+    "showRecentRecordsInput",
     "personalBestChart",
     "personalBestChartCaption",
     "personalBestRecencyChart",
@@ -526,6 +531,11 @@ function bindEvents() {
     render();
   });
 
+  els.showRecentRecordsInput?.addEventListener("change", () => {
+    appState.showRecentPersonalBestRecords = Boolean(els.showRecentRecordsInput.checked);
+    renderPersonalBestTab();
+  });
+
   for (const tab of els.analysisTabOptions || []) {
     tab.addEventListener("click", () => {
       selectAnalysisTab(tab.dataset.analysisTab);
@@ -757,6 +767,8 @@ function updatePersonalBestModeVisibility(tab = appState.personalBestTab) {
     const paneMode = normalizePersonalBestMode(pane.dataset.pbPane);
     pane.classList.toggle("hidden", paneTab !== activeTab || paneMode !== activeMode);
   }
+
+  els.recordTargetRankField?.classList.toggle("hidden", activeMode !== "records");
 }
 
 function normalizeAnalysisTab(tab) {
@@ -1602,8 +1614,10 @@ function renderCommandToday(card) {
 function renderCommandBriefMetric(slot, card) {
   const value = els[`command${slot}Value`];
   const meta = els[`command${slot}Meta`];
+  const detail = els[`command${slot}Detail`];
   if (value) value.textContent = card?.value || "-";
   if (meta) meta.textContent = card?.meta || "";
+  if (detail) detail.textContent = card?.detail || "";
 }
 
 function renderDashboardRaceTargetSummary() {
@@ -2632,6 +2646,9 @@ function handleAllActivityAction(event) {
 function renderPersonalBestTab() {
   const tab = normalizePersonalBestTab(appState.personalBestTab);
   appState.personalBestTab = tab;
+  if (els.showRecentRecordsInput) {
+    els.showRecentRecordsInput.checked = Boolean(appState.showRecentPersonalBestRecords);
+  }
   updateRecordTargetRankControl();
   updatePersonalBestTabControls(tab);
   if (tab === "pace") {
@@ -2800,11 +2817,14 @@ function renderBestRecordPanel({ group, type, expandedSet, toggleAttribute, noRe
   const colspan = columns.length + 2;
   const tableClasses = ["personal-best-table", tableClass].filter(Boolean).join(" ");
   const topEfforts = group.top || [];
+  const latestRecord = findLatestBestRecord(topEfforts);
   const isExpanded = expandedSet.has(group.name);
   const visibleLimit = isExpanded ? PERSONAL_BEST_EXPANDED_LIMIT : PERSONAL_BEST_DEFAULT_LIMIT;
   const visibleEfforts = topEfforts.slice(0, visibleLimit);
   const rows = visibleEfforts.length
-    ? visibleEfforts.map((effort, index) => renderBestRecordRow(effort, index, columns)).join("")
+    ? visibleEfforts.map((effort, index) => renderBestRecordRow(effort, index, columns, {
+      isLatest: latestRecord?.rank === index + 1
+    })).join("")
     : `<tr><td colspan="${colspan}">${noRecordsText}</td></tr>`;
   const toggle = renderBestRecordMoreToggle({
     hasMore: topEfforts.length > PERSONAL_BEST_DEFAULT_LIMIT,
@@ -2821,6 +2841,7 @@ function renderBestRecordPanel({ group, type, expandedSet, toggleAttribute, noRe
           <span>${countLabel(group)}</span>
         </div>
         ${renderTopRankTargetSummary(group, type)}
+        ${renderLatestRecordRankSummary(latestRecord)}
         <div class="table-wrap ${tableClasses}">
           <table>
             ${renderBestRecordColgroup(type)}
@@ -2837,6 +2858,30 @@ function renderBestRecordPanel({ group, type, expandedSet, toggleAttribute, noRe
         ${toggle}
       </article>
     `;
+}
+
+function findLatestBestRecord(topEfforts = []) {
+  let latest = null;
+  topEfforts.forEach((effort, index) => {
+    const recordedAt = getLocalFirstTimestamp(effort.startDateLocal, effort.startDate);
+    if (!Number.isFinite(recordedAt)) return;
+    if (!latest || recordedAt > latest.recordedAt) {
+      latest = { effort, index, rank: index + 1, recordedAt };
+    }
+  });
+  return latest;
+}
+
+function renderLatestRecordRankSummary(latestRecord) {
+  if (!latestRecord) return "";
+  const effort = latestRecord.effort || {};
+  const activityName = effort.activityName || "Untitled";
+  return `
+        <div class="record-latest-summary">
+          <span>Latest record: #${formatInteger(latestRecord.rank)}</span>
+          <small>${escapeHtml(formatDate(effort.startDateLocal || effort.startDate))} · ${escapeHtml(activityName)}</small>
+        </div>
+  `;
 }
 
 function renderTopRankTargetSummary(group, type, rankLimit = appState.recordTargetRank) {
@@ -2961,15 +3006,22 @@ function renderBestRecordMoreToggle({ hasMore, isExpanded, visibleCount, toggleA
     `;
 }
 
-function renderBestRecordRow(effort, index, columns) {
+function renderBestRecordRow(effort, index, columns, options = {}) {
   const activityName = effort.activityName || "Untitled";
   const exclusionButton = renderRecordExclusionButton(effort, activityName);
+  const rowClasses = [];
+  if (effort.excluded) rowClasses.push("record-row-excluded");
+  if (options.isLatest) rowClasses.push("record-row-latest");
+  const rowClassAttribute = rowClasses.length ? ` class="${rowClasses.join(" ")}"` : "";
   return `
-        <tr${effort.excluded ? ` class="record-row-excluded"` : ""}>
+        <tr${rowClassAttribute}>
           <td>${index + 1}</td>
           ${columns.map((column) => {
             const classAttribute = column.className ? ` class="${column.className}"` : "";
-            return `<td${classAttribute}>${column.render(effort, activityName)}</td>`;
+            const latestBadge = options.isLatest && column.className === "activity-name"
+              ? ` <span class="record-latest-badge">Most recent</span>`
+              : "";
+            return `<td${classAttribute}>${column.render(effort, activityName)}${latestBadge}</td>`;
           }).join("")}
           <td class="record-actions">${exclusionButton}</td>
         </tr>
@@ -3110,7 +3162,7 @@ function renderPaceBestDurationChart() {
   }).join("");
 
   els.paceBestDurationChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, and top 10 distance by target pace" data-x-scale="log" data-y-scale="${useLogDistanceScale ? "log" : "linear"}">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(formatSeriesAriaLabel(series, "distance by target pace"))}" data-x-scale="log" data-y-scale="${useLogDistanceScale ? "log" : "linear"}">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
       <text class="axis-label" x="10" y="16">Distance (km)</text>
@@ -3410,7 +3462,7 @@ function renderTimeBestDistanceChart() {
   }).join("");
 
   els.timeBestDistanceChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median pace by time">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(formatSeriesAriaLabel(series, "pace by time"))}">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Time</text>
       <text class="axis-label" x="10" y="16">Pace</text>
@@ -5294,6 +5346,13 @@ function predictRiegelTime(sourceTime, sourceDistanceKm, targetDistanceKm, expon
   return sourceTime * Math.pow(targetDistanceKm / sourceDistanceKm, exponent);
 }
 
+function formatSeriesAriaLabel(series, suffix) {
+  const labels = series
+    .filter((item) => item.points?.length)
+    .map((item) => item.label);
+  return `${labels.join(", ")} ${suffix}`;
+}
+
 function renderPersonalBestChart() {
   updatePersonalBestScaleControls(appState.personalBestScale);
 
@@ -5379,7 +5438,7 @@ function renderPersonalBestChart() {
   }).join("");
 
   els.personalBestChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, top 10, and median pace by distance">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(formatSeriesAriaLabel(series, "pace by distance"))}">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Distance (km)</text>
       <text class="axis-label" x="10" y="16">Pace</text>
@@ -5858,6 +5917,21 @@ function buildPersonalBestSeries() {
     ...item,
     points: distances
       .map((distance) => {
+        if (item.key === "recent") {
+          const latest = findLatestBestRecord(distance.top || []);
+          const effort = latest?.effort;
+          if (!effort || !Number.isFinite(effort.paceSecondsPerKm)) return null;
+          return {
+            distanceKm: Number(distance.distanceKm || 0),
+            paceSecondsPerKm: effort.paceSecondsPerKm,
+            distanceName: distance.name,
+            time: effort.movingTime,
+            startDate: effort.startDate,
+            startDateLocal: effort.startDateLocal,
+            rank: latest.rank
+          };
+        }
+
         if (item.key === "median") {
           const effort = distance.median;
           if (!effort || !Number.isFinite(effort.paceSecondsPerKm)) return null;
@@ -5932,6 +6006,21 @@ function buildTimeBestDistanceSeries() {
     ...item,
     points: durations
       .map((duration) => {
+        if (item.key === "recent") {
+          const latest = findLatestBestRecord(duration.top || []);
+          const effort = latest?.effort;
+          if (!effort || !Number.isFinite(effort.distanceKm) || !Number.isFinite(effort.paceSecondsPerKm)) return null;
+          return {
+            durationSeconds: Number(duration.durationSeconds || 0),
+            durationName: duration.name,
+            distanceKm: Number(effort.distanceKm || 0),
+            paceSecondsPerKm: Number(effort.paceSecondsPerKm || 0),
+            startDate: effort.startDate,
+            startDateLocal: effort.startDateLocal,
+            rank: latest.rank
+          };
+        }
+
         if (item.key === "median") {
           const effort = duration.median;
           if (!effort || !Number.isFinite(effort.distanceKm) || !Number.isFinite(effort.paceSecondsPerKm)) return null;
@@ -5967,11 +6056,30 @@ function formatTimeBestPaceTooltip(series, point) {
 
 function buildPaceBestDurationSeries() {
   const paces = appState.personalBests?.paces || [];
-  return getPersonalBestSeriesDefinitions().map((item) => ({
+  return getPersonalBestPaceSeriesDefinitions().map((item) => ({
     ...item,
     points: paces
       .map((pace) => {
         const targetPaceSecondsPerKm = Number(pace.paceSecondsPerKm || 0);
+        if (item.key === "recent") {
+          const latest = findLatestBestRecord(pace.top || []);
+          const effort = latest?.effort;
+          const durationSeconds = Number(effort?.durationSeconds || effort?.movingTime || 0);
+          const distanceKm = Number(effort?.distanceKm || 0);
+          const paceSecondsPerKm = Number(effort?.paceSecondsPerKm || 0);
+          if (!effort || !Number.isFinite(durationSeconds) || !Number.isFinite(distanceKm) || !Number.isFinite(paceSecondsPerKm)) return null;
+          return {
+            targetPaceSecondsPerKm,
+            paceName: pace.name,
+            durationSeconds,
+            distanceKm,
+            paceSecondsPerKm,
+            startDate: effort.startDate,
+            startDateLocal: effort.startDateLocal,
+            rank: latest.rank
+          };
+        }
+
         if (item.key === "median") {
           const effort = pace.median;
           const durationSeconds = Number(effort?.durationSeconds || effort?.movingTime || 0);
@@ -6159,7 +6267,7 @@ function getPersonalBestSeriesDefinitions() {
 }
 
 function getPersonalBestPaceSeriesDefinitions() {
-  return [
+  const definitions = [
     ...getPersonalBestSeriesDefinitions(),
     {
       key: "median",
@@ -6173,6 +6281,20 @@ function getPersonalBestPaceSeriesDefinitions() {
       dotStrokeWidth: 1.8
     }
   ];
+  if (appState.showRecentPersonalBestRecords) {
+    definitions.push({
+      key: "recent",
+      label: "Recent",
+      color: "#8a5a16",
+      dashArray: "3 5",
+      strokeWidth: 2.8,
+      dotRadius: 5,
+      dotFill: "#fff7ed",
+      dotStroke: "#8a5a16",
+      dotStrokeWidth: 2
+    });
+  }
+  return definitions;
 }
 
 function getDistanceTicks({ useLogScale, minDistance, maxDistance, xMax }) {

@@ -83,9 +83,9 @@
       <section class="controls-band" aria-label="Views">
         <div class="view-tabs" role="group" aria-label="Views">
           <button class="view-tab active" type="button" data-view="dashboard" aria-pressed="true">Dashboard</button>
-          <button class="view-tab" type="button" data-view="activities" aria-pressed="false">Activities</button>
           <button class="view-tab" type="button" data-view="pb" aria-pressed="false">Personal Bests</button>
           <button class="view-tab" type="button" data-view="analysis" aria-pressed="false">Analysis</button>
+          <button class="view-tab" type="button" data-view="activities" aria-pressed="false">Activities</button>
         </div>
       </section>
 
@@ -102,8 +102,8 @@
             <span>Range</span>
             <select id="rangeSelect">
               <option value="all">All</option>
-              <option value="365">Last year</option>
-              <option value="180">Last 6 months</option>
+              <option value="365">Last 365 days</option>
+              <option value="180">Last 180 days</option>
               <option value="90">Last 90 days</option>
               <option value="30" selected>Last 30 days</option>
               <option value="7">Last 7 days</option>
@@ -155,11 +155,13 @@
                 <span>Latest</span>
                 <strong id="commandLatestValue">-</strong>
                 <small id="commandLatestMeta">No saved runs</small>
+                <p id="commandLatestDetail">Import runs to see the latest record context.</p>
               </div>
               <div class="command-brief-item">
                 <span>Year to Date</span>
                 <strong id="commandYearValue">0.0 km</strong>
                 <small id="commandYearMeta">Current year total</small>
+                <p id="commandYearDetail">No current-year runs saved.</p>
               </div>
               <div class="command-brief-item">
                 <span>Race Goal</span>
@@ -326,7 +328,11 @@
           <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="pace" aria-pressed="false">Pace</button>
         </div>
         <div class="personal-best-tools">
-          <label class="select-field personal-best-rank-field">
+          <label class="field checkbox-field personal-best-recent-field">
+            <input id="showRecentRecordsInput" type="checkbox">
+            <span>Show recent records</span>
+          </label>
+          <label class="select-field personal-best-rank-field" id="recordTargetRankField">
             <span>Target rank</span>
             <select id="recordTargetRankSelect" aria-label="Personal best target rank">
               <option value="3">Top 3</option>
@@ -361,8 +367,8 @@
                 <div class="panel-actions">
                   <span id="personalBestChartCaption"></span>
                   <div class="scale-toggle" role="group" aria-label="X-axis scale">
-                    <button class="scale-option pb-scale-option active" type="button" data-scale="linear" aria-pressed="true">Linear</button>
-                    <button class="scale-option pb-scale-option" type="button" data-scale="log" aria-pressed="false">Log</button>
+                    <button class="scale-option pb-scale-option" type="button" data-scale="linear" aria-pressed="false">Linear</button>
+                    <button class="scale-option pb-scale-option active" type="button" data-scale="log" aria-pressed="true">Log</button>
                   </div>
                 </div>
               </div>
@@ -424,8 +430,8 @@
                 <div class="panel-actions">
                   <span id="timeBestDistanceChartCaption"></span>
                   <div class="scale-toggle" role="group" aria-label="Time best X-axis scale">
-                    <button class="scale-option time-scale-option active" type="button" data-scale="linear" aria-pressed="true">Linear</button>
-                    <button class="scale-option time-scale-option" type="button" data-scale="log" aria-pressed="false">Log</button>
+                    <button class="scale-option time-scale-option" type="button" data-scale="linear" aria-pressed="false">Linear</button>
+                    <button class="scale-option time-scale-option active" type="button" data-scale="log" aria-pressed="true">Log</button>
                   </div>
                 </div>
               </div>
@@ -487,8 +493,8 @@
                 <div class="panel-actions">
                   <span id="paceBestDurationChartCaption"></span>
                   <div class="scale-toggle" role="group" aria-label="Pace best distance Y-axis scale">
-                    <button class="scale-option pace-distance-scale-option active" type="button" data-scale="linear" aria-pressed="true">Linear</button>
-                    <button class="scale-option pace-distance-scale-option" type="button" data-scale="log" aria-pressed="false">Log</button>
+                    <button class="scale-option pace-distance-scale-option" type="button" data-scale="linear" aria-pressed="false">Linear</button>
+                    <button class="scale-option pace-distance-scale-option active" type="button" data-scale="log" aria-pressed="true">Log</button>
                   </div>
                 </div>
               </div>
@@ -599,8 +605,8 @@
               <div class="panel-actions">
                 <span id="riegelExpectedPaceChartCaption"></span>
                 <div class="scale-toggle" role="group" aria-label="Expected vs current x-axis scale">
-                  <button class="scale-option riegel-scale-option active" type="button" data-scale="linear" aria-pressed="true">Linear</button>
-                  <button class="scale-option riegel-scale-option" type="button" data-scale="log" aria-pressed="false">Log</button>
+                  <button class="scale-option riegel-scale-option" type="button" data-scale="linear" aria-pressed="false">Linear</button>
+                  <button class="scale-option riegel-scale-option active" type="button" data-scale="log" aria-pressed="true">Log</button>
                 </div>
               </div>
             </div>
@@ -622,8 +628,8 @@
                   <div class="panel-actions">
                     <span id="riegelFiveKChartCaption"></span>
                     <div class="scale-toggle" role="group" aria-label="X-axis scale">
-                      <button class="scale-option riegel-scale-option active" type="button" data-scale="linear" aria-pressed="true">Linear</button>
-                      <button class="scale-option riegel-scale-option" type="button" data-scale="log" aria-pressed="false">Log</button>
+                      <button class="scale-option riegel-scale-option" type="button" data-scale="linear" aria-pressed="false">Linear</button>
+                      <button class="scale-option riegel-scale-option active" type="button" data-scale="log" aria-pressed="true">Log</button>
                     </div>
                   </div>
                 </div>

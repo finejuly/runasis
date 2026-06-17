@@ -365,6 +365,28 @@ test("summary band stays focused on account and sync state", () => {
   assert.doesNotMatch(summaryBand, /id="trainingInsight"/);
 });
 
+test("main view tabs follow dashboard, personal bests, analysis, activities order", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const tabs = Array.from(html.matchAll(/<button class="view-tab[^"]*"[^>]*data-view="([^"]+)"[^>]*>([^<]+)<\/button>/g))
+    .map((match) => ({ view: match[1], label: match[2] }));
+
+  assert.deepEqual(tabs, [
+    { view: "dashboard", label: "Dashboard" },
+    { view: "pb", label: "Personal Bests" },
+    { view: "analysis", label: "Analysis" },
+    { view: "activities", label: "Activities" }
+  ]);
+});
+
+test("dashboard long range labels use explicit day counts", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const rangeSelect = html.match(/<select id="rangeSelect"[\s\S]*?<\/select>/)?.[0] || "";
+
+  assert.match(rangeSelect, /<option value="365">Last 365 days<\/option>/);
+  assert.match(rangeSelect, /<option value="180">Last 180 days<\/option>/);
+  assert.doesNotMatch(rangeSelect, /Last year|Last 6 months/);
+});
+
 test("buildLatestRunComparison summarizes latest run against matching personal best", () => {
   const app = loadAppContext();
 
@@ -655,6 +677,50 @@ test("renderDashboardRunnerBrief fills latest, today, and year goal cards", () =
   assert.equal(result.latest, "10.00 km");
   assert.ok(result.today.length > 0);
   assert.equal(result.year, "10.0 km");
+});
+
+test("dashboard command center renders latest run detail below training volume", () => {
+  const app = loadAppContext();
+  freezeAppDate(app, "2026-06-15T12:00:00");
+
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
+  assert.ok(dashboardView.indexOf('class="chart-panel cumulative-distance-panel"') < dashboardView.indexOf('id="commandLatestDetail"'));
+
+  const result = vm.runInContext(`
+    els.commandTodayValue = { textContent: "" };
+    els.commandTodayMeta = { textContent: "" };
+    els.commandTodayDetail = { textContent: "" };
+    els.commandLatestValue = { textContent: "" };
+    els.commandLatestMeta = { textContent: "" };
+    els.commandLatestDetail = { textContent: "" };
+    els.commandYearValue = { textContent: "" };
+    els.commandYearMeta = { textContent: "" };
+    els.commandYearDetail = { textContent: "" };
+    els.commandRaceTargetValue = { textContent: "" };
+    els.commandRaceTargetMeta = { textContent: "" };
+    els.commandRaceTargetValueSecondary = { textContent: "" };
+    els.commandRaceTargetMetaSecondary = { textContent: "" };
+    els.commandRaceTargetDetail = { textContent: "" };
+    els.commonPbSummaryList = { innerHTML: "" };
+    els.commonPbCaption = { textContent: "" };
+    buildRiegelAnalysis = () => ({ selectedSeries: { key: "top1" }, expectedPaceSeries: [] });
+    appState.activities = [
+      ${JSON.stringify(runActivity("latest", "2026-06-14T07:00:00", { distance: 10000, moving_time: 3600 }))}
+    ];
+    appState.personalBests = { distances: [] };
+
+    renderDashboardCommandCenter();
+    ({
+      latestValue: els.commandLatestValue.textContent,
+      latestMeta: els.commandLatestMeta.textContent,
+      latestDetail: els.commandLatestDetail.textContent
+    });
+  `, app);
+
+  assert.equal(result.latestValue, "10.00 km");
+  assert.match(result.latestMeta, /06\/14\/2026/);
+  assert.match(result.latestDetail, /#1 by distance/);
 });
 
 test("renderKpis annualizes the last 30 days distance", () => {
@@ -2795,6 +2861,99 @@ test("personal best scale controls share one linear/log selection", () => {
   });
 });
 
+test("personal best and analysis graph scales default to log", () => {
+  const app = loadAppContext();
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const state = vm.runInContext(`({
+    personalBestScale: appState.personalBestScale,
+    timeBestScale: appState.timeBestScale,
+    paceBestDistanceScale: appState.paceBestDistanceScale,
+    riegelFiveKScale: appState.riegelFiveKScale
+  })`, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(state)), {
+    personalBestScale: "log",
+    timeBestScale: "log",
+    paceBestDistanceScale: "log",
+    riegelFiveKScale: "log"
+  });
+  assert.match(html, /class="scale-option pb-scale-option"[^>]*data-scale="linear"[^>]*aria-pressed="false"/);
+  assert.match(html, /class="scale-option pb-scale-option active"[^>]*data-scale="log"[^>]*aria-pressed="true"/);
+  assert.match(html, /class="scale-option riegel-scale-option"[^>]*data-scale="linear"[^>]*aria-pressed="false"/);
+  assert.match(html, /class="scale-option riegel-scale-option active"[^>]*data-scale="log"[^>]*aria-pressed="true"/);
+});
+
+test("target rank control is visible only for active Personal Best records mode", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    function makeClassList() {
+      return {
+        hidden: false,
+        toggle(name, value) {
+          if (name === "hidden") this.hidden = Boolean(value);
+        }
+      };
+    }
+    function makeControl(mode, tab = "distance") {
+      return {
+        dataset: { pbMode: mode, personalBestModeTab: tab },
+        classList: makeClassList(),
+        setAttribute() {}
+      };
+    }
+    function makePane(mode, tab = "distance") {
+      return {
+        dataset: { pbPane: mode, personalBestModeTab: tab },
+        classList: makeClassList()
+      };
+    }
+
+    els.recordTargetRankField = { classList: makeClassList() };
+    els.personalBestModeOptions = ["records", "curve", "timing", "trend"].map((mode) => makeControl(mode));
+    els.personalBestModePanes = ["records", "curve", "timing", "trend"].map((mode) => makePane(mode));
+    appState.personalBestModes = { distance: "records", time: "records", pace: "records" };
+
+    updatePersonalBestModeVisibility("distance");
+    const recordsHidden = els.recordTargetRankField.classList.hidden;
+
+    appState.personalBestModes.distance = "curve";
+    updatePersonalBestModeVisibility("distance");
+    const curveHidden = els.recordTargetRankField.classList.hidden;
+
+    appState.personalBestTab = "time";
+    appState.personalBestModes.time = "records";
+    updatePersonalBestModeVisibility("time");
+    const timeRecordsHidden = els.recordTargetRankField.classList.hidden;
+
+    ({ recordsHidden, curveHidden, timeRecordsHidden });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    recordsHidden: false,
+    curveHidden: true,
+    timeRecordsHidden: false
+  });
+});
+
+test("personal best target browser is compact enough for one-screen scanning", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+  const rule = css.match(/\.record-target-list\s*\{[\s\S]*?\}/)?.[0] || "";
+
+  assert.match(rule, /max-height:\s*360px;/);
+  assert.match(rule, /overflow-y:\s*auto;/);
+});
+
+test("latest record summary wraps safely on narrow screens", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+  const summaryRule = css.match(/\.record-latest-summary\s*\{[\s\S]*?\}/)?.[0] || "";
+  const smallRule = css.match(/\.record-latest-summary small\s*\{[\s\S]*?\}/)?.[0] || "";
+
+  assert.match(summaryRule, /flex-wrap:\s*wrap;/);
+  assert.match(smallRule, /min-width:\s*0;/);
+  assert.match(smallRule, /overflow-wrap:\s*anywhere;/);
+});
+
 test("renderPersonalBests adds exclusion buttons for source records", () => {
   const app = loadAppContext();
 
@@ -2829,7 +2988,7 @@ test("renderPersonalBests adds exclusion buttons for source records", () => {
   assert.match(result, /class="record-exclusion-icon"/);
   assert.doesNotMatch(result, />Exclude</);
   assert.match(result, /<th[^>]*>#<\/th>\s*<th[^>]*>Date<\/th>\s*<th[^>]*>Best Time<\/th>\s*<th[^>]*>Pace<\/th>\s*<th[^>]*>Activity<\/th>\s*<th[^>]*>Actions<\/th>/);
-  assert.match(result, /<td>1<\/td>\s*<td>05\/01\/2026<\/td>\s*<td>24:50<\/td>\s*<td>4:58\/km<\/td>\s*<td class="activity-name">Fixed Run<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
+  assert.match(result, /<td>1<\/td>\s*<td>05\/01\/2026<\/td>\s*<td>24:50<\/td>\s*<td>4:58\/km<\/td>\s*<td class="activity-name">Fixed Run(?:\s*<span class="record-latest-badge">Most recent<\/span>)?<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
   assert.doesNotMatch(result, /data-refresh-activity-id="123"/);
 });
 
@@ -2869,6 +3028,248 @@ test("renderPersonalBests shows the selected top N target for the selected dista
   assert.match(result, /Top 5 target today/);
   assert.match(result, /25:40/);
   assert.match(result, /5:08\/km/);
+});
+
+test("renderPersonalBests highlights the latest record rank in the selected target list", () => {
+  const app = loadAppContext();
+
+  const top = [
+    {
+      activityId: 1,
+      activityName: "Older Best",
+      startDate: "2026-05-01T00:00:00Z",
+      recordKey: "distance|5K|1|0|1500",
+      movingTime: 1500,
+      paceSecondsPerKm: 300
+    },
+    {
+      activityId: 2,
+      activityName: "Most Recent Best",
+      startDate: "2026-06-12T00:00:00Z",
+      recordKey: "distance|5K|2|0|1510",
+      movingTime: 1510,
+      paceSecondsPerKm: 302
+    },
+    {
+      activityId: 3,
+      activityName: "Middle Best",
+      startDate: "2026-05-20T00:00:00Z",
+      recordKey: "distance|5K|3|0|1520",
+      movingTime: 1520,
+      paceSecondsPerKm: 304
+    }
+  ];
+
+  const result = vm.runInContext(`
+    els.personalBestGrid = { innerHTML: "" };
+    appState.expandedPersonalBestDistances = new Set();
+    appState.excludingRecordKey = null;
+    appState.selectedPersonalBestTargets = { distance: "5K", time: null, pace: null };
+    appState.personalBests = {
+      detailActivityCount: 3,
+      effortCount: 3,
+      distances: [{
+        name: "5K",
+        distanceKm: 5,
+        count: 3,
+        top: ${JSON.stringify(top)}
+      }]
+    };
+
+    renderPersonalBests();
+    els.personalBestGrid.innerHTML;
+  `, app);
+
+  assert.match(result, /Latest record: #2/);
+  assert.match(result, /<tr class="record-row-latest">[\s\S]*?<td>2<\/td>[\s\S]*?Most Recent Best[\s\S]*?Most recent/);
+});
+
+test("show recent records toggle adds a recent-record series to personal best charts", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.showRecentPersonalBestRecords = true;
+    appState.personalBests = {
+      distances: [
+        {
+          name: "5K",
+          distanceKm: 5,
+          top: [
+            { movingTime: 1500, paceSecondsPerKm: 300, startDate: "2026-05-01T00:00:00Z" },
+            { movingTime: 1510, paceSecondsPerKm: 302, startDate: "2026-06-12T00:00:00Z" }
+          ],
+          median: { movingTime: 1505, paceSecondsPerKm: 301, count: 2 }
+        },
+        {
+          name: "10K",
+          distanceKm: 10,
+          top: [
+            { movingTime: 3300, paceSecondsPerKm: 330, startDate: "2026-05-10T00:00:00Z" },
+            { movingTime: 3320, paceSecondsPerKm: 332, startDate: "2026-06-15T00:00:00Z" }
+          ],
+          median: { movingTime: 3310, paceSecondsPerKm: 331, count: 2 }
+        }
+      ]
+    };
+
+    buildPersonalBestSeries().find((series) => series.key === "recent");
+  `, app);
+
+  assert.ok(result, "recent series should exist when the toggle is enabled");
+  assert.equal(result.label, "Recent");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.points.map((point) => ({
+    distanceName: point.distanceName,
+    time: point.time,
+    paceSecondsPerKm: point.paceSecondsPerKm
+  })))), [
+    { distanceName: "5K", time: 1510, paceSecondsPerKm: 302 },
+    { distanceName: "10K", time: 3320, paceSecondsPerKm: 332 }
+  ]);
+});
+
+test("recent personal best series skips undated records and uses the latest dated rank", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    appState.showRecentPersonalBestRecords = true;
+    appState.personalBests = {
+      distances: [{
+        name: "5K",
+        distanceKm: 5,
+        top: [
+          { movingTime: 1490, paceSecondsPerKm: 298 },
+          { movingTime: 1510, paceSecondsPerKm: 302, startDate: "2026-06-12T00:00:00Z" },
+          { movingTime: 1520, paceSecondsPerKm: 304, startDate: "2026-05-10T00:00:00Z" }
+        ],
+        median: { movingTime: 1510, paceSecondsPerKm: 302, count: 3 }
+      }]
+    };
+
+    buildPersonalBestSeries().find((series) => series.key === "recent").points[0];
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify({
+    rank: result.rank,
+    time: result.time,
+    paceSecondsPerKm: result.paceSecondsPerKm,
+    startDate: result.startDate
+  })), {
+    rank: 2,
+    time: 1510,
+    paceSecondsPerKm: 302,
+    startDate: "2026-06-12T00:00:00Z"
+  });
+});
+
+test("recent records appear in distance, time, and pace chart labels when enabled", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const chartElement = () => ({ innerHTML: "" });
+    const captionElement = () => ({ textContent: "" });
+    const toggleButton = (dataset) => ({
+      dataset,
+      classList: { toggle() {} },
+      setAttribute() {}
+    });
+
+    els.personalBestChart = chartElement();
+    els.personalBestChartCaption = captionElement();
+    els.timeBestDistanceChart = chartElement();
+    els.timeBestDistanceChartCaption = captionElement();
+    els.paceBestDurationChart = chartElement();
+    els.paceBestDurationChartCaption = captionElement();
+    els.personalBestScaleButtons = [toggleButton({ scale: "linear" }), toggleButton({ scale: "log" })];
+    els.timeBestScaleButtons = [toggleButton({ scale: "linear" }), toggleButton({ scale: "log" })];
+    els.paceBestDistanceScaleButtons = [toggleButton({ scale: "linear" }), toggleButton({ scale: "log" })];
+    appState.showRecentPersonalBestRecords = true;
+    appState.personalBestScale = "log";
+    appState.timeBestScale = "log";
+    appState.paceBestDistanceScale = "log";
+    appState.personalBests = {
+      distances: [
+        {
+          name: "5K",
+          distanceKm: 5,
+          top: [
+            { movingTime: 1500, paceSecondsPerKm: 300, startDate: "2026-05-01T00:00:00Z" },
+            { movingTime: 1510, paceSecondsPerKm: 302, startDate: "2026-06-12T00:00:00Z" }
+          ],
+          median: { movingTime: 1505, paceSecondsPerKm: 301, count: 2 }
+        },
+        {
+          name: "10K",
+          distanceKm: 10,
+          top: [
+            { movingTime: 3300, paceSecondsPerKm: 330, startDate: "2026-05-10T00:00:00Z" },
+            { movingTime: 3320, paceSecondsPerKm: 332, startDate: "2026-06-15T00:00:00Z" }
+          ],
+          median: { movingTime: 3310, paceSecondsPerKm: 331, count: 2 }
+        }
+      ],
+      durations: [
+        {
+          name: "20m",
+          durationSeconds: 1200,
+          top: [
+            { distanceKm: 4.2, paceSecondsPerKm: 286, startDate: "2026-05-01T00:00:00Z" },
+            { distanceKm: 4.1, paceSecondsPerKm: 293, startDate: "2026-06-12T00:00:00Z" }
+          ],
+          median: { distanceKm: 4.15, paceSecondsPerKm: 289, count: 2 }
+        },
+        {
+          name: "1h",
+          durationSeconds: 3600,
+          top: [
+            { distanceKm: 11, paceSecondsPerKm: 327, startDate: "2026-05-10T00:00:00Z" },
+            { distanceKm: 10.8, paceSecondsPerKm: 333, startDate: "2026-06-15T00:00:00Z" }
+          ],
+          median: { distanceKm: 10.9, paceSecondsPerKm: 330, count: 2 }
+        }
+      ],
+      paces: [
+        {
+          name: "5:00/km",
+          paceSecondsPerKm: 300,
+          top: [
+            { durationSeconds: 1500, movingTime: 1500, distanceKm: 5, paceSecondsPerKm: 300, startDate: "2026-05-01T00:00:00Z" },
+            { durationSeconds: 1440, movingTime: 1440, distanceKm: 4.8, paceSecondsPerKm: 300, startDate: "2026-06-12T00:00:00Z" }
+          ],
+          median: { durationSeconds: 1470, distanceKm: 4.9, paceSecondsPerKm: 300, count: 2 }
+        },
+        {
+          name: "6:00/km",
+          paceSecondsPerKm: 360,
+          top: [
+            { durationSeconds: 2400, movingTime: 2400, distanceKm: 6.67, paceSecondsPerKm: 360, startDate: "2026-05-10T00:00:00Z" },
+            { durationSeconds: 2340, movingTime: 2340, distanceKm: 6.5, paceSecondsPerKm: 360, startDate: "2026-06-15T00:00:00Z" }
+          ],
+          median: { durationSeconds: 2370, distanceKm: 6.58, paceSecondsPerKm: 360, count: 2 }
+        }
+      ]
+    };
+
+    renderPersonalBestChart();
+    renderTimeBestDistanceChart();
+    renderPaceBestDurationChart();
+    ({
+      distance: els.personalBestChart.innerHTML,
+      time: els.timeBestDistanceChart.innerHTML,
+      pace: els.paceBestDurationChart.innerHTML
+    });
+  `, app);
+
+  assert.match(result.distance, /aria-label="[^"]*Recent[^"]*pace by distance"/);
+  assert.match(result.time, /aria-label="[^"]*Recent[^"]*pace by time"/);
+  assert.match(result.pace, /aria-label="[^"]*Recent[^"]*distance by target pace"/);
+});
+
+test("Personal Bests exposes a recent-record chart toggle", () => {
+  const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const pbView = html.match(/<section class="analysis-view hidden" id="pbView"[\s\S]*?<section class="analysis-view hidden" id="analysisView"/)?.[0] || "";
+
+  assert.match(pbView, /id="showRecentRecordsInput"/);
+  assert.match(pbView, /Show recent records/);
 });
 
 test("Personal Bests exposes one records-first mode switch per type", () => {
@@ -3038,7 +3439,7 @@ test("renderTimeBestsView renders fixed-time distance records from streams", () 
   assert.match(result.durationGrid, /class="record-exclusion-icon"/);
   assert.doesNotMatch(result.durationGrid, />Exclude</);
   assert.match(result.durationGrid, /<th[^>]*>#<\/th>\s*<th[^>]*>Date<\/th>\s*<th[^>]*>Distance<\/th>\s*<th[^>]*>Pace<\/th>\s*<th[^>]*>Activity<\/th>\s*<th[^>]*>Actions<\/th>/);
-  assert.match(result.durationGrid, /<td>1<\/td>\s*<td>05\/02\/2026<\/td>\s*<td>6.50 km<\/td>\s*<td>4:37\/km<\/td>\s*<td class="activity-name">Tempo 1<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
+  assert.match(result.durationGrid, /<td>1<\/td>\s*<td>05\/02\/2026<\/td>\s*<td>6.50 km<\/td>\s*<td>4:37\/km<\/td>\s*<td class="activity-name">Tempo 1(?:\s*<span class="record-latest-badge">Most recent<\/span>)?<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
   assert.match(result.durationGrid, /data-time-best-toggle="30 min"/);
   assert.match(result.durationGrid, /Show More/);
   assert.doesNotMatch(result.durationGrid, /Tempo 4/);
@@ -3086,7 +3487,7 @@ test("renderPaceBestsView renders fixed-pace distance records from streams", () 
   assert.match(result.paceGrid, /data-record-exclusion-key="pace\|5:00\/km\|800\|0\|1500"/);
   assert.match(result.paceGrid, /class="record-exclusion-icon"/);
   assert.match(result.paceGrid, /<th[^>]*>#<\/th>\s*<th[^>]*>Date<\/th>\s*<th[^>]*>Distance<\/th>\s*<th[^>]*>Time<\/th>\s*<th[^>]*>Pace<\/th>\s*<th[^>]*>Activity<\/th>\s*<th[^>]*>Actions<\/th>/);
-  assert.match(result.paceGrid, /<td>1<\/td>\s*<td>05\/03\/2026<\/td>\s*<td>5.00 km<\/td>\s*<td>25:00<\/td>\s*<td>5:00\/km<\/td>\s*<td class="activity-name">Pace Run 1<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
+  assert.match(result.paceGrid, /<td>1<\/td>\s*<td>05\/03\/2026<\/td>\s*<td>5.00 km<\/td>\s*<td>25:00<\/td>\s*<td>5:00\/km<\/td>\s*<td class="activity-name">Pace Run 1(?:\s*<span class="record-latest-badge">Most recent<\/span>)?<\/td>\s*<td class="record-actions">[\s\S]*?<\/td>/);
   assert.match(result.paceGrid, /data-pace-best-toggle="5:00\/km"/);
   assert.match(result.paceGrid, /Show More/);
   assert.doesNotMatch(result.paceGrid, /Pace Run 4/);
@@ -3198,8 +3599,7 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
   assert.equal(result.top10Active, true);
   assert.equal(result.logScaleActive, true);
   assert.match(result.durationChart, /Top 1/);
-  assert.doesNotMatch(result.durationChart, /Median/);
-  assert.doesNotMatch(result.durationChart, /median distance by target pace/);
+  assert.match(result.durationChart, /Median/);
   assert.match(result.durationChart, />Distance \(km\)</);
   assert.match(result.durationChart, />Pace</);
   assert.match(result.durationChart, /5:00\/km/);
@@ -3438,8 +3838,8 @@ test("best record types live under Personal Bests tabs", () => {
   assert.match(pbView, /personalBestPaceGrid/);
   assert.match(pbView, /Time-Limited Bests/);
   assert.match(pbView, /Pace Bests/);
-  assert.match(pbView, /class="scale-option pace-distance-scale-option active"[^>]*data-scale="linear"/);
-  assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="log"[\s\S]*>Log</);
+  assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="linear"/);
+  assert.match(pbView, /class="scale-option pace-distance-scale-option active"[^>]*data-scale="log"[\s\S]*>Log</);
   assert.doesNotMatch(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="sqrt"[\s\S]*>Sqrt</);
 });
 
@@ -4933,8 +5333,8 @@ test("expected vs current chart exposes the shared x-axis scale toggle", () => {
   const panel = html.match(/<h2>Expected vs Current Pace by Distance<\/h2>[\s\S]*?<div class="chart-box personal-best-chart expected-gap-chart"/)?.[0] || "";
 
   assert.match(panel, /aria-label="Expected vs current x-axis scale"/);
-  assert.match(panel, /class="scale-option riegel-scale-option active"[^>]*data-scale="linear"/);
-  assert.match(panel, /class="scale-option riegel-scale-option"[^>]*data-scale="log"/);
+  assert.match(panel, /class="scale-option riegel-scale-option"[^>]*data-scale="linear"/);
+  assert.match(panel, /class="scale-option riegel-scale-option active"[^>]*data-scale="log"/);
 });
 
 test("Riegel scale controls keep shared active state across both charts", () => {
