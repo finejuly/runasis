@@ -561,16 +561,16 @@ test("buildRunnerBrief does not depend on strength analysis for dashboard guidan
     ], { distances: [] });
   `, app);
 
-  assert.equal(result.today.title, "Recent Load");
-  assert.equal(result.today.value, "5.0 km");
+  assert.equal(result.recentLoad.title, "Recent Load");
+  assert.equal(result.recentLoad.value, "5.0 km");
 });
 
-test("buildYearGoalProgress reports current year distance without a fixed goal", () => {
+test("buildYearToDateSummary reports current year distance and weekly average", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-06-15T12:00:00");
 
   const result = vm.runInContext(`
-    buildYearGoalProgress([
+    buildYearToDateSummary([
       ${JSON.stringify(runActivity("one", "2026-01-02T07:00:00", { distance: 100000 }))},
       ${JSON.stringify(runActivity("old", "2025-12-31T07:00:00", { distance: 100000 }))}
     ]);
@@ -612,29 +612,33 @@ test("Training Schedule copy is reframed as Next Run Options", () => {
   assert.doesNotMatch(html, />Training Schedule</);
 });
 
-test("dashboard exposes training volume before command center", () => {
+test("dashboard exposes training volume before overview context", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
 
   assert.match(dashboardView, /class="kpi-summary-heading"/);
-  assert.match(dashboardView, /id="dashboardCommandCenter"/);
-  assert.ok(dashboardView.indexOf('class="kpi-summary-heading"') < dashboardView.indexOf('id="dashboardCommandCenter"'));
-  assert.ok(dashboardView.indexOf('id="dashboardKpiGrid"') < dashboardView.indexOf('id="dashboardCommandCenter"'));
-  assert.ok(dashboardView.indexOf('class="chart-panel cumulative-distance-panel"') < dashboardView.indexOf('id="dashboardCommandCenter"'));
+  assert.match(dashboardView, /id="dashboardOverviewContext"/);
+  assert.ok(dashboardView.indexOf('class="kpi-summary-heading"') < dashboardView.indexOf('id="dashboardOverviewContext"'));
+  assert.ok(dashboardView.indexOf('id="dashboardKpiGrid"') < dashboardView.indexOf('id="dashboardOverviewContext"'));
+  assert.ok(dashboardView.indexOf('class="chart-panel cumulative-distance-panel"') < dashboardView.indexOf('id="dashboardOverviewContext"'));
 });
 
 test("dashboard keeps high-frequency information in the content hierarchy without shortcut buttons", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
+  const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
   const detailIndex = html.indexOf("More training detail");
-  const commandCenterIndex = html.indexOf('id="dashboardCommandCenter"');
+  const overviewIndex = html.indexOf('id="dashboardOverviewContext"');
   const kpiIndex = html.indexOf("class=\"kpi-summary-heading\"");
 
-  assert.ok(commandCenterIndex > -1, "command center should exist");
+  assert.ok(overviewIndex > -1, "overview context should exist");
   assert.ok(kpiIndex > -1, "training volume should exist");
-  assert.ok(kpiIndex < commandCenterIndex, "training volume should lead the dashboard");
-  assert.ok(detailIndex > commandCenterIndex, "secondary detail should stay below primary dashboard information");
+  assert.ok(kpiIndex < overviewIndex, "training volume should lead the dashboard");
+  assert.ok(detailIndex > overviewIndex, "secondary detail should stay below primary dashboard information");
+  assert.match(html, /data-view="activities"[\s\S]*>Activities</);
   assert.doesNotMatch(html, /dashboard-fast-actions/);
-  assert.doesNotMatch(html, /dashboardActivitySearchButton|dashboardPersonalBestsButton|dashboardGoalCheckButton/);
+  assert.doesNotMatch(dashboardView, new RegExp(`dashboardActivity${"SearchForm"}|dashboardActivity${"SearchInput"}|openActivity${"ListButton"}|Search ${"activities"}`));
+  assert.doesNotMatch(dashboardView, new RegExp(`commandRace${"TargetValue"}|commandRace${"TargetValueSecondary"}|Race ${"Target"}|Race ${"Goal"}`));
+  assert.doesNotMatch(html, new RegExp(`dashboardActivity${"SearchButton"}|dashboardPersonalBestsButton|dashboardGoalCheckButton`));
 });
 
 test("Activities puts the sortable table before summary cards without adding a view toggle", () => {
@@ -649,72 +653,68 @@ test("Activities puts the sortable table before summary cards without adding a v
   assert.doesNotMatch(html, /activity-view-option|data-activity-view/);
 });
 
-test("renderDashboardRunnerBrief fills latest, today, and year goal cards", () => {
+test("renderDashboardOverviewContext fills recent load, latest, and year-to-date cards", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-06-15T12:00:00");
 
   const result = vm.runInContext(`
-    els.runnerBriefLatestValue = { textContent: "" };
-    els.runnerBriefLatestMeta = { textContent: "" };
-    els.runnerBriefLatestDetail = { textContent: "" };
-    els.runnerBriefTodayValue = { textContent: "" };
-    els.runnerBriefTodayMeta = { textContent: "" };
-    els.runnerBriefTodayDetail = { textContent: "" };
-    els.runnerBriefYearValue = { textContent: "" };
-    els.runnerBriefYearMeta = { textContent: "" };
-    els.runnerBriefYearDetail = { textContent: "" };
+    els.overviewRecentLoadValue = { textContent: "" };
+    els.overviewRecentLoadMeta = { textContent: "" };
+    els.overviewRecentLoadDetail = { textContent: "" };
+    els.overviewLatestValue = { textContent: "" };
+    els.overviewLatestMeta = { textContent: "" };
+    els.overviewLatestDetail = { textContent: "" };
+    els.overviewYearValue = { textContent: "" };
+    els.overviewYearMeta = { textContent: "" };
+    els.overviewYearDetail = { textContent: "" };
+    els.commonPbSummaryList = { innerHTML: "" };
+    els.commonPbCaption = { textContent: "" };
     appState.activities = [
       ${JSON.stringify(runActivity("latest", "2026-06-14T07:00:00", { distance: 10000, moving_time: 3600 }))}
     ];
-    renderDashboardRunnerBrief();
+    renderDashboardOverviewContext();
     ({
-      latest: els.runnerBriefLatestValue.textContent,
-      today: els.runnerBriefTodayValue.textContent,
-      year: els.runnerBriefYearValue.textContent
+      latest: els.overviewLatestValue.textContent,
+      recentLoad: els.overviewRecentLoadValue.textContent,
+      year: els.overviewYearValue.textContent
     });
   `, app);
 
   assert.equal(result.latest, "10.00 km");
-  assert.ok(result.today.length > 0);
+  assert.ok(result.recentLoad.length > 0);
   assert.equal(result.year, "10.0 km");
 });
 
-test("dashboard command center renders latest run detail below training volume", () => {
+test("dashboard overview renders latest run detail below training volume", () => {
   const app = loadAppContext();
   freezeAppDate(app, "2026-06-15T12:00:00");
 
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
-  assert.ok(dashboardView.indexOf('class="chart-panel cumulative-distance-panel"') < dashboardView.indexOf('id="commandLatestDetail"'));
+  assert.ok(dashboardView.indexOf('class="chart-panel cumulative-distance-panel"') < dashboardView.indexOf('id="overviewLatestDetail"'));
 
   const result = vm.runInContext(`
-    els.commandTodayValue = { textContent: "" };
-    els.commandTodayMeta = { textContent: "" };
-    els.commandTodayDetail = { textContent: "" };
-    els.commandLatestValue = { textContent: "" };
-    els.commandLatestMeta = { textContent: "" };
-    els.commandLatestDetail = { textContent: "" };
-    els.commandYearValue = { textContent: "" };
-    els.commandYearMeta = { textContent: "" };
-    els.commandYearDetail = { textContent: "" };
-    els.commandRaceTargetValue = { textContent: "" };
-    els.commandRaceTargetMeta = { textContent: "" };
-    els.commandRaceTargetValueSecondary = { textContent: "" };
-    els.commandRaceTargetMetaSecondary = { textContent: "" };
-    els.commandRaceTargetDetail = { textContent: "" };
+    els.overviewRecentLoadValue = { textContent: "" };
+    els.overviewRecentLoadMeta = { textContent: "" };
+    els.overviewRecentLoadDetail = { textContent: "" };
+    els.overviewLatestValue = { textContent: "" };
+    els.overviewLatestMeta = { textContent: "" };
+    els.overviewLatestDetail = { textContent: "" };
+    els.overviewYearValue = { textContent: "" };
+    els.overviewYearMeta = { textContent: "" };
+    els.overviewYearDetail = { textContent: "" };
     els.commonPbSummaryList = { innerHTML: "" };
     els.commonPbCaption = { textContent: "" };
-    buildRiegelAnalysis = () => ({ selectedSeries: { key: "top1" }, expectedPaceSeries: [] });
     appState.activities = [
       ${JSON.stringify(runActivity("latest", "2026-06-14T07:00:00", { distance: 10000, moving_time: 3600 }))}
     ];
     appState.personalBests = { distances: [] };
 
-    renderDashboardCommandCenter();
+    renderDashboardOverviewContext();
     ({
-      latestValue: els.commandLatestValue.textContent,
-      latestMeta: els.commandLatestMeta.textContent,
-      latestDetail: els.commandLatestDetail.textContent
+      latestValue: els.overviewLatestValue.textContent,
+      latestMeta: els.overviewLatestMeta.textContent,
+      latestDetail: els.overviewLatestDetail.textContent
     });
   `, app);
 
@@ -723,7 +723,7 @@ test("dashboard command center renders latest run detail below training volume",
   assert.match(result.latestDetail, /#1 by distance/);
 });
 
-test("renderKpis annualizes the last 30 days distance", () => {
+test("renderKpis prioritizes previous-period distance change", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
@@ -748,18 +748,8 @@ test("renderKpis annualizes the last 30 days distance", () => {
     els.kpiDistanceSub.innerHTML;
   `, app);
 
-  assert.match(result, /Annualized 608\.3 km\/yr/);
-});
-
-test("formatAnnualizedDistanceProjection annualizes any numeric dashboard range", () => {
-  const app = loadAppContext();
-
-  const result = vm.runInContext(`
-    appState.rangeDays = "7";
-    formatAnnualizedDistanceProjection(14);
-  `, app);
-
-  assert.match(result, /Annualized 730\.0 km\/yr/);
+  assert.match(result, /\+10\.0 km/);
+  assert.doesNotMatch(result, new RegExp(`Annual${"ized"}`));
 });
 
 test("personal best records default to common runner targets when available", () => {
@@ -846,68 +836,6 @@ test("buildCommonPersonalBestSummary returns common distance, time, and pace row
     { name: "10K", value: "47:00", meta: "Distance best" },
     { name: "20m", value: "4.20 km", meta: "Time best" },
     { name: "5:00/km", value: "30:00", meta: "Pace best" }
-  ]);
-});
-
-test("submitDashboardActivitySearch opens Activities with query and resets visible limit", () => {
-  const app = loadAppContext();
-
-  const result = vm.runInContext(`
-    {
-      const makeButton = (view) => ({
-        dataset: { view },
-        active: false,
-        attributes: {},
-        classList: {
-          toggle(name, active) {
-            if (name === "active") this.owner.active = Boolean(active);
-          }
-        },
-        setAttribute(name, value) {
-          this.attributes[name] = value;
-        }
-      });
-      const dashboardTab = makeButton("dashboard");
-      const activitiesTab = makeButton("activities");
-      const pbTab = makeButton("pb");
-      const analysisTab = makeButton("analysis");
-      dashboardTab.classList.owner = dashboardTab;
-      activitiesTab.classList.owner = activitiesTab;
-      pbTab.classList.owner = pbTab;
-      analysisTab.classList.owner = analysisTab;
-      const renders = [];
-      render = () => renders.push({
-        view: appState.currentView,
-        query: appState.allActivitySearch,
-        limit: appState.allActivityVisibleLimit
-      });
-      appState.currentView = "dashboard";
-      appState.allActivityVisibleLimit = 100;
-      els.dashboardActivitySearchInput = { value: "tempo" };
-      els.viewTabs = [dashboardTab, activitiesTab, pbTab, analysisTab];
-      submitDashboardActivitySearch({ preventDefault() {} });
-      ({
-        view: appState.currentView,
-        query: appState.allActivitySearch,
-        limit: appState.allActivityVisibleLimit,
-        dashboardActive: dashboardTab.active,
-        activitiesActive: activitiesTab.active,
-        dashboardPressed: dashboardTab.attributes["aria-pressed"],
-        activitiesPressed: activitiesTab.attributes["aria-pressed"],
-        renders
-      });
-    }
-  `, app);
-
-  assert.equal(result.view, "activities");
-  assert.equal(result.query, "tempo");
-  assert.equal(result.limit, 50);
-  assert.equal(result.dashboardActive, false);
-  assert.equal(result.activitiesActive, true);
-  assert.equal(result.dashboardPressed, "false");
-  assert.equal(result.activitiesPressed, "true");
-  assert.deepEqual(JSON.parse(JSON.stringify(result.renders)), [
-    { view: "activities", query: "tempo", limit: 50 }
   ]);
 });
 
@@ -2259,14 +2187,27 @@ test("visual state tokens are defined", () => {
   assert.match(css, /--green-light:\s*#[0-9a-fA-F]{6};/);
 });
 
-test("stylesheet defines warm command-center design tokens", () => {
+test("stylesheet has balanced rule braces", () => {
+  const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
+  let depth = 0;
+
+  for (const char of css) {
+    if (char === "{") depth += 1;
+    if (char === "}") depth -= 1;
+    assert.ok(depth >= 0, "stylesheet closes a rule before opening it");
+  }
+
+  assert.equal(depth, 0);
+});
+
+test("stylesheet defines warm overview design tokens", () => {
   const css = fs.readFileSync(path.join(ROOT, "public/styles.css"), "utf8");
 
   assert.match(css, /--bg:\s*#fffefb;/);
   assert.match(css, /--surface-soft:\s*#f8f4f0;/);
   assert.match(css, /--surface-strong:\s*#201515;/);
   assert.match(css, /--orange:\s*#ff4f00;/);
-  assert.match(css, /\.command-primary-card\s*{[\s\S]*background:\s*var\(--surface-strong\);/);
+  assert.match(css, /\.overview-primary-card\s*{[\s\S]*background:\s*var\(--surface-strong\);/);
   assert.match(css, /\.common-pb-list\s*{[\s\S]*display:\s*grid;/);
 });
 
@@ -4001,7 +3942,6 @@ test("Riegel baseline is selected from chart bars instead of a dropdown", () => 
     els.connectButton = fakeElement();
     els.syncButton = fakeElement();
     els.clearButton = fakeElement();
-    els.openActivityListButton = fakeElement();
     els.rangeSelect = fakeElement();
     els.allActivitySearchInput = fakeElement();
     els.allActivityRunOnlyInput = fakeElement();
@@ -4037,7 +3977,9 @@ test("activities are available as a top-level workflow", () => {
   assert.doesNotMatch(topTabs, /data-view="time"/);
   assert.doesNotMatch(topTabs, />Time Bests</);
   assert.match(topTabs, /data-view="pb"[\s\S]*>Personal Bests</);
-  assert.match(recentPanel, /id="openActivityListButton"[\s\S]*>Search activities</);
+  assert.match(recentPanel, /Recent Activities/);
+  assert.match(recentPanel, /id="activityTable"/);
+  assert.doesNotMatch(recentPanel, new RegExp(`Search ${"activities"}|openActivity${"ListButton"}`));
   assert.match(html, /id="activityListView"/);
   assert.doesNotMatch(html, /id="backActivityListButton"/);
 });
@@ -4089,7 +4031,6 @@ test("Activities filter controls update state through bound events", () => {
     els.connectButton = makeElement();
     els.syncButton = makeElement();
     els.clearButton = makeElement();
-    els.openActivityListButton = makeElement();
     els.rangeSelect = makeElement();
     els.allActivitySearchInput = makeElement();
     els.allActivityRunOnlyInput = makeElement();
@@ -4310,19 +4251,19 @@ test("dashboard secondary information is progressively disclosed", () => {
   assert.match(css, /\.dashboard-detail-shell:not\(\[open\]\) > \.chart-grid,\s*\.dashboard-detail-shell:not\(\[open\]\) > \.records-grid\s*{[^}]*display:\s*none;/);
 });
 
-test("Dashboard exposes the command center structure", () => {
+test("Dashboard exposes overview and recent context structure", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const dashboardView = html.match(/<div id="dashboardView"[\s\S]*?<section class="analysis-view hidden" id="activityListView"/)?.[0] || "";
 
-  assert.match(dashboardView, /<section class="dashboard-command-center" id="dashboardCommandCenter" aria-label="Runner command center">/);
+  assert.match(dashboardView, /<section class="dashboard-overview-context" id="dashboardOverviewContext" aria-label="Recent running overview">/);
   assert.match(dashboardView, />Recent Load</);
   assert.match(dashboardView, />Saved-run summary</);
-  assert.match(dashboardView, /id="commandTodayValue"/);
-  assert.match(dashboardView, /id="commandLatestValue"/);
-  assert.match(dashboardView, /id="commandYearValue"/);
-  assert.match(dashboardView, /id="commandRaceTargetValue"/);
-  assert.match(dashboardView, /id="dashboardActivitySearchInput"/);
+  assert.match(dashboardView, /id="overviewRecentLoadValue"/);
+  assert.match(dashboardView, /id="overviewLatestValue"/);
+  assert.match(dashboardView, /id="overviewYearValue"/);
   assert.match(dashboardView, /id="commonPbSummaryList"/);
+  assert.doesNotMatch(dashboardView, new RegExp(`commandRace${"TargetValue"}|dashboardActivity${"SearchInput"}|dashboardActivity${"SearchForm"}`));
+  assert.doesNotMatch(dashboardView, new RegExp(`Race ${"Goal"}|Race ${"Target"}|Search ${"activity"}`));
   assert.doesNotMatch(dashboardView, /Run decision|today guidance/i);
 });
 
@@ -5243,7 +5184,6 @@ test("Analysis controls wire sub tab, rank, and scale interactions", () => {
     els.connectButton = makeElement();
     els.syncButton = makeElement();
     els.clearButton = makeElement();
-    els.openActivityListButton = makeElement();
     els.rangeSelect = makeElement();
     els.allActivitySearchInput = makeElement();
     els.allActivityRunOnlyInput = makeElement();
@@ -5374,7 +5314,6 @@ test("Riegel scale controls keep shared active state across both charts", () => 
     els.connectButton = fakeElement();
     els.syncButton = fakeElement();
     els.clearButton = fakeElement();
-    els.openActivityListButton = fakeElement();
     els.rangeSelect = fakeElement();
     els.allActivitySearchInput = fakeElement();
     els.allActivityRunOnlyInput = fakeElement();
@@ -5623,7 +5562,6 @@ test("Race Target goal time waits for a valid value before saving", () => {
     els.connectButton = fakeElement();
     els.syncButton = fakeElement();
     els.clearButton = fakeElement();
-    els.openActivityListButton = fakeElement();
     els.rangeSelect = fakeElement();
     els.allActivitySearchInput = fakeElement();
     els.allActivityRunOnlyInput = fakeElement();

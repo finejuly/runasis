@@ -141,54 +141,30 @@
           <div class="chart-box cumulative-distance-chart" id="cumulativeDistanceChart" aria-label="Cumulative distance by date chart"></div>
         </article>
 
-        <section class="dashboard-command-center" id="dashboardCommandCenter" aria-label="Runner command center">
-          <article class="command-primary-card" aria-labelledby="commandTodayTitle">
-            <div class="command-card-heading">
+        <section class="dashboard-overview-context" id="dashboardOverviewContext" aria-label="Recent running overview">
+          <article class="overview-primary-card" aria-labelledby="overviewRecentLoadTitle">
+            <div class="overview-card-heading">
               <span class="section-kicker">Recent Load</span>
-              <small id="commandTodayMeta">Last 7 days</small>
+              <small id="overviewRecentLoadMeta">Last 7 days</small>
             </div>
-            <h2 id="commandTodayTitle">Saved-run summary</h2>
-            <strong id="commandTodayValue">-</strong>
-            <p id="commandTodayDetail">Import runs to see recent training load.</p>
-            <div class="command-brief-grid" aria-label="Runner brief">
-              <div class="command-brief-item">
+            <h2 id="overviewRecentLoadTitle">Saved-run summary</h2>
+            <strong id="overviewRecentLoadValue">-</strong>
+            <p id="overviewRecentLoadDetail">Import runs to see recent training load.</p>
+            <div class="overview-brief-grid" aria-label="Recent context">
+              <div class="overview-brief-item">
                 <span>Latest</span>
-                <strong id="commandLatestValue">-</strong>
-                <small id="commandLatestMeta">No saved runs</small>
-                <p id="commandLatestDetail">Import runs to see the latest record context.</p>
+                <strong id="overviewLatestValue">-</strong>
+                <small id="overviewLatestMeta">No saved runs</small>
+                <p id="overviewLatestDetail">Import runs to see the latest record context.</p>
               </div>
-              <div class="command-brief-item">
+              <div class="overview-brief-item">
                 <span>Year to Date</span>
-                <strong id="commandYearValue">0.0 km</strong>
-                <small id="commandYearMeta">Current year total</small>
-                <p id="commandYearDetail">No current-year runs saved.</p>
-              </div>
-              <div class="command-brief-item">
-                <span>Race Goal</span>
-                <strong id="commandRaceTargetValue">Set a target</strong>
-                <small id="commandRaceTargetMeta">Analysis projection</small>
+                <strong id="overviewYearValue">0.0 km</strong>
+                <small id="overviewYearMeta">Current year total</small>
+                <p id="overviewYearDetail">No current-year runs saved.</p>
               </div>
             </div>
           </article>
-
-          <aside class="command-side-panel" aria-label="Fast actions">
-            <article class="command-panel-card">
-              <div class="panel-title">
-                <h2>Race Target</h2>
-                <span id="commandRaceTargetMetaSecondary">Projection</span>
-              </div>
-              <strong id="commandRaceTargetValueSecondary">Set a goal time</strong>
-              <p id="commandRaceTargetDetail">Runasis will compare the target with saved best efforts.</p>
-            </article>
-
-            <form class="command-panel-card dashboard-activity-search" id="dashboardActivitySearchForm" role="search">
-              <label class="setup-field">
-                <span>Search activity</span>
-                <input id="dashboardActivitySearchInput" type="search" autocomplete="off" placeholder="Name, sport, or id">
-              </label>
-              <button class="button primary" type="submit">Search</button>
-            </form>
-          </aside>
         </section>
 
         <section class="dashboard-insight-grid" aria-label="Dashboard highlights">
@@ -235,10 +211,7 @@
             <article class="records-panel table-panel">
               <div class="panel-title">
                 <h2>Recent Activities</h2>
-                <div class="panel-actions">
-                  <span id="recentCaption">Newest first</span>
-                  <button class="button ghost panel-compact-button" id="openActivityListButton" type="button">Search activities</button>
-                </div>
+                <span id="recentCaption">Newest first</span>
               </div>
               <div class="table-wrap">
                 <table>

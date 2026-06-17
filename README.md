@@ -22,7 +22,7 @@ It is built for runners who want to understand their own training history withou
 
 - Training totals and recent volume by date range
 - Cumulative progress, weekly trends, and distance distribution
-- Longest runs, recent activities, and a searchable activity list
+- Longest runs, recent activities, and a searchable Activities workflow
 - Personal bests and trend charts calculated from saved activity streams
 - Riegel race projections for comparing 5K, 10K, half-marathon, marathon, and other distances
 
@@ -78,7 +78,7 @@ Raw detailed activity payloads are saved locally under `data/strava/activities/r
 
 ### Dashboard
 
-The dashboard is the main training overview. It leads with recent saved-run load, latest run context, common personal bests, and volume charts. Use the range selector and metric cards to switch between distance, activity count, moving time, elevation gain, and time windows. The `Recent Activities` panel also links to a searchable activity list.
+The dashboard is the main training overview. It leads with recent saved-run load, latest run context, common personal bests, and volume charts. Use the range selector and metric cards to switch between distance, activity count, moving time, elevation gain, and time windows. Use `Activities` for search, filtering, sorting, and run detail refresh actions.
 
 ### Personal Bests
 

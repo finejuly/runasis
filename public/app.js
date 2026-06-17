@@ -28,7 +28,6 @@ const ANALYSIS_TAB_CONTEXT = {
 const RECENT_ACTIVITY_LIMIT = 5;
 const REPOSITORY_URL = "";
 const DAY_MS = 24 * 60 * 60 * 1000;
-const STANDARD_YEAR_DAYS = 365;
 const YEAR_DAYS = 365.25;
 const DEFAULT_DASHBOARD_METRIC_KEY = "distance";
 const COMMON_RECORD_TARGETS = ["5K", "10K", "Half-Marathon", "Marathon"];
@@ -213,33 +212,16 @@ function cacheElements() {
     "lastSync",
     "activityCount",
     "detailSync",
-    "runnerBrief",
-    "runnerBriefLatestValue",
-    "runnerBriefLatestMeta",
-    "runnerBriefLatestDetail",
-    "runnerBriefTodayValue",
-    "runnerBriefTodayMeta",
-    "runnerBriefTodayDetail",
-    "runnerBriefYearValue",
-    "runnerBriefYearMeta",
-    "runnerBriefYearDetail",
-    "dashboardCommandCenter",
-    "commandTodayValue",
-    "commandTodayMeta",
-    "commandTodayDetail",
-    "commandLatestValue",
-    "commandLatestMeta",
-    "commandLatestDetail",
-    "commandYearValue",
-    "commandYearMeta",
-    "commandYearDetail",
-    "commandRaceTargetValue",
-    "commandRaceTargetMeta",
-    "commandRaceTargetValueSecondary",
-    "commandRaceTargetMetaSecondary",
-    "commandRaceTargetDetail",
-    "dashboardActivitySearchForm",
-    "dashboardActivitySearchInput",
+    "dashboardOverviewContext",
+    "overviewRecentLoadValue",
+    "overviewRecentLoadMeta",
+    "overviewRecentLoadDetail",
+    "overviewLatestValue",
+    "overviewLatestMeta",
+    "overviewLatestDetail",
+    "overviewYearValue",
+    "overviewYearMeta",
+    "overviewYearDetail",
     "commonPbCaption",
     "commonPbSummaryList",
     "dashboardView",
@@ -260,7 +242,6 @@ function cacheElements() {
     "analysisPaceView",
     "analysisProfileGrid",
     "analysisRankControl",
-    "openActivityListButton",
     "allActivityCountCaption",
     "allActivitySearchInput",
     "allActivityRunOnlyInput",
@@ -443,14 +424,6 @@ function bindEvents() {
   els.syncButton.addEventListener("click", async () => {
     await syncActivities();
   });
-
-  els.openActivityListButton.addEventListener("click", () => {
-    appState.currentView = "activities";
-    setActiveViewTab("activities");
-    render();
-  });
-
-  els.dashboardActivitySearchForm?.addEventListener("submit", submitDashboardActivitySearch);
 
   els.allActivitySearchInput.addEventListener("input", () => {
     appState.allActivitySearch = els.allActivitySearchInput.value;
@@ -1228,7 +1201,7 @@ function render() {
   const activities = getFilteredActivities();
   const metrics = calculateMetrics(activities);
   const previousMetrics = calculatePreviousPeriodMetrics();
-  renderDashboardCommandCenter();
+  renderDashboardOverviewContext();
   renderKpiRangeCaption(activities);
   renderKpis(metrics, previousMetrics);
   renderKpiSelection();
@@ -1283,8 +1256,8 @@ function renderStatus() {
 function buildRunnerBrief(activities = appState.activities, personalBests = appState.personalBests) {
   return {
     latestRun: buildLatestRunComparison(activities, personalBests, { rankLimit: appState.recordTargetRank }),
-    today: buildRecentLoadSummary(activities),
-    yearGoal: buildYearGoalProgress(activities)
+    recentLoad: buildRecentLoadSummary(activities),
+    yearToDate: buildYearToDateSummary(activities)
   };
 }
 
@@ -1576,7 +1549,7 @@ function countConsecutiveRunDays(activities, endDate) {
   return count;
 }
 
-function buildYearGoalProgress(activities = appState.activities) {
+function buildYearToDateSummary(activities = appState.activities) {
   const today = startOfLocalDay(new Date());
   const yearStart = new Date(today.getFullYear(), 0, 1);
   const completedKm = roundTo(sumRunDistanceKmBetween(activities, yearStart, today), 1);
@@ -1596,52 +1569,27 @@ function buildYearGoalProgress(activities = appState.activities) {
   };
 }
 
-function renderDashboardCommandCenter() {
+function renderDashboardOverviewContext() {
   const brief = buildRunnerBrief(appState.activities, appState.personalBests);
-  renderCommandToday(brief.today);
-  renderCommandBriefMetric("Latest", brief.latestRun);
-  renderCommandBriefMetric("Year", brief.yearGoal);
-  renderDashboardRaceTargetSummary();
+  renderOverviewPrimary(brief.recentLoad);
+  renderOverviewMetric("Latest", brief.latestRun);
+  renderOverviewMetric("Year", brief.yearToDate);
   renderCommonPersonalBestSummary();
 }
 
-function renderCommandToday(card) {
-  if (els.commandTodayValue) els.commandTodayValue.textContent = card?.value || "-";
-  if (els.commandTodayMeta) els.commandTodayMeta.textContent = card?.meta || "Last 7 days";
-  if (els.commandTodayDetail) els.commandTodayDetail.textContent = card?.detail || "";
+function renderOverviewPrimary(card) {
+  if (els.overviewRecentLoadValue) els.overviewRecentLoadValue.textContent = card?.value || "-";
+  if (els.overviewRecentLoadMeta) els.overviewRecentLoadMeta.textContent = card?.meta || "Last 7 days";
+  if (els.overviewRecentLoadDetail) els.overviewRecentLoadDetail.textContent = card?.detail || "";
 }
 
-function renderCommandBriefMetric(slot, card) {
-  const value = els[`command${slot}Value`];
-  const meta = els[`command${slot}Meta`];
-  const detail = els[`command${slot}Detail`];
+function renderOverviewMetric(slot, card) {
+  const value = els[`overview${slot}Value`];
+  const meta = els[`overview${slot}Meta`];
+  const detail = els[`overview${slot}Detail`];
   if (value) value.textContent = card?.value || "-";
   if (meta) meta.textContent = card?.meta || "";
   if (detail) detail.textContent = card?.detail || "";
-}
-
-function renderDashboardRaceTargetSummary() {
-  const targets = getRiegelProjectionTargets();
-  const selectedTarget = targets.find((target) => target.name === appState.raceTargetDistanceName)
-    || targets.find((target) => target.name === DEFAULT_RACE_TARGET_DISTANCE)
-    || targets[0]
-    || { name: DEFAULT_RACE_TARGET_DISTANCE, distanceKm: 42.195 };
-  const analysis = buildRiegelAnalysis();
-  const selectedSeries = analysis?.selectedSeries || getSelectedRiegelSeries();
-  const expectedSeries = (analysis?.expectedPaceSeries || []).find((item) => item.key === selectedSeries.key)
-    || analysis?.expectedPaceSeries?.[0]
-    || null;
-  const status = buildRaceTargetStatus({
-    targetName: selectedTarget.name,
-    goalSeconds: parseRaceGoalTime(appState.raceTargetTimeText || DEFAULT_RACE_TARGET_TIME),
-    expectedRows: expectedSeries?.points || [],
-    fallbackDistanceKm: selectedTarget.distanceKm
-  });
-  if (els.commandRaceTargetValue) els.commandRaceTargetValue.textContent = status.value;
-  if (els.commandRaceTargetMeta) els.commandRaceTargetMeta.textContent = status.meta;
-  if (els.commandRaceTargetValueSecondary) els.commandRaceTargetValueSecondary.textContent = status.value;
-  if (els.commandRaceTargetMetaSecondary) els.commandRaceTargetMetaSecondary.textContent = status.meta;
-  if (els.commandRaceTargetDetail) els.commandRaceTargetDetail.textContent = status.detail;
 }
 
 function buildCommonPersonalBestSummary(personalBests = appState.personalBests) {
@@ -1682,32 +1630,6 @@ function renderCommonPersonalBestSummary() {
       <small>${escapeHtml(row.meta)}</small>
     </div>
   `).join("");
-}
-
-function submitDashboardActivitySearch(event) {
-  event?.preventDefault?.();
-  appState.allActivitySearch = els.dashboardActivitySearchInput?.value?.trim() || "";
-  resetAllActivityVisibleLimit();
-  appState.currentView = "activities";
-  setActiveViewTab(appState.currentView);
-  render();
-}
-
-function renderDashboardRunnerBrief() {
-  const brief = buildRunnerBrief(appState.activities, appState.personalBests);
-  renderRunnerBriefCard("Latest", brief.latestRun);
-  renderRunnerBriefCard("Today", brief.today);
-  renderRunnerBriefCard("Year", brief.yearGoal);
-}
-
-function renderRunnerBriefCard(slot, card) {
-  const value = els[`runnerBrief${slot}Value`];
-  const meta = els[`runnerBrief${slot}Meta`];
-  const detail = els[`runnerBrief${slot}Detail`];
-  if (!value || !meta || !detail) return;
-  value.textContent = card?.value || "-";
-  meta.textContent = card?.meta || "";
-  detail.textContent = card?.detail || "";
 }
 
 function roundTo(value, digits = 0) {
@@ -1819,10 +1741,9 @@ function renderKpis(metrics, previousMetrics = null) {
   els.kpiTime.textContent = `${formatNumber(metrics.movingHours, 1)} h`;
   els.kpiElevation.textContent = `${formatInteger(Math.round(metrics.elevation))} m`;
 
-  const distanceSubContent = [
-    previousMetrics ? formatKpiDelta(metrics.distanceKm - previousMetrics.distanceKm, formatSignedDistanceKm, "higher") : "",
-    formatAnnualizedDistanceProjection(metrics.distanceKm)
-  ].filter(Boolean).join(" · ");
+  const distanceSubContent = previousMetrics
+    ? formatKpiDelta(metrics.distanceKm - previousMetrics.distanceKm, formatSignedDistanceKm, "higher")
+    : "";
   setKpiSubContent(els.kpiDistanceSub, distanceSubContent);
 
   if (previousMetrics) {
@@ -1835,13 +1756,6 @@ function renderKpis(metrics, previousMetrics = null) {
   setKpiSubContent(els.kpiActivitiesSub);
   setKpiSubContent(els.kpiTimeSub);
   setKpiSubContent(els.kpiElevationSub);
-}
-
-function formatAnnualizedDistanceProjection(distanceKm, rangeDays = appState.rangeDays) {
-  const normalizedRangeDays = Number(rangeDays);
-  if (!Number.isFinite(normalizedRangeDays) || normalizedRangeDays <= 0) return "";
-  if (!Number.isFinite(distanceKm) || distanceKm <= 0) return "";
-  return `<span class="kpi-annualized">Annualized ${formatNumber((distanceKm * STANDARD_YEAR_DAYS) / normalizedRangeDays, 1)} km/yr</span>`;
 }
 
 function setKpiSubContent(element, content = "") {

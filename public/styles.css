@@ -578,15 +578,14 @@ input[type="search"] {
   margin-top: 12px;
 }
 
-.dashboard-command-center {
+.dashboard-overview-context {
   display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   margin: 14px 0;
 }
 
-.command-primary-card,
-.command-panel-card,
+.overview-primary-card,
 .common-pb-panel {
   min-width: 0;
   border: 1px solid var(--line);
@@ -594,7 +593,7 @@ input[type="search"] {
   box-shadow: var(--shadow-soft);
 }
 
-.command-primary-card {
+.overview-primary-card {
   padding: 20px;
   background: var(--surface-strong);
   color: var(--surface);
@@ -602,52 +601,48 @@ input[type="search"] {
   gap: 14px;
 }
 
-.command-primary-card .section-kicker {
+.overview-primary-card .section-kicker {
   color: #f2c7ac;
 }
 
-.command-card-heading,
-.command-side-panel {
+.overview-card-heading {
   display: grid;
   gap: 10px;
-}
-
-.command-card-heading {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
 
-.command-card-heading small,
-.command-primary-card p,
-.command-brief-item small,
-.command-brief-item span {
+.overview-card-heading small,
+.overview-primary-card p,
+.overview-brief-item small,
+.overview-brief-item span {
   color: #eadfd6;
 }
 
-.command-primary-card h2 {
+.overview-primary-card h2 {
   margin: 0;
   font-size: 32px;
   line-height: 1.08;
   font-weight: 650;
 }
 
-.command-primary-card > strong {
+.overview-primary-card > strong {
   font-size: 34px;
   line-height: 1.05;
 }
 
-.command-primary-card p {
+.overview-primary-card p {
   margin: 0;
   line-height: 1.45;
 }
 
-.command-brief-grid {
+.overview-brief-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-.command-brief-item {
+.overview-brief-item {
   min-width: 0;
   padding: 12px;
   border-radius: 10px;
@@ -656,40 +651,15 @@ input[type="search"] {
   gap: 4px;
 }
 
-.command-brief-item strong {
+.overview-brief-item strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 18px;
 }
 
-.command-brief-item p {
+.overview-brief-item p {
   font-size: var(--font-label);
-}
-
-.command-panel-card {
-  padding: 16px;
-  background: var(--surface);
-}
-
-.command-panel-card > strong {
-  display: block;
-  font-size: 22px;
-  line-height: 1.12;
-}
-
-.command-panel-card p {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: var(--font-label);
-  line-height: 1.45;
-}
-
-.dashboard-activity-search {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: end;
 }
 
 .dashboard-insight-grid {
@@ -725,52 +695,6 @@ input[type="search"] {
   color: var(--orange);
   font-size: 20px;
   line-height: 1.1;
-}
-
-.runner-brief {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin: 0 0 14px;
-}
-
-.runner-brief-card {
-  min-width: 0;
-  min-height: 132px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
-  border-radius: 12px;
-  display: grid;
-  align-content: start;
-  gap: 5px;
-}
-
-.runner-brief-card span {
-  color: var(--muted);
-  font-size: var(--font-label);
-  font-weight: 760;
-}
-
-.runner-brief-card strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 26px;
-  line-height: 1.12;
-}
-
-.runner-brief-card small {
-  color: var(--muted);
-  font-size: var(--font-label);
-  font-weight: 700;
-}
-
-.runner-brief-card p {
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: var(--font-control);
-  line-height: 1.35;
 }
 
 .kpi-summary-heading {
@@ -858,11 +782,6 @@ input[type="search"] {
 
 .kpi-delta.neutral {
   color: var(--muted);
-}
-
-.kpi-annualized {
-  color: var(--muted);
-  font-weight: 760;
 }
 
 .cumulative-distance-panel {
@@ -2076,10 +1995,9 @@ td.activity-name {
   .records-grid,
   .analysis-grid,
   .analysis-profile-grid,
-  .dashboard-command-center,
-  .command-brief-grid,
+  .dashboard-overview-context,
+  .overview-brief-grid,
   .common-pb-list,
-  .runner-brief,
   .personal-best-grid {
     grid-template-columns: 1fr;
   }
@@ -2157,16 +2075,15 @@ td.activity-name {
     text-align: left;
   }
 
-  .dashboard-activity-search,
-  .command-card-heading {
+  .overview-card-heading {
     grid-template-columns: 1fr;
   }
 
-  .command-primary-card h2 {
+  .overview-primary-card h2 {
     font-size: 26px;
   }
 
-  .command-primary-card > strong {
+  .overview-primary-card > strong {
     font-size: 28px;
   }
 
