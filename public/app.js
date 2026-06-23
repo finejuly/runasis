@@ -112,6 +112,7 @@ const appState = {
   paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   currentView: "dashboard",
   personalBestTab: "distance",
+  personalBestMode: "records",
   personalBestModes: { distance: "records", time: "records", pace: "records" },
   selectedPersonalBestTargets: { distance: null, time: null, pace: null },
   analysisTab: "distance",
@@ -713,15 +714,24 @@ function normalizePersonalBestMode(mode) {
 function getPersonalBestMode(tab = appState.personalBestTab) {
   const normalizedTab = normalizePersonalBestTab(tab);
   if (!appState.personalBestModes) appState.personalBestModes = {};
-  const normalizedMode = normalizePersonalBestMode(appState.personalBestModes[normalizedTab]);
-  appState.personalBestModes[normalizedTab] = normalizedMode;
+  const normalizedMode = normalizePersonalBestMode(appState.personalBestMode || appState.personalBestModes[normalizedTab]);
+  setPersonalBestModeSelection(normalizedMode);
+  return normalizedMode;
+}
+
+function setPersonalBestModeSelection(mode) {
+  const normalizedMode = normalizePersonalBestMode(mode);
+  appState.personalBestMode = normalizedMode;
+  if (!appState.personalBestModes) appState.personalBestModes = {};
+  for (const tab of PERSONAL_BEST_TABS) {
+    appState.personalBestModes[tab] = normalizedMode;
+  }
   return normalizedMode;
 }
 
 function selectPersonalBestMode(mode, tab = appState.personalBestTab) {
   const normalizedTab = normalizePersonalBestTab(tab);
-  if (!appState.personalBestModes) appState.personalBestModes = {};
-  appState.personalBestModes[normalizedTab] = normalizePersonalBestMode(mode);
+  setPersonalBestModeSelection(mode);
   updatePersonalBestModeVisibility(normalizedTab);
 }
 
@@ -3217,9 +3227,9 @@ function renderPaceBestTrendChart() {
   const selectedLimit = normalizePersonalBestTrendLimit(appState.paceBestTrendLimit);
   const efforts = selected.trendEfforts;
   const activeEfforts = efforts.filter((effort) => effort.rank <= selectedLimit);
-  const dates = efforts.map((effort) => effort.recordedAt);
-  const minDate = Math.min(...dates);
-  const maxDate = Math.max(...dates);
+  const dateRange = selected.trendDateRange || buildTrendDateRange(efforts);
+  const minDate = dateRange?.minDate ?? Math.min(...efforts.map((effort) => effort.recordedAt));
+  const maxDate = dateRange?.maxDate ?? Math.max(...efforts.map((effort) => effort.recordedAt));
   const trend = buildDistanceTrend(activeEfforts);
   const distanceValues = efforts.map((effort) => effort.distanceKm);
   if (trend) distanceValues.push(trend.startDistanceKm, trend.endDistanceKm);
@@ -3525,9 +3535,9 @@ function renderTimeBestTrendChart() {
   const selectedLimit = normalizePersonalBestTrendLimit(appState.timeBestTrendLimit);
   const efforts = selected.trendEfforts;
   const activeEfforts = efforts.filter((effort) => effort.rank <= selectedLimit);
-  const dates = efforts.map((effort) => effort.recordedAt);
-  const minDate = Math.min(...dates);
-  const maxDate = Math.max(...dates);
+  const dateRange = selected.trendDateRange || buildTrendDateRange(efforts);
+  const minDate = dateRange?.minDate ?? Math.min(...efforts.map((effort) => effort.recordedAt));
+  const maxDate = dateRange?.maxDate ?? Math.max(...efforts.map((effort) => effort.recordedAt));
   const trend = buildPaceTrend(activeEfforts);
   const paceValues = efforts.map((effort) => effort.paceSecondsPerKm);
   if (trend) paceValues.push(trend.startPace, trend.endPace);
@@ -5713,9 +5723,9 @@ function renderPersonalBestTrendChart() {
   const selectedLimit = normalizePersonalBestTrendLimit(appState.personalBestTrendLimit);
   const efforts = selected.trendEfforts;
   const activeEfforts = efforts.filter((effort) => effort.rank <= selectedLimit);
-  const dates = efforts.map((effort) => effort.recordedAt);
-  const minDate = Math.min(...dates);
-  const maxDate = Math.max(...dates);
+  const dateRange = selected.trendDateRange || buildTrendDateRange(efforts);
+  const minDate = dateRange?.minDate ?? Math.min(...efforts.map((effort) => effort.recordedAt));
+  const maxDate = dateRange?.maxDate ?? Math.max(...efforts.map((effort) => effort.recordedAt));
   const trend = buildPaceTrend(activeEfforts);
   const paceValues = efforts.map((effort) => effort.paceSecondsPerKm);
   if (trend) paceValues.push(trend.startPace, trend.endPace);
@@ -5794,8 +5804,7 @@ function renderPersonalBestTrendChart() {
 function getTimeBestTrendDurations() {
   return (appState.personalBests?.durations || [])
     .map((duration) => {
-      const trendEfforts = (duration.top || [])
-        .slice(0, PERSONAL_BEST_TREND_LIMIT)
+      const allTrendEfforts = (duration.top || [])
         .map((effort, index) => {
           const recordedAt = getLocalFirstTimestamp(effort.startDateLocal, effort.startDate);
           const distanceKm = Number(effort.distanceKm || 0);
@@ -5809,9 +5818,11 @@ function getTimeBestTrendDurations() {
           ) return null;
           return { ...effort, rank: index + 1, recordedAt, distanceKm, paceSecondsPerKm };
         })
-        .filter(Boolean)
+        .filter(Boolean);
+      const trendEfforts = allTrendEfforts
+        .slice(0, PERSONAL_BEST_TREND_LIMIT)
         .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
-      return { ...duration, trendEfforts };
+      return { ...duration, trendEfforts, trendDateRange: buildTrendDateRange(allTrendEfforts) };
     })
     .filter((duration) => duration.trendEfforts.length >= 2);
 }
@@ -5847,8 +5858,7 @@ function renderTimeBestTrendDurationOptions(durations, selectedName) {
 function getPaceBestTrendTargets() {
   return (appState.personalBests?.paces || [])
     .map((pace) => {
-      const trendEfforts = (pace.top || [])
-        .slice(0, PERSONAL_BEST_TREND_LIMIT)
+      const allTrendEfforts = (pace.top || [])
         .map((effort, index) => {
           const recordedAt = getLocalFirstTimestamp(effort.startDateLocal, effort.startDate);
           const durationSeconds = Number(effort.durationSeconds || effort.movingTime || 0);
@@ -5865,9 +5875,11 @@ function getPaceBestTrendTargets() {
           ) return null;
           return { ...effort, rank: index + 1, recordedAt, durationSeconds, distanceKm, paceSecondsPerKm };
         })
-        .filter(Boolean)
+        .filter(Boolean);
+      const trendEfforts = allTrendEfforts
+        .slice(0, PERSONAL_BEST_TREND_LIMIT)
         .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
-      return { ...pace, trendEfforts };
+      return { ...pace, trendEfforts, trendDateRange: buildTrendDateRange(allTrendEfforts) };
     })
     .filter((pace) => pace.trendEfforts.length >= 2);
 }
@@ -5903,18 +5915,30 @@ function renderPaceBestTrendTargetOptions(paces, selectedName) {
 function getPersonalBestTrendDistances() {
   return (appState.personalBests?.distances || [])
     .map((distance) => {
-      const trendEfforts = (distance.top || [])
-        .slice(0, PERSONAL_BEST_TREND_LIMIT)
+      const allTrendEfforts = (distance.top || [])
         .map((effort, index) => {
           const recordedAt = getLocalFirstTimestamp(effort.startDateLocal, effort.startDate);
           if (!Number.isFinite(recordedAt) || !Number.isFinite(effort.paceSecondsPerKm)) return null;
           return { ...effort, rank: index + 1, recordedAt };
         })
-        .filter(Boolean)
+        .filter(Boolean);
+      const trendEfforts = allTrendEfforts
+        .slice(0, PERSONAL_BEST_TREND_LIMIT)
         .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
-      return { ...distance, trendEfforts };
+      return { ...distance, trendEfforts, trendDateRange: buildTrendDateRange(allTrendEfforts) };
     })
     .filter((distance) => distance.trendEfforts.length >= 2);
+}
+
+function buildTrendDateRange(efforts) {
+  const dates = (efforts || [])
+    .map((effort) => effort.recordedAt)
+    .filter((date) => Number.isFinite(date));
+  if (!dates.length) return null;
+  return {
+    minDate: Math.min(...dates),
+    maxDate: Math.max(...dates)
+  };
 }
 
 function normalizePersonalBestTrendLimit(value) {

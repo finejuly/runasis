@@ -318,20 +318,10 @@
 
         <div class="personal-best-subview" id="personalBestDistanceView">
           <div class="personal-best-mode-tabs scale-toggle" role="group" aria-label="Distance best view">
-            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="distance" data-pb-mode="records" aria-pressed="true">Records</button>
             <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="distance" data-pb-mode="curve" aria-pressed="false">Curve</button>
-            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="distance" data-pb-mode="timing" aria-pressed="false">Timing</button>
             <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="distance" data-pb-mode="trend" aria-pressed="false">Trend</button>
-          </div>
-          <div class="personal-best-mode-pane" data-personal-best-mode-tab="distance" data-pb-pane="records">
-            <div class="personal-best-section-heading">
-              <div>
-                <h2>Distance Bests</h2>
-                <span id="personalBestCaption">No data</span>
-              </div>
-              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
-            </div>
-            <div class="personal-best-grid" id="personalBestGrid"></div>
+            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="distance" data-pb-mode="records" aria-pressed="true">Records</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="distance" data-pb-mode="timing" aria-pressed="false">Timing</button>
           </div>
           <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="distance" data-pb-pane="curve">
             <article class="chart-panel personal-best-chart-panel">
@@ -346,15 +336,6 @@
                 </div>
               </div>
               <div class="chart-box personal-best-chart" id="personalBestChart" aria-label="Personal best pace by distance chart"></div>
-            </article>
-          </div>
-          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="distance" data-pb-pane="timing">
-            <article class="chart-panel personal-best-chart-panel">
-              <div class="panel-title">
-                <h2>Personal Best Timing by Distance</h2>
-                <span id="personalBestRecencyChartCaption">D-day</span>
-              </div>
-              <div class="chart-box personal-best-chart" id="personalBestRecencyChart" aria-label="Personal best timing by distance chart"></div>
             </article>
           </div>
           <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="distance" data-pb-pane="trend">
@@ -377,24 +358,33 @@
               <div class="chart-box personal-best-chart" id="personalBestTrendChart" aria-label="Personal best trend by distance chart"></div>
             </article>
           </div>
+          <div class="personal-best-mode-pane" data-personal-best-mode-tab="distance" data-pb-pane="records">
+            <div class="personal-best-section-heading">
+              <div>
+                <h2>Distance Bests</h2>
+                <span id="personalBestCaption">No data</span>
+              </div>
+              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+            </div>
+            <div class="personal-best-grid" id="personalBestGrid"></div>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="distance" data-pb-pane="timing">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Personal Best Timing by Distance</h2>
+                <span id="personalBestRecencyChartCaption">D-day</span>
+              </div>
+              <div class="chart-box personal-best-chart" id="personalBestRecencyChart" aria-label="Personal best timing by distance chart"></div>
+            </article>
+          </div>
         </div>
 
         <div class="personal-best-subview hidden" id="timeView" aria-label="Time-limited bests">
           <div class="personal-best-mode-tabs scale-toggle" role="group" aria-label="Time best view">
-            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="time" data-pb-mode="records" aria-pressed="true">Records</button>
             <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="time" data-pb-mode="curve" aria-pressed="false">Curve</button>
-            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="time" data-pb-mode="timing" aria-pressed="false">Timing</button>
             <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="time" data-pb-mode="trend" aria-pressed="false">Trend</button>
-          </div>
-          <div class="personal-best-mode-pane" data-personal-best-mode-tab="time" data-pb-pane="records">
-            <div class="personal-best-section-heading time-best-heading">
-              <div>
-                <h2>Time-Limited Bests</h2>
-                <span id="personalBestDurationCaption">No stream data</span>
-              </div>
-              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
-            </div>
-            <div class="personal-best-grid" id="personalBestDurationGrid"></div>
+            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="time" data-pb-mode="records" aria-pressed="true">Records</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="time" data-pb-mode="timing" aria-pressed="false">Timing</button>
           </div>
           <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="time" data-pb-pane="curve">
             <article class="chart-panel personal-best-chart-panel">
@@ -409,15 +399,6 @@
                 </div>
               </div>
               <div class="chart-box personal-best-chart" id="timeBestDistanceChart" aria-label="Time best pace by duration chart"></div>
-            </article>
-          </div>
-          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="time" data-pb-pane="timing">
-            <article class="chart-panel personal-best-chart-panel">
-              <div class="panel-title">
-                <h2>Time Best Timing by Duration</h2>
-                <span id="timeBestRecencyChartCaption">D-day</span>
-              </div>
-              <div class="chart-box personal-best-chart" id="timeBestRecencyChart" aria-label="Time best timing by duration chart"></div>
             </article>
           </div>
           <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="time" data-pb-pane="trend">
@@ -440,24 +421,33 @@
               <div class="chart-box personal-best-chart" id="timeBestTrendChart" aria-label="Time best trend by duration chart"></div>
             </article>
           </div>
+          <div class="personal-best-mode-pane" data-personal-best-mode-tab="time" data-pb-pane="records">
+            <div class="personal-best-section-heading time-best-heading">
+              <div>
+                <h2>Time-Limited Bests</h2>
+                <span id="personalBestDurationCaption">No stream data</span>
+              </div>
+              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+            </div>
+            <div class="personal-best-grid" id="personalBestDurationGrid"></div>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="time" data-pb-pane="timing">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Time Best Timing by Duration</h2>
+                <span id="timeBestRecencyChartCaption">D-day</span>
+              </div>
+              <div class="chart-box personal-best-chart" id="timeBestRecencyChart" aria-label="Time best timing by duration chart"></div>
+            </article>
+          </div>
         </div>
 
         <div class="personal-best-subview hidden" id="paceView" aria-label="Pace bests">
           <div class="personal-best-mode-tabs scale-toggle" role="group" aria-label="Pace best view">
-            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="pace" data-pb-mode="records" aria-pressed="true">Records</button>
             <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="pace" data-pb-mode="curve" aria-pressed="false">Curve</button>
-            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="pace" data-pb-mode="timing" aria-pressed="false">Timing</button>
             <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="pace" data-pb-mode="trend" aria-pressed="false">Trend</button>
-          </div>
-          <div class="personal-best-mode-pane" data-personal-best-mode-tab="pace" data-pb-pane="records">
-            <div class="personal-best-section-heading time-best-heading">
-              <div>
-                <h2>Pace Bests</h2>
-                <span id="personalBestPaceCaption">No stream data</span>
-              </div>
-              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
-            </div>
-            <div class="personal-best-grid" id="personalBestPaceGrid"></div>
+            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="pace" data-pb-mode="records" aria-pressed="true">Records</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="pace" data-pb-mode="timing" aria-pressed="false">Timing</button>
           </div>
           <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="pace" data-pb-pane="curve">
             <article class="chart-panel personal-best-chart-panel">
@@ -472,15 +462,6 @@
                 </div>
               </div>
               <div class="chart-box personal-best-chart" id="paceBestDurationChart" aria-label="Pace best distance by target pace chart"></div>
-            </article>
-          </div>
-          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="pace" data-pb-pane="timing">
-            <article class="chart-panel personal-best-chart-panel">
-              <div class="panel-title">
-                <h2>Pace Best Timing</h2>
-                <span id="paceBestRecencyChartCaption">D-day</span>
-              </div>
-              <div class="chart-box personal-best-chart" id="paceBestRecencyChart" aria-label="Pace best timing by target pace chart"></div>
             </article>
           </div>
           <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="pace" data-pb-pane="trend">
@@ -501,6 +482,25 @@
                 </div>
               </div>
               <div class="chart-box personal-best-chart" id="paceBestTrendChart" aria-label="Pace best trend by target pace chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane" data-personal-best-mode-tab="pace" data-pb-pane="records">
+            <div class="personal-best-section-heading time-best-heading">
+              <div>
+                <h2>Pace Bests</h2>
+                <span id="personalBestPaceCaption">No stream data</span>
+              </div>
+              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+            </div>
+            <div class="personal-best-grid" id="personalBestPaceGrid"></div>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="pace" data-pb-pane="timing">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Pace Best Timing</h2>
+                <span id="paceBestRecencyChartCaption">D-day</span>
+              </div>
+              <div class="chart-box personal-best-chart" id="paceBestRecencyChart" aria-label="Pace best timing by target pace chart"></div>
             </article>
           </div>
         </div>

@@ -2858,13 +2858,11 @@ test("target rank control is visible only for active Personal Best records mode"
     updatePersonalBestModeVisibility("distance");
     const recordsHidden = els.recordTargetRankField.classList.hidden;
 
-    appState.personalBestModes.distance = "curve";
-    updatePersonalBestModeVisibility("distance");
+    selectPersonalBestMode("curve", "distance");
     const curveHidden = els.recordTargetRankField.classList.hidden;
 
     appState.personalBestTab = "time";
-    appState.personalBestModes.time = "records";
-    updatePersonalBestModeVisibility("time");
+    selectPersonalBestMode("records", "time");
     const timeRecordsHidden = els.recordTargetRankField.classList.hidden;
 
     ({ recordsHidden, curveHidden, timeRecordsHidden });
@@ -3213,21 +3211,113 @@ test("Personal Bests exposes a recent-record chart toggle", () => {
   assert.match(pbView, /Show recent records/);
 });
 
-test("Personal Bests exposes one records-first mode switch per type", () => {
+test("Personal Bests exposes mode switches in curve, trend, records, timing order", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const pbView = html.match(/<section class="analysis-view hidden" id="pbView"[\s\S]*?<section class="analysis-view hidden" id="analysisView"/)?.[0] || "";
 
+  const modeOrder = (tab) => Array.from(
+    pbView.matchAll(new RegExp(`data-personal-best-mode-tab="${tab}" data-pb-mode="([^"]+)"`, "g")),
+    (match) => match[1]
+  );
+  const paneOrder = (tab) => Array.from(
+    pbView.matchAll(new RegExp(`data-personal-best-mode-tab="${tab}" data-pb-pane="([^"]+)"`, "g")),
+    (match) => match[1]
+  );
+
   assert.match(pbView, /class="personal-best-mode-tabs scale-toggle"/);
-  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="records"[\s\S]*>Records</);
-  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="curve"[\s\S]*>Curve</);
-  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="timing"[\s\S]*>Timing</);
-  assert.match(pbView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="trend"[\s\S]*>Trend</);
+  assert.deepEqual(modeOrder("distance"), ["curve", "trend", "records", "timing"]);
+  assert.deepEqual(modeOrder("time"), ["curve", "trend", "records", "timing"]);
+  assert.deepEqual(modeOrder("pace"), ["curve", "trend", "records", "timing"]);
   assert.match(pbView, /id="recordTargetRankSelect"[\s\S]*Top 5[\s\S]*Top 10[\s\S]*Top 20/);
-  assert.match(pbView, /data-pb-pane="records"/);
-  assert.match(pbView, /data-pb-pane="curve"/);
-  assert.match(pbView, /data-pb-pane="timing"/);
-  assert.match(pbView, /data-pb-pane="trend"/);
-  assert.match(pbView, /id="personalBestGrid"[\s\S]*id="personalBestChart"[\s\S]*id="personalBestRecencyChart"[\s\S]*id="personalBestTrendChart"/);
+  assert.deepEqual(paneOrder("distance"), ["curve", "trend", "records", "timing"]);
+  assert.deepEqual(paneOrder("time"), ["curve", "trend", "records", "timing"]);
+  assert.deepEqual(paneOrder("pace"), ["curve", "trend", "records", "timing"]);
+  assert.match(pbView, /id="personalBestChart"[\s\S]*id="personalBestTrendChart"[\s\S]*id="personalBestGrid"[\s\S]*id="personalBestRecencyChart"/);
+});
+
+test("Personal Best trend axes use the full available record date range", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const makeDate = (year, monthIndex, day) => {
+      const isoDate = new Date(Date.UTC(year, monthIndex, day, 8, 0, 0)).toISOString();
+      return { startDate: isoDate, startDateLocal: isoDate };
+    };
+    const recentDate = (index) => makeDate(2025, index % 12, 1 + (index % 20));
+    const oldDate = makeDate(2020, 0, 1);
+    const chartElement = () => ({ innerHTML: "" });
+
+    const distanceEfforts = Array.from({ length: 22 }, (_, index) => ({
+      ...(index === 21 ? oldDate : recentDate(index)),
+      movingTime: 1500 + index,
+      paceSecondsPerKm: 300 + index,
+      activityName: "Distance Effort " + (index + 1)
+    }));
+    const timeEfforts = Array.from({ length: 22 }, (_, index) => ({
+      ...(index === 21 ? oldDate : recentDate(index)),
+      distanceKm: 6 - index * 0.02,
+      paceSecondsPerKm: 300 + index,
+      activityName: "Time Effort " + (index + 1)
+    }));
+    const paceEfforts = Array.from({ length: 22 }, (_, index) => ({
+      ...(index === 21 ? oldDate : recentDate(index)),
+      durationSeconds: 1500 + index,
+      movingTime: 1500 + index,
+      distanceKm: 5 + index * 0.02,
+      paceSecondsPerKm: 300,
+      activityName: "Pace Effort " + (index + 1)
+    }));
+
+    els.personalBestTrendLimitButtons = [];
+    els.timeBestTrendLimitButtons = [];
+    els.paceBestTrendLimitButtons = [];
+    els.personalBestTrendDistanceSelect = { disabled: false, innerHTML: "" };
+    els.timeBestTrendDurationSelect = { disabled: false, innerHTML: "" };
+    els.paceBestTrendTargetSelect = { disabled: false, innerHTML: "" };
+    els.personalBestTrendCaption = { textContent: "" };
+    els.timeBestTrendCaption = { textContent: "" };
+    els.paceBestTrendCaption = { textContent: "" };
+    els.personalBestTrendChart = chartElement();
+    els.timeBestTrendChart = chartElement();
+    els.paceBestTrendChart = chartElement();
+    appState.personalBestTrendLimit = 20;
+    appState.timeBestTrendLimit = 20;
+    appState.paceBestTrendLimit = 20;
+    appState.personalBestTrendDistanceName = "5K";
+    appState.timeBestTrendDurationName = "30 min";
+    appState.paceBestTrendTargetName = "5:00/km";
+    appState.personalBests = {
+      distances: [{ name: "5K", top: distanceEfforts }],
+      durations: [{ name: "30 min", top: timeEfforts }],
+      paces: [{ name: "5:00/km", top: paceEfforts }]
+    };
+
+    renderPersonalBestTrendChart();
+    renderTimeBestTrendChart();
+    renderPaceBestTrendChart();
+
+    ({
+      distanceCount: getPersonalBestTrendDistances()[0].trendEfforts.length,
+      timeCount: getTimeBestTrendDurations()[0].trendEfforts.length,
+      paceCount: getPaceBestTrendTargets()[0].trendEfforts.length,
+      distanceChart: els.personalBestTrendChart.innerHTML,
+      timeChart: els.timeBestTrendChart.innerHTML,
+      paceChart: els.paceBestTrendChart.innerHTML
+    });
+  `, app);
+
+  assert.equal(result.distanceCount, 20);
+  assert.equal(result.timeCount, 20);
+  assert.equal(result.paceCount, 20);
+  assert.match(result.distanceChart, />01\/01\/2020</);
+  assert.match(result.timeChart, />01\/01\/2020</);
+  assert.match(result.paceChart, />01\/01\/2020</);
+  assert.match(result.distanceChart, />Top 20</);
+  assert.match(result.timeChart, />Top 20</);
+  assert.match(result.paceChart, />Top 20</);
+  assert.doesNotMatch(result.distanceChart, /Distance Effort 22/);
+  assert.doesNotMatch(result.timeChart, /Time Effort 22/);
+  assert.doesNotMatch(result.paceChart, /Pace Effort 22/);
 });
 
 test("Personal Best mode controls switch one pane at a time", () => {
@@ -3284,6 +3374,66 @@ test("Personal Best mode controls switch one pane at a time", () => {
       panes: [true, true, true, false]
     }
   });
+});
+
+test("Personal Best mode selection is preserved across distance, time, and pace tabs", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    function makeControl(mode, tab) {
+      return {
+        dataset: { pbMode: mode, personalBestModeTab: tab },
+        active: false,
+        pressed: "false",
+        classList: { toggle(name, value) { if (name === "active") this.owner.active = value; }, owner: null },
+        setAttribute(name, value) {
+          if (name === "aria-pressed") this.pressed = value;
+        }
+      };
+    }
+    function makePane(mode, tab) {
+      return {
+        dataset: { pbPane: mode, personalBestModeTab: tab },
+        hidden: false,
+        classList: { toggle(name, value) { if (name === "hidden") this.owner.hidden = value; }, owner: null }
+      };
+    }
+    const tabs = ["distance", "time", "pace"];
+    const modes = ["records", "curve", "timing", "trend"];
+    const controls = tabs.flatMap((tab) => modes.map((mode) => makeControl(mode, tab)));
+    const panes = tabs.flatMap((tab) => modes.map((mode) => makePane(mode, tab)));
+    controls.forEach((item) => { item.classList.owner = item; });
+    panes.forEach((item) => { item.classList.owner = item; });
+    els.personalBestModeOptions = controls;
+    els.personalBestModePanes = panes;
+    els.recordTargetRankField = { classList: { toggle() {} } };
+    appState.personalBestModes = { distance: "records", time: "records", pace: "records" };
+    appState.personalBestTab = "pace";
+
+    selectPersonalBestMode("trend", "pace");
+    updatePersonalBestModeVisibility("distance");
+    const distanceTrend = controls.find((item) => item.dataset.personalBestModeTab === "distance" && item.dataset.pbMode === "trend");
+    const distanceRecords = controls.find((item) => item.dataset.personalBestModeTab === "distance" && item.dataset.pbMode === "records");
+    const distanceTrendPane = panes.find((item) => item.dataset.personalBestModeTab === "distance" && item.dataset.pbPane === "trend");
+
+    ({
+      modes: appState.personalBestModes,
+      distanceTrendActive: distanceTrend.active,
+      distanceTrendPressed: distanceTrend.pressed,
+      distanceRecordsActive: distanceRecords.active,
+      distanceTrendPaneHidden: distanceTrendPane.hidden
+    });
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result.modes)), {
+    distance: "trend",
+    time: "trend",
+    pace: "trend"
+  });
+  assert.equal(result.distanceTrendActive, true);
+  assert.equal(result.distanceTrendPressed, "true");
+  assert.equal(result.distanceRecordsActive, false);
+  assert.equal(result.distanceTrendPaneHidden, false);
 });
 
 test("personal best target selection preserves target list scroll", () => {
@@ -4336,7 +4486,7 @@ test("Personal Bests starts with records and omits the coverage summary", () => 
   assert.doesNotMatch(personalBestView, /Best efforts at a glance/);
   assert.doesNotMatch(personalBestView, /Quick record coverage/);
   assert.doesNotMatch(personalBestView, /<details class="personal-best-detail-shell"/);
-  assert.match(personalBestView, /data-personal-best-mode-tab="distance"[\s\S]*data-pb-mode="records"[\s\S]*data-pb-mode="curve"[\s\S]*data-pb-mode="timing"[\s\S]*data-pb-mode="trend"/);
+  assert.match(personalBestView, /class="[^"]*\bpersonal-best-mode-option\b[^"]*\bactive\b[^"]*"[^>]*data-personal-best-mode-tab="distance"[^>]*data-pb-mode="records"[^>]*aria-pressed="true"/);
   assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="records"[\s\S]*id="personalBestGrid"/);
   assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="curve"[\s\S]*id="personalBestChart"/);
   assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="timing"[\s\S]*id="personalBestRecencyChart"/);
