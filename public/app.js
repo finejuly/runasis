@@ -3720,9 +3720,33 @@ async function handlePersonalBestToggle(event) {
   renderPaceBestsView();
 }
 
+function getPersonalBestRecordGrid(type) {
+  const normalizedType = normalizePersonalBestTab(type);
+  if (normalizedType === "time") return els.personalBestDurationGrid || null;
+  if (normalizedType === "pace") return els.personalBestPaceGrid || null;
+  return els.personalBestGrid || null;
+}
+
+function getPersonalBestRecordTargetList(type) {
+  const grid = getPersonalBestRecordGrid(type);
+  return grid?.querySelector?.(".record-target-list") || null;
+}
+
+function getPersonalBestRecordTargetScrollLeft(type) {
+  const scrollLeft = getPersonalBestRecordTargetList(type)?.scrollLeft;
+  return Number.isFinite(scrollLeft) ? scrollLeft : null;
+}
+
+function restorePersonalBestRecordTargetScrollLeft(type, scrollLeft) {
+  if (!Number.isFinite(scrollLeft)) return;
+  const targetList = getPersonalBestRecordTargetList(type);
+  if (targetList) targetList.scrollLeft = scrollLeft;
+}
+
 function selectPersonalBestRecordTarget(type, name) {
   const normalizedType = normalizePersonalBestTab(type);
   if (!name) return;
+  const targetListScrollLeft = getPersonalBestRecordTargetScrollLeft(normalizedType);
   if (!appState.selectedPersonalBestTargets) {
     appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
   }
@@ -3734,6 +3758,7 @@ function selectPersonalBestRecordTarget(type, name) {
   } else {
     renderPersonalBests();
   }
+  restorePersonalBestRecordTargetScrollLeft(normalizedType, targetListScrollLeft);
 }
 
 function renderAnalysisView() {
@@ -3746,6 +3771,14 @@ function renderAnalysisView() {
   const distanceAnalysis = activeTab === "distance" ? renderRiegelAnalysis() : buildRiegelAnalysis();
   const timeAnalysis = activeTab === "time" ? renderTimeRiegelAnalysis() : buildTimeRiegelAnalysis();
   const paceAnalysis = activeTab === "pace" ? renderPaceRiegelAnalysis() : buildPaceRiegelAnalysis();
+  const activeAnalysis = activeTab === "time"
+    ? timeAnalysis
+    : activeTab === "pace"
+      ? paceAnalysis
+      : distanceAnalysis;
+  const activeExponent = activeAnalysis?.riegelExponent ?? getActiveRiegelExponent({ analysisType: activeTab });
+  appState.riegelExponent = activeExponent;
+  updateRiegelExponentControls(activeExponent);
   renderRaceTargetPanel(distanceAnalysis);
   renderAnalysisProfile(buildAnalysisProfile({ distanceAnalysis, timeAnalysis, paceAnalysis }));
 }
@@ -3867,6 +3900,7 @@ function renderRiegelAnalysis() {
     return null;
   }
 
+  appState.riegelExponent = analysis.riegelExponent;
   updateRiegelExponentControls(analysis.riegelExponent);
   appState.activeRiegelSourceDistanceName = analysis.source.name;
   els.riegelEquivalentChartTitle.textContent = `${analysis.source.name} Prediction`;
@@ -3913,10 +3947,10 @@ function buildRiegelAnalysis() {
   const selectedSeries = getSelectedRiegelSeries();
   const pbByName = getPersonalBestByName(selectedSeries.index);
 
-  const medianRows = buildRiegelExponentRows(selectedSeries.index);
-  const medianExponent = median(medianRows.map((row) => row.exponent));
-  const riegelExponent = getRiegelExponent(medianExponent);
-  appState.riegelExponent = riegelExponent;
+  const exponentResolution = resolveRiegelExponentForAnalysis("distance", selectedSeries.index);
+  const medianRows = exponentResolution.rows;
+  const medianExponent = exponentResolution.medianExponent;
+  const riegelExponent = exponentResolution.exponent;
   const sourceOptions = getRiegelSourceDistanceOptions(selectedSeries.index, riegelExponent);
   const source = resolveRiegelSourceDistance(sourceOptions);
   if (!source) return null;
@@ -3986,27 +4020,37 @@ function buildRiegelAnalysis() {
     expectedTargetRecords,
     equivalentRows,
     medianExponent,
-    exponentRows: medianRows
+    exponentRows: medianRows,
+    exponentResolution
   };
 }
 
-function buildRiegelExponentRows(rankIndex = 0) {
-  const ordered = getRiegelExponentSources(rankIndex);
+function finitePositiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function observedPaceSecondsPerKm(distanceKm, timeSeconds) {
+  const distance = finitePositiveNumber(distanceKm);
+  const time = finitePositiveNumber(timeSeconds);
+  return distance && time ? time / distance : null;
+}
+
+function buildRiegelExponentRowsFromOrderedSources(sources, sourceType, calculatePair) {
   const rows = [];
+  const ordered = Array.isArray(sources) ? sources : [];
   for (let fromIndex = 0; fromIndex < ordered.length - 1; fromIndex += 1) {
     const from = ordered[fromIndex];
     for (let toIndex = fromIndex + 1; toIndex < ordered.length; toIndex += 1) {
       const to = ordered[toIndex];
-      if (to.distanceKm <= from.distanceKm || to.time <= from.time) continue;
-      const exponent = Math.log(to.time / from.time) / Math.log(to.distanceKm / from.distanceKm);
-      if (!Number.isFinite(exponent) || exponent <= 0) continue;
+      const pair = calculatePair(from, to);
+      const exponent = Number(pair?.exponent);
+      if (!Number.isFinite(exponent) || exponent <= 1) continue;
       rows.push({
+        sourceType,
         fromName: from.name,
         toName: to.name,
-        fromKm: from.distanceKm,
-        toKm: to.distanceKm,
-        fromTime: from.time,
-        toTime: to.time,
+        ...pair,
         exponent
       });
     }
@@ -4014,13 +4058,175 @@ function buildRiegelExponentRows(rankIndex = 0) {
   return rows;
 }
 
-function getActiveRiegelExponent(rankIndex = getSelectedRiegelSeries().index) {
-  const medianExponent = median(buildRiegelExponentRows(rankIndex).map((row) => row.exponent));
-  return getRiegelExponent(medianExponent);
+function calculateDistanceRiegelExponentPair(from, to) {
+  const fromKm = finitePositiveNumber(from.distanceKm);
+  const toKm = finitePositiveNumber(to.distanceKm);
+  if (!fromKm || !toKm || toKm <= fromKm) return null;
+  const fromTime = finitePositiveNumber(from.time);
+  const toTime = finitePositiveNumber(to.time);
+  const fromPace = observedPaceSecondsPerKm(fromKm, fromTime) ?? finitePositiveNumber(from.paceSecondsPerKm);
+  const toPace = observedPaceSecondsPerKm(toKm, toTime) ?? finitePositiveNumber(to.paceSecondsPerKm);
+  if (!fromPace || !toPace) return null;
+  const denominator = Math.log(toKm / fromKm);
+  if (!Number.isFinite(denominator) || !denominator) return null;
+  return {
+    fromKm,
+    toKm,
+    fromTime,
+    toTime,
+    fromPace,
+    toPace,
+    exponent: 1 + (Math.log(toPace / fromPace) / denominator)
+  };
+}
+
+function calculateTimeRiegelExponentPair(from, to) {
+  const fromDurationSeconds = finitePositiveNumber(from.durationSeconds);
+  const toDurationSeconds = finitePositiveNumber(to.durationSeconds);
+  if (!fromDurationSeconds || !toDurationSeconds || toDurationSeconds <= fromDurationSeconds) return null;
+  const fromPace = observedPaceSecondsPerKm(from.distanceKm, fromDurationSeconds) ?? finitePositiveNumber(from.paceSecondsPerKm);
+  const toPace = observedPaceSecondsPerKm(to.distanceKm, toDurationSeconds) ?? finitePositiveNumber(to.paceSecondsPerKm);
+  if (!fromPace || !toPace) return null;
+  const denominator = Math.log(toDurationSeconds / fromDurationSeconds);
+  if (!Number.isFinite(denominator) || !denominator) return null;
+  const pacePower = Math.log(toPace / fromPace) / denominator;
+  if (!Number.isFinite(pacePower) || pacePower >= 1) return null;
+  return {
+    fromKm: finitePositiveNumber(from.distanceKm),
+    toKm: finitePositiveNumber(to.distanceKm),
+    fromDurationSeconds,
+    toDurationSeconds,
+    fromPace,
+    toPace,
+    exponent: 1 / (1 - pacePower)
+  };
+}
+
+function calculatePaceRiegelExponentPair(from, to) {
+  const fromKm = finitePositiveNumber(from.distanceKm);
+  const toKm = finitePositiveNumber(to.distanceKm);
+  if (!fromKm || !toKm || toKm <= fromKm) return null;
+  const fromTargetPaceSecondsPerKm = finitePositiveNumber(from.targetPaceSecondsPerKm) ?? finitePositiveNumber(from.paceSecondsPerKm);
+  const toTargetPaceSecondsPerKm = finitePositiveNumber(to.targetPaceSecondsPerKm) ?? finitePositiveNumber(to.paceSecondsPerKm);
+  if (!fromTargetPaceSecondsPerKm || !toTargetPaceSecondsPerKm || toTargetPaceSecondsPerKm <= fromTargetPaceSecondsPerKm) return null;
+  const fromDurationSeconds = finitePositiveNumber(from.durationSeconds);
+  const toDurationSeconds = finitePositiveNumber(to.durationSeconds);
+  const fromPace = observedPaceSecondsPerKm(fromKm, fromDurationSeconds) ?? finitePositiveNumber(from.paceSecondsPerKm);
+  const toPace = toTargetPaceSecondsPerKm;
+  if (!fromPace || !toPace) return null;
+  const denominator = Math.log(toKm / fromKm);
+  if (!Number.isFinite(denominator) || !denominator) return null;
+  return {
+    fromKm,
+    toKm,
+    fromDurationSeconds,
+    toDurationSeconds,
+    fromPace,
+    toPace,
+    fromTargetPaceSecondsPerKm,
+    toTargetPaceSecondsPerKm,
+    exponent: 1 + (Math.log(toPace / fromPace) / denominator)
+  };
+}
+
+function buildDistanceRiegelExponentRows(rankIndex = 0) {
+  return buildRiegelExponentRowsFromOrderedSources(
+    getRiegelExponentSources(rankIndex),
+    "distance",
+    calculateDistanceRiegelExponentPair
+  );
+}
+
+function buildTimeRiegelExponentRows(rankIndex = 0) {
+  return buildRiegelExponentRowsFromOrderedSources(
+    getTimeRiegelSources(rankIndex),
+    "time",
+    calculateTimeRiegelExponentPair
+  );
+}
+
+function buildPaceRiegelExponentRows(rankIndex = 0) {
+  return buildRiegelExponentRowsFromOrderedSources(
+    getPaceRiegelSources(rankIndex),
+    "pace",
+    calculatePaceRiegelExponentPair
+  );
+}
+
+function buildRiegelExponentRows(rankIndex = 0) {
+  return buildDistanceRiegelExponentRows(rankIndex);
+}
+
+function buildRiegelExponentRowsForAnalysis(analysisType, rankIndex) {
+  const normalizedType = normalizeAnalysisTab(analysisType);
+  if (normalizedType === "time") return buildTimeRiegelExponentRows(rankIndex);
+  if (normalizedType === "pace") return buildPaceRiegelExponentRows(rankIndex);
+  return buildDistanceRiegelExponentRows(rankIndex);
+}
+
+function medianRiegelExponentFromRows(rows) {
+  return median((rows || []).map((row) => row.exponent));
+}
+
+function resolveRiegelExponentForAnalysis(analysisType = "distance", rankIndex = getSelectedRiegelSeries().index) {
+  const normalizedType = normalizeAnalysisTab(analysisType);
+  const mode = normalizeRiegelExponentMode(appState.riegelExponentMode) || "default";
+  const requestedRows = buildRiegelExponentRowsForAnalysis(normalizedType, rankIndex);
+  const requestedMedian = medianRiegelExponentFromRows(requestedRows);
+  let rows = requestedRows;
+  let medianExponent = requestedMedian;
+  let sourceType = normalizedType;
+  let fallbackType = null;
+
+  if (mode === "median" && !Number.isFinite(medianExponent)) {
+    if (normalizedType !== "distance") {
+      const distanceRows = buildDistanceRiegelExponentRows(rankIndex);
+      const distanceMedian = medianRiegelExponentFromRows(distanceRows);
+      if (Number.isFinite(distanceMedian)) {
+        rows = distanceRows;
+        medianExponent = distanceMedian;
+        sourceType = "distance";
+        fallbackType = "distance";
+      }
+    }
+    if (!Number.isFinite(medianExponent)) {
+      fallbackType = "default";
+    }
+  }
+
+  const exponent = mode === "custom" && isValidRiegelExponent(appState.riegelCustomExponent)
+    ? appState.riegelCustomExponent
+    : mode === "median" && Number.isFinite(medianExponent)
+      ? medianExponent
+      : DEFAULT_RIEGEL_EXPONENT;
+
+  return {
+    mode,
+    analysisType: normalizedType,
+    exponent,
+    medianExponent,
+    rows,
+    sourceType,
+    fallbackType
+  };
+}
+
+function getActiveRiegelExponent(options = {}) {
+  let analysisType = "distance";
+  let rankIndex = getSelectedRiegelSeries().index;
+  if (typeof options === "number") {
+    rankIndex = options;
+  } else {
+    const opts = options && typeof options === "object" ? options : {};
+    analysisType = opts.analysisType || analysisType;
+    rankIndex = Number.isFinite(Number(opts.rankIndex)) ? Number(opts.rankIndex) : rankIndex;
+  }
+  return resolveRiegelExponentForAnalysis(analysisType, rankIndex).exponent;
 }
 
 function buildTimeRiegelAnalysis(rankIndex = getSelectedRiegelSeries().index) {
-  const riegelExponent = getActiveRiegelExponent(rankIndex);
+  const exponentResolution = resolveRiegelExponentForAnalysis("time", rankIndex);
+  const riegelExponent = exponentResolution.exponent;
   const sources = getTimeRiegelSources(rankIndex);
   const rows = sources
     .map((target) => {
@@ -4049,6 +4255,9 @@ function buildTimeRiegelAnalysis(rankIndex = getSelectedRiegelSeries().index) {
 
   return {
     riegelExponent,
+    medianExponent: exponentResolution.medianExponent,
+    exponentRows: exponentResolution.rows,
+    exponentResolution,
     sources,
     rows,
     strongest: strongestDistanceGap(rows),
@@ -4057,7 +4266,8 @@ function buildTimeRiegelAnalysis(rankIndex = getSelectedRiegelSeries().index) {
 }
 
 function buildPaceRiegelAnalysis(rankIndex = getSelectedRiegelSeries().index) {
-  const riegelExponent = getActiveRiegelExponent(rankIndex);
+  const exponentResolution = resolveRiegelExponentForAnalysis("pace", rankIndex);
+  const riegelExponent = exponentResolution.exponent;
   const sources = getPaceRiegelSources(rankIndex);
   const maxObservedDistanceKm = Math.max(0, ...sources.map((source) => source.distanceKm));
   const rows = sources
@@ -4089,6 +4299,9 @@ function buildPaceRiegelAnalysis(rankIndex = getSelectedRiegelSeries().index) {
 
   return {
     riegelExponent,
+    medianExponent: exponentResolution.medianExponent,
+    exponentRows: exponentResolution.rows,
+    exponentResolution,
     sources,
     rows,
     strongest: strongestDistanceGap(rows),

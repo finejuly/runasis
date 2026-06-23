@@ -3286,6 +3286,42 @@ test("Personal Best mode controls switch one pane at a time", () => {
   });
 });
 
+test("personal best target selection preserves target list scroll", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const oldList = { scrollLeft: 180 };
+    const newList = { scrollLeft: 0 };
+    let queryCount = 0;
+    let renderCalls = 0;
+    els.personalBestGrid = {
+      querySelector(selector) {
+        if (selector !== ".record-target-list") return null;
+        queryCount += 1;
+        return queryCount === 1 ? oldList : newList;
+      }
+    };
+    els.personalBestDurationGrid = null;
+    els.personalBestPaceGrid = null;
+    appState.selectedPersonalBestTargets = { distance: "5K", time: null, pace: null };
+    renderPersonalBests = () => {
+      renderCalls += 1;
+    };
+
+    selectPersonalBestRecordTarget("distance", "10K");
+
+    ({
+      selectedTarget: appState.selectedPersonalBestTargets.distance,
+      renderCalls,
+      newScrollLeft: newList.scrollLeft
+    });
+  `, app);
+
+  assert.equal(result.selectedTarget, "10K");
+  assert.equal(result.renderCalls, 1);
+  assert.equal(result.newScrollLeft, 180);
+});
+
 test("renderPersonalBests focuses one selected distance target", () => {
   const app = loadAppContext();
 
@@ -5268,6 +5304,119 @@ test("Analysis controls wire sub tab, rank, and scale interactions", () => {
   ]);
 });
 
+test("Analysis model mode controls update while time tab is active", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const modeState = new Map();
+    const makeElement = (values = {}) => {
+      const handlers = {};
+      return {
+        value: "",
+        checked: false,
+        dataset: {},
+        classList: {
+          add() {},
+          remove() {},
+          toggle(name, force) {
+            if (name === "active" && this.mode) modeState.set(this.mode, Boolean(force));
+          },
+          contains() { return false; }
+        },
+        setAttribute(name, value) {
+          this[name] = value;
+        },
+        addEventListener(type, handler) {
+          handlers[type] = handler;
+          this["on" + type] = handler;
+        },
+        click() {
+          if (handlers.click) handlers.click({ preventDefault() {} });
+        },
+        ...values
+      };
+    };
+    const makeButton = (mode) => {
+      const button = makeElement({ dataset: { mode } });
+      button.classList.mode = mode;
+      return button;
+    };
+    const defaultButton = makeButton("default");
+    const medianButton = makeButton("median");
+    const customButton = makeButton("custom");
+
+    els.setupForm = makeElement();
+    els.connectButton = makeElement();
+    els.syncButton = makeElement();
+    els.clearButton = makeElement();
+    els.rangeSelect = makeElement();
+    els.allActivitySearchInput = makeElement();
+    els.allActivityRunOnlyInput = makeElement();
+    els.allActivityDetailStatusSelect = makeElement();
+    els.allActivityTable = makeElement();
+    els.personalBestTrendDistanceSelect = makeElement();
+    els.timeBestTrendDurationSelect = makeElement();
+    els.personalBestGrid = makeElement();
+    els.personalBestDurationGrid = makeElement();
+    els.personalBestPaceGrid = makeElement();
+    els.riegelExponentInput = makeElement({ value: "1.060" });
+    els.analysisDistanceView = makeElement();
+    els.analysisTimeView = makeElement();
+    els.analysisPaceView = makeElement();
+    els.analysisTabContext = { textContent: "" };
+    els.kpiCards = [];
+    els.viewTabs = [];
+    els.personalBestTabOptions = [];
+    els.analysisTabOptions = [];
+    els.personalBestScaleButtons = [];
+    els.timeBestScaleButtons = [];
+    els.paceBestDistanceScaleButtons = [];
+    els.personalBestTrendLimitButtons = [];
+    els.timeBestTrendLimitButtons = [];
+    els.paceBestTrendLimitButtons = [];
+    els.allActivitySortButtons = [];
+    els.excludedRecordsToggleButtons = [];
+    els.riegelFiveKScaleButtons = [];
+    els.riegelFiveKSeriesButtons = [];
+    els.riegelExponentModeButtons = [defaultButton, medianButton, customButton];
+
+    buildRiegelAnalysis = () => ({ selectedSeries: { key: "top1" }, expectedPaceSeries: [] });
+    renderTimeRiegelAnalysis = () => ({ rows: [] });
+    buildPaceRiegelAnalysis = () => ({ rows: [] });
+    renderRaceTargetPanel = () => {};
+    renderAnalysisProfile = () => {};
+
+    appState.currentView = "analysis";
+    appState.analysisTab = "time";
+    appState.riegelExponentMode = "median";
+    appState.riegelCustomExponent = 1.2;
+    appState.riegelExponent = 1.06;
+
+    bindEvents();
+    customButton.click();
+
+    ({
+      mode: appState.riegelExponentMode,
+      inputDisabled: els.riegelExponentInput.disabled,
+      inputValue: els.riegelExponentInput.value,
+      modeState: Object.fromEntries(modeState),
+      customPressed: customButton["aria-pressed"],
+      medianPressed: medianButton["aria-pressed"]
+    });
+  `, app);
+
+  assert.equal(result.mode, "custom");
+  assert.equal(result.inputDisabled, false);
+  assert.equal(result.inputValue, "1.200");
+  assert.deepEqual(JSON.parse(JSON.stringify(result.modeState)), {
+    default: false,
+    median: false,
+    custom: true
+  });
+  assert.equal(result.customPressed, "true");
+  assert.equal(result.medianPressed, "false");
+});
+
 test("expected vs current chart exposes the shared x-axis scale toggle", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
   const panel = html.match(/<h2>Expected vs Current Pace by Distance<\/h2>[\s\S]*?<div class="chart-box personal-best-chart expected-gap-chart"/)?.[0] || "";
@@ -5508,6 +5657,240 @@ test("buildRiegelAnalysis estimates personal exponent from all valid distance pa
   assert.equal(result.rowCount, 10);
   assert.ok(Math.abs(result.medianExponent - 1.220) < 0.001);
   assert.ok(Math.abs(result.samplePair.exponent - 1.214) < 0.001);
+});
+
+const TAB_SPECIFIC_RIEGEL_FIXTURE = `
+  function installTabSpecificRiegelFixture() {
+    const distanceExponent = 1.08;
+    const timeExponent = 1.2;
+    const paceExponent = 1.35;
+
+    const distanceShortKm = 5;
+    const distanceShortTime = 1500;
+    const distanceLongKm = 10;
+    const distanceLongTime = distanceShortTime * Math.pow(distanceLongKm / distanceShortKm, distanceExponent);
+
+    const timeShortDuration = 1200;
+    const timeShortDistance = 4;
+    const timeShortPace = timeShortDuration / timeShortDistance;
+    const timeLongDuration = 3600;
+    const timeLongPace = timeShortPace * Math.pow(timeLongDuration / timeShortDuration, (timeExponent - 1) / timeExponent);
+    const timeLongDistance = timeLongDuration / timeLongPace;
+
+    const paceSourceTargetPace = 290;
+    const paceSourceDistance = 5;
+    const paceSourceDuration = 1500;
+    const paceSourceObservedPace = paceSourceDuration / paceSourceDistance;
+    const paceTargetDistance = 10;
+    const paceTargetPace = paceSourceObservedPace * Math.pow(paceTargetDistance / paceSourceDistance, paceExponent - 1);
+
+    appState.riegelFiveKSeries = "top1";
+    appState.riegelSourceDistanceName = "5K";
+    appState.personalBests = {
+      distances: [
+        { name: "5K", distanceKm: distanceShortKm, top: [{ movingTime: distanceShortTime, paceSecondsPerKm: 999 }] },
+        { name: "10K", distanceKm: distanceLongKm, top: [{ movingTime: distanceLongTime, paceSecondsPerKm: 999 }] }
+      ],
+      durations: [
+        {
+          name: "20 min",
+          durationSeconds: timeShortDuration,
+          top: [{ distanceKm: timeShortDistance, paceSecondsPerKm: 999, durationSeconds: timeShortDuration }]
+        },
+        {
+          name: "1 hour",
+          durationSeconds: timeLongDuration,
+          top: [{ distanceKm: timeLongDistance, paceSecondsPerKm: 999, durationSeconds: timeLongDuration }]
+        }
+      ],
+      paces: [
+        {
+          name: "fast target",
+          paceSecondsPerKm: paceSourceTargetPace,
+          top: [{
+            distanceKm: paceSourceDistance,
+            durationSeconds: paceSourceDuration,
+            movingTime: paceSourceDuration,
+            paceSecondsPerKm: paceSourceObservedPace
+          }]
+        },
+        {
+          name: "slow target",
+          paceSecondsPerKm: paceTargetPace,
+          top: [{
+            distanceKm: paceTargetDistance,
+            durationSeconds: paceTargetDistance * 410,
+            movingTime: paceTargetDistance * 410,
+            paceSecondsPerKm: 410
+          }]
+        }
+      ]
+    };
+
+    return {
+      distanceExponent,
+      timeExponent,
+      paceExponent,
+      paceSourceObservedPace,
+      paceSourceTargetPace,
+      paceTargetPace
+    };
+  }
+`;
+
+test("Median mode resolves Riegel exponents from the active analysis domain", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    ${TAB_SPECIFIC_RIEGEL_FIXTURE}
+    const expected = installTabSpecificRiegelFixture();
+    appState.riegelExponentMode = "median";
+
+    const distanceAnalysis = buildRiegelAnalysis();
+    const timeAnalysis = buildTimeRiegelAnalysis();
+    const paceAnalysis = buildPaceRiegelAnalysis();
+    const pacePair = paceAnalysis.exponentRows[0];
+
+    ({
+      expected,
+      distance: {
+        exponent: distanceAnalysis.riegelExponent,
+        median: distanceAnalysis.medianExponent,
+        sourceType: distanceAnalysis.exponentResolution.sourceType,
+        fallbackType: distanceAnalysis.exponentResolution.fallbackType,
+        rowSourceType: distanceAnalysis.exponentRows[0].sourceType
+      },
+      time: {
+        exponent: timeAnalysis.riegelExponent,
+        median: timeAnalysis.medianExponent,
+        sourceType: timeAnalysis.exponentResolution.sourceType,
+        fallbackType: timeAnalysis.exponentResolution.fallbackType,
+        rowSourceType: timeAnalysis.exponentRows[0].sourceType
+      },
+      pace: {
+        exponent: paceAnalysis.riegelExponent,
+        median: paceAnalysis.medianExponent,
+        sourceType: paceAnalysis.exponentResolution.sourceType,
+        fallbackType: paceAnalysis.exponentResolution.fallbackType,
+        rowSourceType: pacePair.sourceType,
+        fromPace: pacePair.fromPace,
+        fromTargetPaceSecondsPerKm: pacePair.fromTargetPaceSecondsPerKm,
+        toPace: pacePair.toPace
+      }
+    });
+  `, app);
+
+  assert.ok(Math.abs(result.distance.exponent - result.expected.distanceExponent) < 0.001);
+  assert.ok(Math.abs(result.time.exponent - result.expected.timeExponent) < 0.001);
+  assert.ok(Math.abs(result.pace.exponent - result.expected.paceExponent) < 0.001);
+  assert.equal(result.distance.sourceType, "distance");
+  assert.equal(result.time.sourceType, "time");
+  assert.equal(result.pace.sourceType, "pace");
+  assert.equal(result.distance.fallbackType, null);
+  assert.equal(result.time.fallbackType, null);
+  assert.equal(result.pace.fallbackType, null);
+  assert.equal(result.distance.rowSourceType, "distance");
+  assert.equal(result.time.rowSourceType, "time");
+  assert.equal(result.pace.rowSourceType, "pace");
+  assert.ok(Math.abs(result.pace.fromPace - result.expected.paceSourceObservedPace) < 0.001);
+  assert.ok(Math.abs(result.pace.fromTargetPaceSecondsPerKm - result.expected.paceSourceTargetPace) < 0.001);
+  assert.ok(Math.abs(result.pace.toPace - result.expected.paceTargetPace) < 0.001);
+});
+
+test("renderAnalysisView leaves the shared exponent controls on the active tab median", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    ${TAB_SPECIFIC_RIEGEL_FIXTURE}
+    const expected = installTabSpecificRiegelFixture();
+    const fakeClassList = () => ({ toggle() {}, add() {}, remove() {} });
+    els.analysisTabOptions = [];
+    els.analysisDistanceView = { classList: fakeClassList() };
+    els.analysisTimeView = { classList: fakeClassList() };
+    els.analysisPaceView = { classList: fakeClassList() };
+    els.analysisTabContext = { textContent: "" };
+    els.riegelFiveKSeriesButtons = [];
+    els.riegelExponentModeButtons = [];
+    els.riegelExponentInput = { disabled: false, value: "", classList: fakeClassList() };
+    els.timeRiegelChart = null;
+    els.timeRiegelTable = null;
+    els.paceRiegelChart = null;
+    els.paceRiegelTable = null;
+    els.raceTargetPanel = null;
+    els.analysisProfileGrid = null;
+    els.trainingScheduleList = null;
+
+    appState.analysisTab = "time";
+    appState.riegelExponentMode = "median";
+    appState.riegelExponent = 9;
+
+    renderAnalysisView();
+
+    ({
+      expected,
+      activeTab: appState.analysisTab,
+      riegelExponent: appState.riegelExponent,
+      inputValue: els.riegelExponentInput.value,
+      inputDisabled: els.riegelExponentInput.disabled
+    });
+  `, app);
+
+  assert.equal(result.activeTab, "time");
+  assert.ok(Math.abs(result.riegelExponent - result.expected.timeExponent) < 0.001);
+  assert.equal(result.inputValue, result.expected.timeExponent.toFixed(3));
+  assert.equal(result.inputDisabled, true);
+});
+
+test("Riegel exponent resolver preserves metadata across fallback and shared modes", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    ${TAB_SPECIFIC_RIEGEL_FIXTURE}
+    const expected = installTabSpecificRiegelFixture();
+    appState.personalBests.durations = appState.personalBests.durations.slice(0, 1);
+
+    appState.riegelExponentMode = "median";
+    const fallbackTime = buildTimeRiegelAnalysis();
+
+    appState.riegelExponentMode = "custom";
+    appState.riegelCustomExponent = 1.23;
+    const customPace = buildPaceRiegelAnalysis();
+
+    appState.riegelExponentMode = "default";
+    const defaultPace = resolveRiegelExponentForAnalysis("pace");
+    const unknown = getActiveRiegelExponent({ analysisType: "unknown" });
+
+    ({
+      expected,
+      fallbackTime: {
+        exponent: fallbackTime.riegelExponent,
+        sourceType: fallbackTime.exponentResolution.sourceType,
+        fallbackType: fallbackTime.exponentResolution.fallbackType,
+        median: fallbackTime.medianExponent
+      },
+      customPace: {
+        exponent: customPace.riegelExponent,
+        sourceType: customPace.exponentResolution.sourceType,
+        fallbackType: customPace.exponentResolution.fallbackType,
+        median: customPace.medianExponent
+      },
+      defaultPace,
+      unknown
+    });
+  `, app);
+
+  assert.ok(Math.abs(result.fallbackTime.exponent - result.expected.distanceExponent) < 0.001);
+  assert.equal(result.fallbackTime.sourceType, "distance");
+  assert.equal(result.fallbackTime.fallbackType, "distance");
+  assert.ok(Math.abs(result.fallbackTime.median - result.expected.distanceExponent) < 0.001);
+  assert.equal(result.customPace.exponent, 1.23);
+  assert.equal(result.customPace.sourceType, "pace");
+  assert.equal(result.customPace.fallbackType, null);
+  assert.ok(Math.abs(result.customPace.median - result.expected.paceExponent) < 0.001);
+  assert.equal(result.defaultPace.exponent, 1.06);
+  assert.equal(result.defaultPace.sourceType, "pace");
+  assert.ok(Math.abs(result.defaultPace.medianExponent - result.expected.paceExponent) < 0.001);
+  assert.equal(result.unknown, 1.06);
 });
 
 test("buildRaceTargetStatus compares projected marathon with sub-4 goal", () => {
