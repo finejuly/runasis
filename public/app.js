@@ -580,7 +580,7 @@ function bindEvents() {
   for (const button of els.riegelFiveKScaleButtons) {
     button.addEventListener("click", () => {
       appState.riegelFiveKScale = button.dataset.scale === "log" ? "log" : "linear";
-      renderRiegelAnalysis();
+      renderAnalysisView();
     });
   }
 
@@ -777,6 +777,12 @@ function updateRiegelSeriesControls(selectedSeries = appState.riegelFiveKSeries)
   for (const button of els.riegelFiveKSeriesButtons || []) {
     const isActive = button.dataset.series === selectedSeries;
     setPressedActiveState(button, isActive);
+  }
+}
+
+function updateRiegelScaleControls(selectedScale = appState.riegelFiveKScale) {
+  for (const button of els.riegelFiveKScaleButtons || []) {
+    setPressedActiveState(button, button.dataset.scale === selectedScale);
   }
 }
 
@@ -3014,12 +3020,34 @@ function renderPaceBestDurationChart() {
   const padding = { top: 24, right: 28, bottom: 58, left: 70 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const paceDomain = buildLogPaceAxisDomain(paceValues);
+  const minPace = Math.min(...paceValues);
+  const maxPace = Math.max(...paceValues);
+  const useLogScale = appState.paceBestDistanceScale === "log" && minPace > 0 && maxPace > minPace;
+  const linearPaceSpread = Math.max(maxPace - minPace, 1);
+  const linearPacePadding = linearPaceSpread * 0.04;
+  const linearPaceDomain = {
+    min: minPace - linearPacePadding,
+    spread: linearPaceSpread + linearPacePadding * 2
+  };
+  const xScale = useLogScale
+    ? buildLinearLogXAxisScale({
+      useLogScale,
+      minValue: minPace,
+      maxValue: maxPace,
+      linearMax: maxPace,
+      start: padding.left,
+      width: chartWidth
+    })
+    : {
+      position(value) {
+        return padding.left + ((value - linearPaceDomain.min) / linearPaceDomain.spread) * chartWidth;
+      }
+    };
   const positiveDistanceValues = distanceValues.filter((distanceKm) => Number.isFinite(distanceKm) && distanceKm > 0);
   const minDistance = Math.min(...positiveDistanceValues);
   const maxDistance = Math.max(...positiveDistanceValues);
   const useLogDistanceScale = (
-    appState.paceBestDistanceScale === "log" &&
+    useLogScale &&
     Number.isFinite(minDistance) &&
     Number.isFinite(maxDistance) &&
     maxDistance > 0
@@ -3027,7 +3055,7 @@ function renderPaceBestDurationChart() {
   const distanceDomain = useLogDistanceScale
     ? buildLogDistanceAxisDomain(distanceValues)
     : buildDistanceAxisDomain(distanceValues);
-  const x = (pace) => padding.left + ((paceDomain.logMax - Math.log(pace)) / paceDomain.logSpread) * chartWidth;
+  const x = (pace) => xScale.position(pace);
   const y = (distanceKm) => {
     if (!useLogDistanceScale) return padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
     const clampedDistance = Math.max(distanceKm, distanceDomain.min);
@@ -3086,7 +3114,7 @@ function renderPaceBestDurationChart() {
   }).join("");
 
   els.paceBestDurationChart.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(formatSeriesAriaLabel(series, "distance by target pace"))}" data-x-scale="log" data-y-scale="${useLogDistanceScale ? "log" : "linear"}">
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(formatSeriesAriaLabel(series, "distance by target pace"))}" data-x-scale="${useLogScale ? "log" : "linear"}" data-y-scale="${useLogDistanceScale ? "log" : "linear"}">
       ${grid}
       <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Pace</text>
       <text class="axis-label" x="10" y="16">Distance (km)</text>
@@ -3776,6 +3804,7 @@ function renderAnalysisView() {
   appState.analysisTab = activeTab;
   updateAnalysisSubviewVisibility(activeTab);
   updateRiegelSeriesControls();
+  updateRiegelScaleControls();
   renderAnalysisTabContext(activeTab);
 
   const distanceAnalysis = activeTab === "distance" ? renderRiegelAnalysis() : buildRiegelAnalysis();
@@ -4494,9 +4523,13 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
   const points = (rows || []).filter((row) => (
     row.name &&
     !row.outOfRange &&
+    Number.isFinite(row.targetPaceSecondsPerKm) &&
+    row.targetPaceSecondsPerKm > 0 &&
     Number.isFinite(row.distanceKm) &&
-    Number.isFinite(row.expectedDistanceKm)
-  ));
+    row.distanceKm > 0 &&
+    Number.isFinite(row.expectedDistanceKm) &&
+    row.expectedDistanceKm > 0
+  )).sort((a, b) => a.targetPaceSecondsPerKm - b.targetPaceSecondsPerKm || a.name.localeCompare(b.name));
   if (!points.length) return renderEmpty(container, "No comparison data");
 
   const width = 980;
@@ -4507,21 +4540,49 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
   distancePanel.height = distancePanel.bottom - distancePanel.top;
   const gapPanel = { top: 290, bottom: 386 };
   gapPanel.height = gapPanel.bottom - gapPanel.top;
-  const maxDistance = Math.max(...points.flatMap((point) => [point.distanceKm, point.expectedDistanceKm]), 1);
-  const yDomain = buildDistanceAxisDomain([maxDistance]);
-  const x = (index) => points.length <= 1
-    ? padding.left + chartWidth / 2
-    : padding.left + (chartWidth / (points.length - 1)) * index;
-  const yDistance = (distanceKm) => distancePanel.top + ((yDomain.max - distanceKm) / yDomain.spread) * distancePanel.height;
+  const distanceValues = points.flatMap((point) => [point.distanceKm, point.expectedDistanceKm]);
+  const paceValues = points.map((point) => point.targetPaceSecondsPerKm);
+  const minPace = Math.min(...paceValues);
+  const maxPace = Math.max(...paceValues);
+  const useLogScale = appState.riegelFiveKScale === "log" && minPace > 0 && maxPace > minPace;
+  const linearPaceSpread = Math.max(maxPace - minPace, 1);
+  const linearPacePadding = linearPaceSpread * 0.04;
+  const linearPaceDomain = {
+    min: minPace - linearPacePadding,
+    spread: linearPaceSpread + linearPacePadding * 2
+  };
+  const yDomain = useLogScale ? buildLogDistanceAxisDomain(distanceValues) : buildDistanceAxisDomain(distanceValues);
+  const xScale = useLogScale
+    ? buildLinearLogXAxisScale({
+      useLogScale,
+      minValue: minPace,
+      maxValue: maxPace,
+      linearMax: maxPace,
+      start: padding.left,
+      width: chartWidth
+    })
+    : {
+      position(value) {
+        return padding.left + ((value - linearPaceDomain.min) / linearPaceDomain.spread) * chartWidth;
+      }
+    };
+  const x = (point) => points.length <= 1 ? padding.left + chartWidth / 2 : xScale.position(point.targetPaceSecondsPerKm);
+  const pointXs = points.map((point) => x(point));
+  const yDistance = (distanceKm) => {
+    if (!useLogScale) return distancePanel.top + ((yDomain.max - distanceKm) / yDomain.spread) * distancePanel.height;
+    return distancePanel.top + ((yDomain.logMax - Math.log(distanceKm)) / yDomain.logSpread) * distancePanel.height;
+  };
   const maxGap = Math.max(0.25, Math.max(...points.map((point) => Math.abs(point.gapKm || 0))));
   const gapMax = Math.ceil(maxGap * 2) / 2;
   const yGap = (gapKm) => gapPanel.top + ((gapMax - Math.max(-gapMax, Math.min(gapMax, gapKm))) / (gapMax * 2)) * gapPanel.height;
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => yDomain.max * ratio);
+  const yTicks = useLogScale
+    ? getLogDistanceAxisTicks(yDomain.min, yDomain.max)
+    : [0, 0.25, 0.5, 0.75, 1].map((ratio) => yDomain.max * ratio);
   const gapTicks = [-gapMax, -gapMax / 2, 0, gapMax / 2, gapMax];
 
   const grid = [
     ...points.map((point, index) => {
-      const pointX = x(index);
+      const pointX = pointXs[index];
       return `
         <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${distancePanel.top}" y2="${distancePanel.bottom}" stroke="#e5e9e3"></line>
         <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${gapPanel.top}" y2="${gapPanel.bottom}" stroke="#e5e9e3"></line>
@@ -4544,20 +4605,20 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
     })
   ].join("");
   const labels = points.map((point, index) => {
-    const labelX = x(index);
+    const labelX = pointXs[index];
     const labelY = height - 42;
     return `<text class="axis-label" x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${labelX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
   }).join("");
   const expectedPath = points
-    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yDistance(point.expectedDistanceKm).toFixed(1)}`)
+    .map((point, index) => `${index ? "L" : "M"} ${pointXs[index].toFixed(1)} ${yDistance(point.expectedDistanceKm).toFixed(1)}`)
     .join(" ");
   const currentPath = points
-    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yDistance(point.distanceKm).toFixed(1)}`)
+    .map((point, index) => `${index ? "L" : "M"} ${pointXs[index].toFixed(1)} ${yDistance(point.distanceKm).toFixed(1)}`)
     .join(" ");
-  const gapBarWidth = Math.max(9, Math.min(24, (points.length <= 1 ? 34 : chartWidth / (points.length - 1)) * 0.24));
+  const gapBarWidth = getValueAxisGapBarWidth(pointXs);
   const zeroGapY = yGap(0);
   const gapBars = points.map((point, index) => {
-    const pointX = x(index);
+    const pointX = pointXs[index];
     const gapY = yGap(point.gapKm);
     const gapColor = point.status === "strength" ? "#24724f" : point.status === "weakness" ? "#b24b3f" : "#6f786f";
     const rawHeight = Math.abs(zeroGapY - gapY);
@@ -4569,10 +4630,10 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
     `;
   }).join("");
   const expectedDots = points.map((point, index) => `
-    <circle cx="${x(index).toFixed(1)}" cy="${yDistance(point.expectedDistanceKm).toFixed(1)}" r="4.6" fill="#3266a8" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatDistanceKm(point.expectedDistanceKm)}`)}"></circle>
+    <circle cx="${pointXs[index].toFixed(1)}" cy="${yDistance(point.expectedDistanceKm).toFixed(1)}" r="4.6" fill="#3266a8" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatDistanceKm(point.expectedDistanceKm)}`)}"></circle>
   `).join("");
   const currentDots = points.map((point, index) => `
-    <circle cx="${x(index).toFixed(1)}" cy="${yDistance(point.distanceKm).toFixed(1)}" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatDistanceKm(point.distanceKm)}`)}"></circle>
+    <circle cx="${pointXs[index].toFixed(1)}" cy="${yDistance(point.distanceKm).toFixed(1)}" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatDistanceKm(point.distanceKm)}`)}"></circle>
   `).join("");
   const legend = `
     <g transform="translate(${padding.left}, 52)">
@@ -4586,7 +4647,7 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
   `;
 
   container.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" style="height:${height}px" role="img" aria-label="${escapeHtml(ariaLabel)}">
+    <svg viewBox="0 0 ${width} ${height}" style="height:${height}px" role="img" aria-label="${escapeHtml(ariaLabel)}" data-riegel-x-scale="${useLogScale ? "log" : "linear"}" data-riegel-y-scale="${useLogScale ? "log" : "linear"}">
       ${grid}
       ${legend}
       ${labels}
@@ -4609,9 +4670,11 @@ function renderExpectedDistanceChart(container, rows, { ariaLabel, targetLabel }
 function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel }) {
   const points = (rows || []).filter((row) => (
     row.name &&
+    Number.isFinite(row.durationSeconds) &&
+    row.durationSeconds > 0 &&
     Number.isFinite(row.paceSecondsPerKm) &&
     Number.isFinite(row.expectedPaceSecondsPerKm)
-  ));
+  )).sort((a, b) => a.durationSeconds - b.durationSeconds || a.name.localeCompare(b.name));
   if (!points.length) return renderEmpty(container, "No pace comparison data");
 
   const width = 980;
@@ -4623,9 +4686,21 @@ function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel
   const gapPanel = { top: 290, bottom: 386 };
   gapPanel.height = gapPanel.bottom - gapPanel.top;
   const paceDomain = buildPaceAxisDomain(points.flatMap((point) => [point.paceSecondsPerKm, point.expectedPaceSecondsPerKm]));
-  const x = (index) => points.length <= 1
-    ? padding.left + chartWidth / 2
-    : padding.left + (chartWidth / (points.length - 1)) * index;
+  const durationValues = points.map((point) => point.durationSeconds);
+  const minDuration = Math.min(...durationValues);
+  const maxDuration = Math.max(...durationValues);
+  const durationStep = maxDuration <= 3600 ? 300 : 900;
+  const useLogScale = appState.riegelFiveKScale === "log" && minDuration > 0 && maxDuration > minDuration;
+  const xScale = buildLinearLogXAxisScale({
+    useLogScale,
+    minValue: minDuration,
+    maxValue: maxDuration,
+    linearMax: Math.ceil(maxDuration / durationStep) * durationStep,
+    start: padding.left,
+    width: chartWidth
+  });
+  const x = (point) => points.length <= 1 ? padding.left + chartWidth / 2 : xScale.position(point.durationSeconds);
+  const pointXs = points.map((point) => x(point));
   const yPace = (paceSecondsPerKm) => pacePanel.top + ((paceSecondsPerKm - paceDomain.min) / paceDomain.spread) * pacePanel.height;
   const paceGaps = points.map((point) => point.paceSecondsPerKm - point.expectedPaceSecondsPerKm);
   const maxGap = Math.max(10, Math.max(...paceGaps.map((gap) => Math.abs(gap))));
@@ -4635,7 +4710,7 @@ function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel
 
   const grid = [
     ...points.map((point, index) => {
-      const pointX = x(index);
+      const pointX = pointXs[index];
       return `
         <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${pacePanel.top}" y2="${pacePanel.bottom}" stroke="#e5e9e3"></line>
         <line x1="${pointX.toFixed(1)}" x2="${pointX.toFixed(1)}" y1="${gapPanel.top}" y2="${gapPanel.bottom}" stroke="#e5e9e3"></line>
@@ -4658,20 +4733,20 @@ function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel
     })
   ].join("");
   const labels = points.map((point, index) => {
-    const labelX = x(index);
+    const labelX = pointXs[index];
     const labelY = height - 42;
     return `<text class="axis-label" x="${labelX.toFixed(1)}" y="${labelY}" text-anchor="end" transform="rotate(-30 ${labelX.toFixed(1)} ${labelY})">${escapeHtml(point.name)}</text>`;
   }).join("");
   const expectedPath = points
-    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yPace(point.expectedPaceSecondsPerKm).toFixed(1)}`)
+    .map((point, index) => `${index ? "L" : "M"} ${pointXs[index].toFixed(1)} ${yPace(point.expectedPaceSecondsPerKm).toFixed(1)}`)
     .join(" ");
   const currentPath = points
-    .map((point, index) => `${index ? "L" : "M"} ${x(index).toFixed(1)} ${yPace(point.paceSecondsPerKm).toFixed(1)}`)
+    .map((point, index) => `${index ? "L" : "M"} ${pointXs[index].toFixed(1)} ${yPace(point.paceSecondsPerKm).toFixed(1)}`)
     .join(" ");
-  const gapBarWidth = Math.max(9, Math.min(24, (points.length <= 1 ? 34 : chartWidth / (points.length - 1)) * 0.24));
+  const gapBarWidth = getValueAxisGapBarWidth(pointXs);
   const zeroGapY = yGap(0);
   const gapBars = points.map((point, index) => {
-    const pointX = x(index);
+    const pointX = pointXs[index];
     const paceGap = point.paceSecondsPerKm - point.expectedPaceSecondsPerKm;
     const gapColor = point.status === "strength" ? "#24724f" : point.status === "weakness" ? "#b24b3f" : "#6f786f";
     const gapY = yGap(paceGap);
@@ -4684,10 +4759,10 @@ function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel
     `;
   }).join("");
   const expectedDots = points.map((point, index) => `
-    <circle cx="${x(index).toFixed(1)}" cy="${yPace(point.expectedPaceSecondsPerKm).toFixed(1)}" r="4.6" fill="#3266a8" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatPaceWithUnit(point.expectedPaceSecondsPerKm)}`)}"></circle>
+    <circle cx="${pointXs[index].toFixed(1)}" cy="${yPace(point.expectedPaceSecondsPerKm).toFixed(1)}" r="4.6" fill="#3266a8" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Expected ${point.name}\n${formatPaceWithUnit(point.expectedPaceSecondsPerKm)}`)}"></circle>
   `).join("");
   const currentDots = points.map((point, index) => `
-    <circle cx="${x(index).toFixed(1)}" cy="${yPace(point.paceSecondsPerKm).toFixed(1)}" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatPaceWithUnit(point.paceSecondsPerKm)}`)}"></circle>
+    <circle cx="${pointXs[index].toFixed(1)}" cy="${yPace(point.paceSecondsPerKm).toFixed(1)}" r="4.2" fill="#17201a" stroke="#ffffff" stroke-width="1.8" data-tooltip="${escapeHtml(`Current ${point.name}\n${formatPaceWithUnit(point.paceSecondsPerKm)}`)}"></circle>
   `).join("");
   const legend = `
     <g transform="translate(${padding.left}, 52)">
@@ -4701,7 +4776,7 @@ function renderExpectedPaceByTimeChart(container, rows, { ariaLabel, targetLabel
   `;
 
   container.innerHTML = `
-    <svg viewBox="0 0 ${width} ${height}" style="height:${height}px" role="img" aria-label="${escapeHtml(ariaLabel)}">
+    <svg viewBox="0 0 ${width} ${height}" style="height:${height}px" role="img" aria-label="${escapeHtml(ariaLabel)}" data-riegel-x-scale="${useLogScale ? "log" : "linear"}">
       ${grid}
       ${legend}
       ${labels}
@@ -5802,6 +5877,7 @@ function renderPersonalBestTrendChart() {
 }
 
 function getTimeBestTrendDurations() {
+  const activityDateRange = buildActivityTrendDateRange();
   return (appState.personalBests?.durations || [])
     .map((duration) => {
       const allTrendEfforts = (duration.top || [])
@@ -5822,7 +5898,7 @@ function getTimeBestTrendDurations() {
       const trendEfforts = allTrendEfforts
         .slice(0, PERSONAL_BEST_TREND_LIMIT)
         .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
-      return { ...duration, trendEfforts, trendDateRange: buildTrendDateRange(allTrendEfforts) };
+      return { ...duration, trendEfforts, trendDateRange: activityDateRange || buildTrendDateRange(allTrendEfforts) };
     })
     .filter((duration) => duration.trendEfforts.length >= 2);
 }
@@ -5856,6 +5932,7 @@ function renderTimeBestTrendDurationOptions(durations, selectedName) {
 }
 
 function getPaceBestTrendTargets() {
+  const activityDateRange = buildActivityTrendDateRange();
   return (appState.personalBests?.paces || [])
     .map((pace) => {
       const allTrendEfforts = (pace.top || [])
@@ -5879,7 +5956,7 @@ function getPaceBestTrendTargets() {
       const trendEfforts = allTrendEfforts
         .slice(0, PERSONAL_BEST_TREND_LIMIT)
         .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
-      return { ...pace, trendEfforts, trendDateRange: buildTrendDateRange(allTrendEfforts) };
+      return { ...pace, trendEfforts, trendDateRange: activityDateRange || buildTrendDateRange(allTrendEfforts) };
     })
     .filter((pace) => pace.trendEfforts.length >= 2);
 }
@@ -5913,6 +5990,7 @@ function renderPaceBestTrendTargetOptions(paces, selectedName) {
 }
 
 function getPersonalBestTrendDistances() {
+  const activityDateRange = buildActivityTrendDateRange();
   return (appState.personalBests?.distances || [])
     .map((distance) => {
       const allTrendEfforts = (distance.top || [])
@@ -5925,9 +6003,20 @@ function getPersonalBestTrendDistances() {
       const trendEfforts = allTrendEfforts
         .slice(0, PERSONAL_BEST_TREND_LIMIT)
         .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
-      return { ...distance, trendEfforts, trendDateRange: buildTrendDateRange(allTrendEfforts) };
+      return { ...distance, trendEfforts, trendDateRange: activityDateRange || buildTrendDateRange(allTrendEfforts) };
     })
     .filter((distance) => distance.trendEfforts.length >= 2);
+}
+
+function buildActivityTrendDateRange(activities = appState.activities) {
+  const dates = (activities || [])
+    .map(getActivityStartTime)
+    .filter((date) => Number.isFinite(date));
+  if (!dates.length) return null;
+  return {
+    minDate: Math.min(...dates),
+    maxDate: Math.max(...dates)
+  };
 }
 
 function buildTrendDateRange(efforts) {
@@ -6407,6 +6496,17 @@ function buildLinearLogXAxisScale({ useLogScale, minValue, maxValue, linearMax, 
       return start + ((Math.log(value) - logMin) / logSpread) * width;
     }
   };
+}
+
+function getValueAxisGapBarWidth(pointXs) {
+  const sorted = (pointXs || [])
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  const minSpacing = sorted.slice(1).reduce((min, value, index) => (
+    Math.min(min, Math.abs(value - sorted[index]))
+  ), Infinity);
+  const spacing = Number.isFinite(minSpacing) ? minSpacing : 34;
+  return Math.max(9, Math.min(24, spacing * 0.24));
 }
 
 function getPersonalBestSeriesDefinitions() {

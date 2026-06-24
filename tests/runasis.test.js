@@ -3235,7 +3235,7 @@ test("Personal Bests exposes mode switches in curve, trend, records, timing orde
   assert.match(pbView, /id="personalBestChart"[\s\S]*id="personalBestTrendChart"[\s\S]*id="personalBestGrid"[\s\S]*id="personalBestRecencyChart"/);
 });
 
-test("Personal Best trend axes use the full available record date range", () => {
+test("Personal Best trend axes use the full available activity date range", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
@@ -3243,24 +3243,23 @@ test("Personal Best trend axes use the full available record date range", () => 
       const isoDate = new Date(Date.UTC(year, monthIndex, day, 8, 0, 0)).toISOString();
       return { startDate: isoDate, startDateLocal: isoDate };
     };
-    const recentDate = (index) => makeDate(2025, index % 12, 1 + (index % 20));
-    const oldDate = makeDate(2020, 0, 1);
+    const recentDate = (index) => makeDate(2025, index % 10, 1 + (index % 20));
     const chartElement = () => ({ innerHTML: "" });
 
     const distanceEfforts = Array.from({ length: 22 }, (_, index) => ({
-      ...(index === 21 ? oldDate : recentDate(index)),
+      ...recentDate(index),
       movingTime: 1500 + index,
       paceSecondsPerKm: 300 + index,
       activityName: "Distance Effort " + (index + 1)
     }));
     const timeEfforts = Array.from({ length: 22 }, (_, index) => ({
-      ...(index === 21 ? oldDate : recentDate(index)),
+      ...recentDate(index),
       distanceKm: 6 - index * 0.02,
       paceSecondsPerKm: 300 + index,
       activityName: "Time Effort " + (index + 1)
     }));
     const paceEfforts = Array.from({ length: 22 }, (_, index) => ({
-      ...(index === 21 ? oldDate : recentDate(index)),
+      ...recentDate(index),
       durationSeconds: 1500 + index,
       movingTime: 1500 + index,
       distanceKm: 5 + index * 0.02,
@@ -3286,6 +3285,10 @@ test("Personal Best trend axes use the full available record date range", () => 
     appState.personalBestTrendDistanceName = "5K";
     appState.timeBestTrendDurationName = "30 min";
     appState.paceBestTrendTargetName = "5:00/km";
+    appState.activities = [
+      { start_date_local: "2020-01-01T08:00:00", start_date: "2020-01-01T08:00:00Z", name: "Old Activity" },
+      { start_date_local: "2026-01-01T08:00:00", start_date: "2026-01-01T08:00:00Z", name: "New Activity" }
+    ];
     appState.personalBests = {
       distances: [{ name: "5K", top: distanceEfforts }],
       durations: [{ name: "30 min", top: timeEfforts }],
@@ -3312,6 +3315,9 @@ test("Personal Best trend axes use the full available record date range", () => 
   assert.match(result.distanceChart, />01\/01\/2020</);
   assert.match(result.timeChart, />01\/01\/2020</);
   assert.match(result.paceChart, />01\/01\/2020</);
+  assert.match(result.distanceChart, />01\/01\/2026</);
+  assert.match(result.timeChart, />01\/01\/2026</);
+  assert.match(result.paceChart, />01\/01\/2026</);
   assert.match(result.distanceChart, />Top 20</);
   assert.match(result.timeChart, />Top 20</);
   assert.match(result.paceChart, />Top 20</);
@@ -3711,14 +3717,20 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
     };
 
     renderPaceBestsView();
+    const logDurationChart = els.paceBestDurationChart.innerHTML;
+    const logScaleActive = els.paceBestDistanceScaleButtons[1].classList.active;
+    const visiblePaceAxisLabels = (logDurationChart.match(/data-pace-axis-label=/g) || []).length;
+    appState.paceBestDistanceScale = "linear";
+    renderPaceBestDurationChart();
     ({
-      durationChart: els.paceBestDurationChart.innerHTML,
+      durationChart: logDurationChart,
+      linearDurationChart: els.paceBestDurationChart.innerHTML,
       recencyChart: els.paceBestRecencyChart.innerHTML,
       trendChart: els.paceBestTrendChart.innerHTML,
       trendOptions: els.paceBestTrendTargetSelect.innerHTML,
-      logScaleActive: els.paceBestDistanceScaleButtons[1].classList.active,
+      logScaleActive,
       top10Active: els.paceBestTrendLimitButtons[1].classList.active,
-      visiblePaceAxisLabels: (els.paceBestDurationChart.innerHTML.match(/data-pace-axis-label=/g) || []).length,
+      visiblePaceAxisLabels,
       visibleRecencyPaceAxisLabels: (els.paceBestRecencyChart.innerHTML.match(/data-pace-recency-axis-label=/g) || []).length
     });
   `, app);
@@ -3746,9 +3758,15 @@ test("renderPaceBestsView renders pace best charts like other best charts", () =
   assert.ok(Number.isFinite(fastPaceX));
   assert.ok(Number.isFinite(fiveMinutePaceX));
   assert.ok(Number.isFinite(slowPaceX));
-  assert.ok(fastPaceX > slowPaceX, "faster target paces should appear to the right of slower target paces");
-  const linearFiveMinutePaceX = slowPaceX + ((fastPaceX - slowPaceX) * ((420 - 300) / (420 - 210)));
-  assert.ok(fiveMinutePaceX < linearFiveMinutePaceX - 20, "pace axis should use log spacing by default");
+  assert.ok(fastPaceX < slowPaceX, "faster target paces should appear to the left of slower target paces");
+  const linearFiveMinutePaceX = fastPaceX + ((slowPaceX - fastPaceX) * ((300 - 210) / (420 - 210)));
+  assert.ok(fiveMinutePaceX > linearFiveMinutePaceX + 20, "pace axis should use log spacing by default");
+  assert.match(result.linearDurationChart, /data-x-scale="linear"/);
+  assert.match(result.linearDurationChart, /data-y-scale="linear"/);
+  const linearFastPaceX = paceAxisLabelX(result.linearDurationChart, "data-pace-axis-label", "3:30/km");
+  const linearSlowPaceX = paceAxisLabelX(result.linearDurationChart, "data-pace-axis-label", "7:00/km");
+  assert.ok(linearFastPaceX < 140);
+  assert.ok(linearSlowPaceX > 880);
   assert.doesNotMatch(result.durationChart, />0 km</);
   assert.doesNotMatch(result.durationChart, />0\.0 km</);
   assert.match(result.recencyChart, /D-day/);
@@ -5450,7 +5468,7 @@ test("Analysis controls wire sub tab, rank, and scale interactions", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(result.calls)), [
     { type: "render", currentView: "analysis", analysisTab: "time" },
     { type: "analysis", series: "top10", currentView: "analysis" },
-    { type: "riegel", scale: "log", series: "top10" }
+    { type: "analysis", series: "top10", currentView: "analysis" }
   ]);
 });
 
@@ -5569,11 +5587,100 @@ test("Analysis model mode controls update while time tab is active", () => {
 
 test("expected vs current chart exposes the shared x-axis scale toggle", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
-  const panel = html.match(/<h2>Expected vs Current Pace by Distance<\/h2>[\s\S]*?<div class="chart-box personal-best-chart expected-gap-chart"/)?.[0] || "";
+  const panelByTitle = (title) => html.match(new RegExp(`<h2>${title}<\\/h2>[\\s\\S]*?<div class="chart-box personal-best-chart expected-gap-chart"`))?.[0] || "";
 
-  assert.match(panel, /aria-label="Expected vs current x-axis scale"/);
-  assert.match(panel, /class="scale-option riegel-scale-option"[^>]*data-scale="linear"/);
-  assert.match(panel, /class="scale-option riegel-scale-option active"[^>]*data-scale="log"/);
+  for (const title of [
+    "Expected vs Current Pace by Distance",
+    "Expected vs Current Pace by Time",
+    "Expected vs Current Distance by Pace"
+  ]) {
+    const panel = panelByTitle(title);
+    assert.match(panel, /aria-label="Expected vs current x-axis scale"/);
+    assert.match(panel, /class="scale-option riegel-scale-option"[^>]*data-scale="linear"/);
+    assert.match(panel, /class="scale-option riegel-scale-option active"[^>]*data-scale="log"/);
+  }
+});
+
+test("time and pace analysis charts use the shared linear or log x-axis scale", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    const renderChart = (renderer, rows, options) => {
+      const container = { innerHTML: "" };
+      appState.riegelFiveKScale = "linear";
+      renderer(container, rows, options);
+      const linear = container.innerHTML;
+      appState.riegelFiveKScale = "log";
+      renderer(container, rows, options);
+      const log = container.innerHTML;
+      return { linear, log };
+    };
+    const cxForExpected = (html, label) => {
+      const marker = 'data-tooltip="Expected ' + label;
+      const markerIndex = html.indexOf(marker);
+      if (markerIndex < 0) return null;
+      const circleIndex = html.lastIndexOf("<circle ", markerIndex);
+      if (circleIndex < 0) return null;
+      const match = html.slice(circleIndex, markerIndex).match(/cx="([0-9.]+)"/);
+      return match ? Number(match[1]) : null;
+    };
+    const cyForExpected = (html, label) => {
+      const marker = 'data-tooltip="Expected ' + label;
+      const markerIndex = html.indexOf(marker);
+      if (markerIndex < 0) return null;
+      const circleIndex = html.lastIndexOf("<circle ", markerIndex);
+      if (circleIndex < 0) return null;
+      const match = html.slice(circleIndex, markerIndex).match(/cy="([0-9.]+)"/);
+      return match ? Number(match[1]) : null;
+    };
+    const timeRows = [
+      { name: "10 min", durationSeconds: 600, paceSecondsPerKm: 300, expectedPaceSecondsPerKm: 315, status: "neutral" },
+      { name: "1 hour", durationSeconds: 3600, paceSecondsPerKm: 330, expectedPaceSecondsPerKm: 340, status: "weakness" },
+      { name: "2 hours", durationSeconds: 7200, paceSecondsPerKm: 360, expectedPaceSecondsPerKm: 355, status: "strength" }
+    ];
+    const paceRows = [
+      { name: "3:30/km", targetPaceSecondsPerKm: 210, distanceKm: 3, expectedDistanceKm: 3.2, gapKm: -0.2, status: "weakness" },
+      { name: "5:00/km", targetPaceSecondsPerKm: 300, distanceKm: 10, expectedDistanceKm: 8.5, gapKm: 1.5, status: "strength" },
+      { name: "7:00/km", targetPaceSecondsPerKm: 420, distanceKm: 20, expectedDistanceKm: 21, gapKm: -1, status: "weakness" }
+    ];
+    const time = renderChart(renderExpectedPaceByTimeChart, timeRows, {
+      ariaLabel: "Pace by Time expected pace compared with current pace",
+      targetLabel: "Time"
+    });
+    const pace = renderChart(renderExpectedDistanceChart, paceRows, {
+      ariaLabel: "Distance by Pace expected distance compared with current distance",
+      targetLabel: "Pace"
+    });
+
+    ({
+      timeLinearScale: /data-riegel-x-scale="linear"/.test(time.linear),
+      timeLogScale: /data-riegel-x-scale="log"/.test(time.log),
+      paceLinearScale: /data-riegel-x-scale="linear"/.test(pace.linear),
+      paceLogScale: /data-riegel-x-scale="log"/.test(pace.log),
+      paceLinearYScale: /data-riegel-y-scale="linear"/.test(pace.linear),
+      paceLogYScale: /data-riegel-y-scale="log"/.test(pace.log),
+      timeLinearX: cxForExpected(time.linear, "1 hour"),
+      timeLogX: cxForExpected(time.log, "1 hour"),
+      paceLinearFirstX: cxForExpected(pace.linear, "3:30/km"),
+      paceLinearX: cxForExpected(pace.linear, "5:00/km"),
+      paceLinearLastX: cxForExpected(pace.linear, "7:00/km"),
+      paceLogX: cxForExpected(pace.log, "5:00/km"),
+      paceLinearY: cyForExpected(pace.linear, "5:00/km"),
+      paceLogY: cyForExpected(pace.log, "5:00/km")
+    });
+  `, app);
+
+  assert.equal(result.timeLinearScale, true);
+  assert.equal(result.timeLogScale, true);
+  assert.equal(result.paceLinearScale, true);
+  assert.equal(result.paceLogScale, true);
+  assert.equal(result.paceLinearYScale, true);
+  assert.equal(result.paceLogYScale, true);
+  assert.ok(Math.abs(result.timeLogX - result.timeLinearX) > 20);
+  assert.ok(Math.abs(result.paceLogX - result.paceLinearX) > 20);
+  assert.ok(result.paceLinearFirstX < 140);
+  assert.ok(result.paceLinearLastX > 880);
+  assert.ok(Math.abs(result.paceLogY - result.paceLinearY) > 10);
 });
 
 test("Riegel scale controls keep shared active state across both charts", () => {
