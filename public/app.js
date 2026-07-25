@@ -16,7 +16,7 @@ const PERSONAL_BEST_TREND_LIMIT = 20;
 const PERSONAL_BEST_TREND_LIMIT_OPTIONS = new Set([5, 10, 20]);
 const DEFAULT_RECORD_TARGET_RANK = 10;
 const RECORD_TARGET_RANK_OPTIONS = [3, 5, 10, 20];
-const PERSONAL_BEST_TABS = new Set(["distance", "time", "pace"]);
+const PERSONAL_BEST_TABS = new Set(["distance", "time", "pace", "heart-rate"]);
 const PERSONAL_BEST_MODES = new Set(["records", "curve", "timing", "trend"]);
 const DEFAULT_ACTIVITY_VISIBLE_LIMIT = 50;
 const ANALYSIS_TABS = new Set(["distance", "time", "pace"]);
@@ -36,7 +36,8 @@ const COMMON_PACE_RECORD_TARGETS = ["4:30/km", "5:00/km", "5:27/km", "6:00/km"];
 const DEFAULT_RECORD_TARGETS = {
   distance: "5K",
   time: "20m",
-  pace: "5:00/km"
+  pace: "5:00/km",
+  "heart-rate": "155 bpm"
 };
 const TEN_MILE_KM = 16.09;
 const HALF_MARATHON_KM = 21.097;
@@ -101,6 +102,7 @@ const appState = {
   expandedPersonalBestDistances: new Set(),
   expandedTimeBestDurations: new Set(),
   expandedPaceBestTargets: new Set(),
+  expandedHeartRateTargets: new Set(),
   personalBestTrendDistanceName: null,
   personalBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
   recordTargetRank: DEFAULT_RECORD_TARGET_RANK,
@@ -110,11 +112,12 @@ const appState = {
   paceBestDistanceScale: "log",
   paceBestTrendTargetName: null,
   paceBestTrendLimit: PERSONAL_BEST_TREND_LIMIT,
+  heartRateTrendTargetName: null,
   currentView: "dashboard",
   personalBestTab: "distance",
   personalBestMode: "records",
-  personalBestModes: { distance: "records", time: "records", pace: "records" },
-  selectedPersonalBestTargets: { distance: null, time: null, pace: null },
+  personalBestModes: { distance: "records", time: "records", pace: "records", "heart-rate": "records" },
+  selectedPersonalBestTargets: { distance: null, time: null, pace: null, "heart-rate": null },
   analysisTab: "distance",
   personalBestScale: "log",
   riegelFiveKScale: "log",
@@ -231,6 +234,7 @@ function cacheElements() {
     "personalBestDistanceView",
     "timeView",
     "paceView",
+    "heartRateView",
     "analysisView",
     "raceTargetPanel",
     "raceTargetDistanceSelect",
@@ -274,6 +278,7 @@ function cacheElements() {
     "recentCaption",
     "recordTargetRankField",
     "recordTargetRankSelect",
+    "showRecentRecordsField",
     "showRecentRecordsInput",
     "personalBestChart",
     "personalBestChartCaption",
@@ -286,6 +291,19 @@ function cacheElements() {
     "personalBestDurationCaption",
     "personalBestPaceGrid",
     "personalBestPaceCaption",
+    "personalBestHeartRateGrid",
+    "personalBestHeartRateCaption",
+    "heartRateProgressGrid",
+    "heartRateProgressCaption",
+    "heartRateProgressNote",
+    "heartRateProgressTargetSelect",
+    "heartRateDistanceChart",
+    "heartRateDistanceChartCaption",
+    "heartRateRecencyChart",
+    "heartRateRecencyChartCaption",
+    "heartRateTrendChart",
+    "heartRateTrendCaption",
+    "heartRateTrendTargetSelect",
     "paceBestDurationChart",
     "paceBestDurationChartCaption",
     "paceBestRecencyChart",
@@ -570,6 +588,27 @@ function bindEvents() {
     });
   }
 
+  if (els.heartRateTrendTargetSelect) {
+    els.heartRateTrendTargetSelect.addEventListener("change", () => {
+      appState.heartRateTrendTargetName = els.heartRateTrendTargetSelect.value || null;
+      if (appState.heartRateTrendTargetName) {
+        appState.selectedPersonalBestTargets["heart-rate"] = appState.heartRateTrendTargetName;
+      }
+      renderHeartRateBestsView();
+    });
+  }
+
+  if (els.heartRateProgressTargetSelect) {
+    els.heartRateProgressTargetSelect.addEventListener("change", () => {
+      const name = els.heartRateProgressTargetSelect.value || null;
+      if (name) appState.selectedPersonalBestTargets["heart-rate"] = name;
+      appState.heartRateTrendTargetName = name;
+      renderHeartRateTrendChart();
+      renderHeartRateProgressSummary();
+      renderHeartRateDistanceRecords(appState.personalBests?.heartRates || [], appState.personalBests || {});
+    });
+  }
+
   for (const button of els.paceBestTrendLimitButtons || []) {
     button.addEventListener("click", () => {
       appState.paceBestTrendLimit = normalizePersonalBestTrendLimit(button.dataset.limit);
@@ -658,6 +697,9 @@ function bindEvents() {
   if (els.personalBestPaceGrid) {
     els.personalBestPaceGrid.addEventListener("click", handlePersonalBestToggle);
   }
+  if (els.personalBestHeartRateGrid) {
+    els.personalBestHeartRateGrid.addEventListener("click", handlePersonalBestToggle);
+  }
   for (const button of els.excludedRecordsToggleButtons || []) {
     button.addEventListener("click", toggleIncludeExcludedRecords);
   }
@@ -692,6 +734,9 @@ function selectView(view) {
 function selectPersonalBestTab(tab) {
   appState.currentView = "pb";
   appState.personalBestTab = normalizePersonalBestTab(tab);
+  if (!isPersonalBestModeSupported(appState.personalBestTab, appState.personalBestMode)) {
+    setPersonalBestModeSelection("records");
+  }
   setActiveViewTab("pb");
   render();
 }
@@ -711,10 +756,15 @@ function normalizePersonalBestMode(mode) {
   return PERSONAL_BEST_MODES.has(mode) ? mode : "records";
 }
 
+function isPersonalBestModeSupported(tab, mode) {
+  return PERSONAL_BEST_TABS.has(tab) && PERSONAL_BEST_MODES.has(mode);
+}
+
 function getPersonalBestMode(tab = appState.personalBestTab) {
   const normalizedTab = normalizePersonalBestTab(tab);
   if (!appState.personalBestModes) appState.personalBestModes = {};
-  const normalizedMode = normalizePersonalBestMode(appState.personalBestMode || appState.personalBestModes[normalizedTab]);
+  const requestedMode = normalizePersonalBestMode(appState.personalBestMode || appState.personalBestModes[normalizedTab]);
+  const normalizedMode = isPersonalBestModeSupported(normalizedTab, requestedMode) ? requestedMode : "records";
   setPersonalBestModeSelection(normalizedMode);
   return normalizedMode;
 }
@@ -1818,6 +1868,7 @@ function renderView() {
   els.personalBestDistanceView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "distance");
   els.timeView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "time");
   els.paceView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "pace");
+  els.heartRateView?.classList.toggle("hidden", !showPersonalBests || personalBestTab !== "heart-rate");
   els.analysisView.classList.toggle("hidden", appState.currentView !== "analysis");
   els.analysisDistanceView?.classList.toggle("hidden", appState.currentView !== "analysis" || analysisTab !== "distance");
   els.analysisTimeView?.classList.toggle("hidden", appState.currentView !== "analysis" || analysisTab !== "time");
@@ -2579,8 +2630,14 @@ function renderPersonalBestTab() {
   if (els.showRecentRecordsInput) {
     els.showRecentRecordsInput.checked = Boolean(appState.showRecentPersonalBestRecords);
   }
+  els.showRecentRecordsField?.classList.toggle("hidden", false);
   updateRecordTargetRankControl();
   updatePersonalBestTabControls(tab);
+  if (tab === "heart-rate") {
+    renderHeartRateBestsView();
+    updatePersonalBestModeVisibility(tab);
+    return;
+  }
   if (tab === "pace") {
     renderPaceBestsView();
     updatePersonalBestModeVisibility(tab);
@@ -2606,6 +2663,20 @@ function updatePersonalBestTabControls(tab = normalizePersonalBestTab(appState.p
 }
 
 function renderBestRecordColgroup(type) {
+  if (type === "heart-rate") {
+    return `
+            <colgroup>
+              <col class="record-rank-column">
+              <col class="record-date-column">
+              <col class="record-heart-rate-column">
+              <col class="record-distance-column">
+              <col class="record-time-column">
+              <col class="record-pace-column">
+              <col class="record-stability-column">
+              <col class="record-activity-column">
+              <col class="record-actions-column">
+            </colgroup>`;
+  }
   if (type === "pace") {
     return `
             <colgroup>
@@ -2668,6 +2739,15 @@ function renderPaceBestsView() {
   renderPaceLimitedBests(payload.paces || [], payload);
 }
 
+function renderHeartRateBestsView() {
+  const payload = appState.personalBests || {};
+  renderHeartRateDistanceRecords(payload.heartRates || [], payload);
+  renderHeartRateProgressSummary();
+  renderHeartRateDistanceChart();
+  renderHeartRateRecencyChart();
+  renderHeartRateTrendChart();
+}
+
 function renderTimeLimitedBests(durations, payload = {}) {
   if (!els.personalBestDurationGrid) return;
   if (els.personalBestDurationCaption) {
@@ -2708,6 +2788,122 @@ function renderPaceLimitedBests(paces, payload = {}) {
     tableClass: "pace-best-table",
     countLabel: (pace) => `${formatInteger(pace.count || 0)} ${Number(pace.count || 0) === 1 ? "segment" : "segments"}`
   });
+}
+
+function renderHeartRateDistanceRecords(heartRates, payload = {}) {
+  if (!els.personalBestHeartRateGrid) return;
+  if (els.personalBestHeartRateCaption) {
+    els.personalBestHeartRateCaption.textContent = heartRates.length
+      ? `${formatInteger(payload.heartRateActivityCount || 0)} stream activities · ${formatInteger(payload.heartRateEffortCount || 0)} capped distance efforts`
+      : "No qualifying heart-rate stream data";
+  }
+
+  els.personalBestHeartRateGrid.innerHTML = renderFocusedBestRecordPanel({
+    groups: heartRates,
+    type: "heart-rate",
+    targetType: "heart-rate",
+    expandedSet: appState.expandedHeartRateTargets,
+    toggleAttribute: "heart-rate-best-toggle",
+    emptyText: "No heart-rate cap distance records",
+    noRecordsText: "No qualifying efforts",
+    tableClass: "heart-rate-best-table",
+    countLabel: (heartRate) => `${formatInteger(heartRate.count || 0)} ${Number(heartRate.count || 0) === 1 ? "effort" : "efforts"}`
+  });
+}
+
+function renderHeartRateProgressSummary() {
+  if (!els.heartRateProgressGrid) return;
+  const heartRates = appState.personalBests?.heartRates || [];
+  if (!heartRates.length) {
+    if (els.heartRateProgressCaption) els.heartRateProgressCaption.textContent = "No data";
+    if (els.heartRateProgressTargetSelect) {
+      els.heartRateProgressTargetSelect.disabled = true;
+      els.heartRateProgressTargetSelect.innerHTML = "";
+    }
+    if (els.heartRateProgressNote) els.heartRateProgressNote.textContent = "";
+    return renderEmpty(els.heartRateProgressGrid, "No qualifying 30-minute heart-rate cap efforts");
+  }
+
+  const selected = resolveSelectedBestRecordGroup(heartRates, "heart-rate");
+  if (els.heartRateProgressTargetSelect) {
+    els.heartRateProgressTargetSelect.disabled = false;
+    els.heartRateProgressTargetSelect.innerHTML = heartRates.map((target) => `
+      <option value="${escapeHtml(target.name)}"${target.name === selected.name ? " selected" : ""}>${escapeHtml(formatHeartRateCapLabel(target))}</option>
+    `).join("");
+  }
+
+  const progress = selected.aerobicProgress;
+  if (els.heartRateProgressCaption) {
+    els.heartRateProgressCaption.textContent = progress?.asOf
+      ? `${formatHeartRateCapLabel(selected)} · as of ${formatDate(progress.asOf)}`
+      : formatHeartRateCapLabel(selected);
+  }
+  if (!progress?.current) {
+    if (els.heartRateProgressNote) {
+      els.heartRateProgressNote.textContent = "A 30-minute qualifying window is needed to calculate aerobic progress.";
+    }
+    return renderEmpty(els.heartRateProgressGrid, "No qualifying 30-minute effort at this cap");
+  }
+
+  const statusLabels = {
+    improving: "Improving",
+    stable: "Within noise",
+    declining: "Watch trend",
+    insufficient: "Need history"
+  };
+  const status = statusLabels[progress.status] ? progress.status : "insufficient";
+  const current = progress.current;
+  const previous = progress.previous;
+  const currentDurability = progress.currentDurability;
+  const previousDurability = progress.previousDurability;
+  const previousPeriodLabel = progress.previousMode === "fallback" ? "prior qualifying baseline" : "prior 42d";
+  const distanceDelta = Number(progress.distanceChangePercent);
+  const efficiencyDelta = Number(progress.efficiencyChangePercent);
+  const decouplingDelta = Number(progress.decouplingChangePoints);
+  const distanceDetail = previous && Number.isFinite(distanceDelta)
+    ? `${formatNumber(current.distanceKm, 2)} km · ${formatSignedPercent(distanceDelta)} vs ${previousPeriodLabel}`
+    : `${formatNumber(current.distanceKm, 2)} km · ${formatInteger(current.count || 0)} recent efforts`;
+  const efficiencyDetail = previous && Number.isFinite(efficiencyDelta)
+    ? `${formatSignedPercent(efficiencyDelta)} vs ${previousPeriodLabel} · ${formatNumber(current.averageHeartRate, 1)} bpm avg`
+    : `${formatInteger(current.scoreEffortCount || 0)} effort score · ${formatNumber(current.averageHeartRate, 1)} bpm avg`;
+  const durabilityValue = Number(currentDurability?.decouplingPercent);
+  const durabilityDetail = currentDurability
+    ? previousDurability && Number.isFinite(decouplingDelta)
+      ? `${formatSignedPercentagePoints(decouplingDelta)} vs ${previousPeriodLabel} · lower is better`
+      : `${formatInteger(currentDurability.count || 0)} recent 60-minute efforts · lower is better`
+    : "A qualifying 60-minute effort is needed";
+
+  els.heartRateProgressGrid.innerHTML = `
+    <article class="heart-rate-progress-card">
+      <div class="heart-rate-progress-card-header">
+        <span>30-minute aerobic pace</span>
+        <span class="heart-rate-progress-status ${status}">${statusLabels[status]}</span>
+      </div>
+      <strong>${formatPaceWithUnit(current.paceSecondsPerKm)}</strong>
+      <small>${escapeHtml(distanceDetail)}</small>
+    </article>
+    <article class="heart-rate-progress-card">
+      <div class="heart-rate-progress-card-header"><span>Distance per beat</span></div>
+      <strong>${formatNumber(current.efficiencyMetersPerBeat, 3)} m/beat</strong>
+      <small>${escapeHtml(efficiencyDetail)}</small>
+    </article>
+    <article class="heart-rate-progress-card">
+      <div class="heart-rate-progress-card-header"><span>60-minute efficiency drift</span></div>
+      <strong>${Number.isFinite(durabilityValue) ? `${formatNumber(durabilityValue, 1)}%` : "—"}</strong>
+      <small>${escapeHtml(durabilityDetail)}</small>
+    </article>
+  `;
+
+  if (els.heartRateProgressNote) {
+    const threshold = Number(progress.meaningfulChangePercent);
+    const thresholdLabel = Number.isFinite(threshold)
+      ? ` A change must exceed about ${formatNumber(threshold, 1)}% to stand out from your recent variation.`
+      : "";
+    const baselineNote = progress.previousMode === "fallback"
+      ? " The prior baseline uses the three nearest earlier qualifying efforts because the preceding 42 days were sparse."
+      : "";
+    els.heartRateProgressNote.textContent = `The 42-day score is the median of up to three fastest qualifying 30-minute efforts.${baselineNote}${thresholdLabel}`;
+  }
 }
 
 function renderFocusedBestRecordPanel({ groups, type, targetType, expandedSet, toggleAttribute, emptyText, noRecordsText, tableClass, countLabel }) {
@@ -2763,11 +2959,12 @@ function renderBestRecordPanel({ group, type, expandedSet, toggleAttribute, noRe
     toggleAttribute,
     name: group.name
   });
+  const groupLabel = type === "heart-rate" ? formatHeartRateCapLabel(group) : group.name;
 
   return `
       <article class="records-panel personal-best-panel">
         <div class="panel-title">
-          <h2>${escapeHtml(group.name)}</h2>
+          <h2>${escapeHtml(groupLabel)}</h2>
           <span>${countLabel(group)}</span>
         </div>
         ${renderTopRankTargetSummary(group, type)}
@@ -2831,6 +3028,14 @@ function buildTopRankTargetSummary(group, type, rankLimit = appState.recordTarge
   const normalizedRankLimit = normalizeRecordTargetRank(rankLimit);
   const targetEffort = group?.top?.[normalizedRankLimit - 1];
   if (!targetEffort) return null;
+  if (type === "heart-rate") {
+    const distanceKm = Number(targetEffort.distanceKm || 0);
+    if (!Number.isFinite(distanceKm) || distanceKm <= 0) return null;
+    return {
+      value: formatDistanceKm(distanceKm),
+      detail: `Run farther at or below ${formatHeartRateCapLabel(group)}`
+    };
+  }
   if (type === "time") {
     const distanceKm = Number(targetEffort.distanceKm || 0);
     if (!Number.isFinite(distanceKm) || distanceKm <= 0) return null;
@@ -2858,7 +3063,7 @@ function buildTopRankTargetSummary(group, type, rankLimit = appState.recordTarge
 
 function resolveSelectedBestRecordGroup(groups, targetType) {
   if (!appState.selectedPersonalBestTargets) {
-    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null, "heart-rate": null };
   }
   const normalizedType = normalizePersonalBestTab(targetType);
   const selectedName = appState.selectedPersonalBestTargets[normalizedType];
@@ -2874,6 +3079,10 @@ function getDefaultBestRecordTargetName(groups, targetType) {
   const normalizedType = normalizePersonalBestTab(targetType);
   const preferred = DEFAULT_RECORD_TARGETS[normalizedType];
   if (groups.some((group) => group.name === preferred)) return preferred;
+  if (normalizedType === "heart-rate") {
+    return [...groups]
+      .sort((a, b) => Number(b.count || 0) - Number(a.count || 0) || Number(a.targetHeartRate || 0) - Number(b.targetHeartRate || 0))[0]?.name || null;
+  }
   const firstCommonTarget = getCommonRecordTargetNames(normalizedType)
     .find((name) => groups.some((group) => group.name === name));
   return firstCommonTarget || groups[0]?.name || null;
@@ -2883,11 +3092,18 @@ function getCommonRecordTargetNames(targetType) {
   const normalizedType = normalizePersonalBestTab(targetType);
   if (normalizedType === "time") return COMMON_TIME_RECORD_TARGETS;
   if (normalizedType === "pace") return COMMON_PACE_RECORD_TARGETS;
+  if (normalizedType === "heart-rate") return [];
   return COMMON_RECORD_TARGETS;
 }
 
 function renderRecordTargetList(groups, selectedGroup, targetType, recordType) {
-  const label = targetType === "time" ? "Time targets" : targetType === "pace" ? "Pace targets" : "Distance targets";
+  const label = targetType === "time"
+    ? "Time targets"
+    : targetType === "pace"
+      ? "Pace targets"
+      : targetType === "heart-rate"
+        ? "Heart-rate caps"
+        : "Distance targets";
   return `
     <div class="record-target-list" role="list" aria-label="${label}">
       ${groups.map((group) => {
@@ -2895,7 +3111,7 @@ function renderRecordTargetList(groups, selectedGroup, targetType, recordType) {
         const stateAttribute = isActive ? ` data-record-target-state="active"` : "";
         return `
           <button class="record-target-option${isActive ? " active" : ""}" type="button" data-record-target-type="${escapeHtml(targetType)}" data-record-target-name="${escapeHtml(group.name)}"${stateAttribute} aria-pressed="${isActive ? "true" : "false"}">
-            <span class="record-target-name">${escapeHtml(group.name)}</span>
+            <span class="record-target-name">${escapeHtml(recordType === "heart-rate" ? formatHeartRateCapLabel(group) : group.name)}</span>
             <span class="record-target-meta">${formatRecordTargetCount(group, recordType)}</span>
             <strong>${formatRecordTargetPreview(group, recordType)}</strong>
           </button>
@@ -2909,6 +3125,7 @@ function formatRecordTargetCount(group, recordType) {
   const count = Number(group.count || 0);
   if (recordType === "time") return `${formatInteger(count)} ${count === 1 ? "window" : "windows"}`;
   if (recordType === "pace") return `${formatInteger(count)} ${count === 1 ? "segment" : "segments"}`;
+  if (recordType === "heart-rate") return `${formatInteger(count)} capped ${count === 1 ? "effort" : "efforts"}`;
   return `${formatInteger(count)} best efforts`;
 }
 
@@ -2917,6 +3134,7 @@ function formatRecordTargetPreview(group, recordType) {
   if (!best) return "No records";
   if (recordType === "time") return formatDistanceKm(Number(best.distanceKm || 0));
   if (recordType === "pace") return formatClockDuration(best.durationSeconds || best.movingTime || 0);
+  if (recordType === "heart-rate") return formatDistanceKm(Number(best.distanceKm || 0));
   return formatClockDuration(best.movingTime || 0);
 }
 
@@ -2977,6 +3195,27 @@ function getBestRecordColumns(type) {
     render: (effort) => formatPaceWithUnit(effort.paceSecondsPerKm)
   };
 
+  if (type === "heart-rate") {
+    return [
+      dateColumn,
+      {
+        header: "Avg HR",
+        render: (effort) => `${formatNumber(Number(effort.averageHeartRate || 0), 1)} bpm`
+      },
+      distanceColumn,
+      {
+        header: "Time",
+        render: (effort) => formatClockDuration(effort.durationSeconds || effort.movingTime)
+      },
+      paceColumn,
+      {
+        header: "At/Below",
+        render: (effort) => `${formatInteger(Math.round(Number(effort.heartRateCapRatio || 0) * 100))}%`
+      },
+      activityColumn
+    ];
+  }
+
   if (type === "pace") {
     return [
       dateColumn,
@@ -3017,7 +3256,7 @@ function renderPaceBestDurationChart() {
   if (els.paceBestDurationChartCaption) els.paceBestDurationChartCaption.textContent = "";
   const width = 980;
   const height = 318;
-  const padding = { top: 24, right: 28, bottom: 58, left: 70 };
+  const padding = { top: 52, right: 28, bottom: 58, left: 70 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
   const minPace = Math.min(...paceValues);
@@ -3103,10 +3342,10 @@ function renderPaceBestDurationChart() {
   }).join("");
 
   const legend = series.map((item, index) => {
-    const xPosition = padding.left + 36 + index * 112;
+    const xPosition = padding.left + 36 + index * 132;
     const dashAttribute = item.dashArray ? ` stroke-dasharray="${item.dashArray}"` : "";
     return `
-      <g transform="translate(${xPosition}, 10)">
+      <g transform="translate(${xPosition}, 36)">
         <line x1="0" x2="22" y1="0" y2="0" stroke="${item.color}" stroke-width="${item.strokeWidth || 3}"${dashAttribute}></line>
         <text class="axis-label" x="28" y="4">${item.label}</text>
       </g>
@@ -3641,6 +3880,392 @@ function renderTimeBestTrendChart() {
   `;
 }
 
+function renderHeartRateDistanceChart() {
+  if (!els.heartRateDistanceChart) return;
+  const series = buildHeartRateAerobicCurveSeries();
+  const distanceValues = series.flatMap((item) => item.points.map((point) => point.distanceKm));
+  const heartRateValues = series.flatMap((item) => item.points.map((point) => point.targetHeartRate));
+  if (!distanceValues.length || !heartRateValues.length) {
+    if (els.heartRateDistanceChartCaption) els.heartRateDistanceChartCaption.textContent = "No data";
+    return renderEmpty(els.heartRateDistanceChart, "No qualifying 30-minute aerobic curve data");
+  }
+
+  const targetCount = new Set(heartRateValues).size;
+  if (els.heartRateDistanceChartCaption) {
+    els.heartRateDistanceChartCaption.textContent = `${formatInteger(targetCount)} heart-rate ${targetCount === 1 ? "cap" : "caps"} · recent vs prior baseline`;
+  }
+  const width = 980;
+  const height = 318;
+  const padding = { top: 24, right: 28, bottom: 58, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const heartRateDomain = buildLinearDomain(heartRateValues, 5);
+  const distanceDomain = buildDistanceAxisDomain(distanceValues);
+  const x = (heartRate) => padding.left + ((heartRate - heartRateDomain.min) / heartRateDomain.spread) * chartWidth;
+  const y = (distanceKm) => padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
+  const xTicks = Array.from(new Map(
+    series.flatMap((item) => item.points).map((point) => [point.targetHeartRate, {
+      name: `${point.targetHeartRate} bpm`,
+      targetHeartRate: point.targetHeartRate
+    }])
+  ).values()).sort((a, b) => a.targetHeartRate - b.targetHeartRate);
+  const xLabelIndexes = getPaceBestAxisLabelIndexes(xTicks.length);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
+
+  const grid = [
+    ...xTicks.map((target, index) => {
+      const tickX = x(target.targetHeartRate);
+      const label = xLabelIndexes.has(index)
+        ? `<text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle" data-heart-rate-axis-label="${escapeHtml(target.name)}">${escapeHtml(formatHeartRateCapLabel(target))}</text>`
+        : "";
+      return `
+        <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
+        ${label}
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = y(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatDistanceAxisTick(tick)}</text>
+      `;
+    })
+  ].join("");
+
+  const lines = series.map((item) => {
+    const path = item.points.length > 1
+      ? item.points
+        .map((point, index) => `${index ? "L" : "M"} ${x(point.targetHeartRate).toFixed(1)} ${y(point.distanceKm).toFixed(1)}`)
+        .join(" ")
+      : "";
+    const dashAttribute = item.dashArray ? ` stroke-dasharray="${item.dashArray}"` : "";
+    const dots = item.points.map((point) => `
+      <circle cx="${x(point.targetHeartRate)}" cy="${y(point.distanceKm)}" r="${item.dotRadius || 4}" fill="${item.dotFill || item.color}" stroke="${item.dotStroke || item.color}" stroke-width="${item.dotStrokeWidth || 0}" data-tooltip="${escapeHtml(formatHeartRateAerobicCurveTooltip(item, point))}"></circle>
+    `).join("");
+    return `
+      ${path ? `<path d="${path}" fill="none" stroke="${item.color}" stroke-width="${item.strokeWidth || 3}"${dashAttribute} stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${dots}
+    `;
+  }).join("");
+
+  const legend = series.map((item, index) => {
+    const xPosition = padding.left + 36 + index * 112;
+    const dashAttribute = item.dashArray ? ` stroke-dasharray="${item.dashArray}"` : "";
+    return `
+      <g transform="translate(${xPosition}, 10)">
+        <line x1="0" x2="22" y1="0" y2="0" stroke="${item.color}" stroke-width="${item.strokeWidth || 3}"${dashAttribute}></line>
+        <text class="axis-label" x="28" y="4">${item.label}</text>
+      </g>
+    `;
+  }).join("");
+
+  els.heartRateDistanceChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(formatSeriesAriaLabel(series, "30-minute aerobic distance by heart-rate cap"))}" data-x-scale="linear" data-y-scale="linear">
+      ${grid}
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Heart-rate cap (bpm)</text>
+      <text class="axis-label" x="10" y="16">30-min distance (km)</text>
+      ${legend}
+      ${lines}
+    </svg>
+  `;
+}
+
+function renderHeartRateRecencyChart() {
+  if (!els.heartRateRecencyChart) return;
+  const newestSeries = buildHeartRateRecencySeries("newest");
+  const oldestSeries = buildHeartRateRecencySeries("oldest");
+  const series = [...oldestSeries, ...newestSeries];
+  const datedSeries = series.map((item) => ({
+    ...item,
+    points: item.points
+      .map((point) => {
+        const recordedAt = getLocalFirstTimestamp(point.startDateLocal, point.startDate);
+        if (!Number.isFinite(recordedAt)) return null;
+        return { ...point, recordedAt };
+      })
+      .filter(Boolean)
+  }));
+  const heartRateValues = datedSeries.flatMap((item) => item.points.map((point) => point.targetHeartRate));
+  const recordedDates = datedSeries.flatMap((item) => item.points.map((point) => point.recordedAt));
+  const today = startOfLocalDay(new Date());
+  const todayTime = today.getTime();
+  if (!recordedDates.length || !heartRateValues.length || !Number.isFinite(todayTime)) {
+    if (els.heartRateRecencyChartCaption) els.heartRateRecencyChartCaption.textContent = "No data";
+    return renderEmpty(els.heartRateRecencyChart, "No heart-rate cap distance timing data");
+  }
+
+  const pointsWithDays = datedSeries.map((item) => ({
+    ...item,
+    points: item.points.map((point) => ({
+      ...point,
+      daysAgo: Math.max(0, Math.round((todayTime - startOfLocalDay(new Date(point.recordedAt)).getTime()) / DAY_MS))
+    }))
+  }));
+  const maxDaysAgo = Math.max(...pointsWithDays.flatMap((item) => item.points.map((point) => point.daysAgo)), 1);
+  if (els.heartRateRecencyChartCaption) els.heartRateRecencyChartCaption.textContent = `As of ${formatDate(today)}`;
+
+  const width = 980;
+  const height = 318;
+  const padding = { top: 24, right: 28, bottom: 58, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const heartRateDomain = buildLinearDomain(heartRateValues, 5);
+  const yMax = Math.ceil(maxDaysAgo / 90) * 90 || 90;
+  const x = (heartRate) => padding.left + ((heartRate - heartRateDomain.min) / heartRateDomain.spread) * chartWidth;
+  const y = (daysAgo) => padding.top + (daysAgo / yMax) * chartHeight;
+  const xTicks = getHeartRateBestTicks();
+  const xLabelIndexes = getPaceBestAxisLabelIndexes(xTicks.length);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio));
+
+  const grid = [
+    ...xTicks.map((target, index) => {
+      const tickX = x(target.targetHeartRate);
+      const label = xLabelIndexes.has(index)
+        ? `<text class="axis-label" x="${tickX}" y="${height - 22}" text-anchor="middle" data-heart-rate-recency-axis-label="${escapeHtml(target.name)}">${escapeHtml(formatHeartRateCapLabel(target))}</text>`
+        : "";
+      return `
+        <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
+        ${label}
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = y(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatDDay(tick)}</text>
+      `;
+    })
+  ].join("");
+
+  const lines = pointsWithDays.map((item) => {
+    const path = item.points.length > 1
+      ? item.points
+        .map((point, index) => `${index ? "L" : "M"} ${x(point.targetHeartRate).toFixed(1)} ${y(point.daysAgo).toFixed(1)}`)
+        .join(" ")
+      : "";
+    const isOldest = item.boundary === "oldest";
+    const dots = item.points.map((point) => {
+      const capRatio = Number(point.heartRateCapRatio || 0);
+      const ratioLabel = capRatio > 0 ? ` · ${formatInteger(Math.round(capRatio * 100))}% at/below cap` : "";
+      const tooltip = `${item.label} ${item.boundaryLabel} ${point.heartRateName}\n${formatDDay(point.daysAgo)} · #${point.rank}\n${formatDate(point.startDateLocal || point.startDate)} · ${formatNumber(point.distanceKm, 2)} km${ratioLabel}`;
+      return `<circle cx="${x(point.targetHeartRate)}" cy="${y(point.daysAgo)}" r="${isOldest ? 5 : 4}" fill="${isOldest ? "var(--surface)" : item.color}" stroke="${item.color}" stroke-width="${isOldest ? 2 : 0}" data-tooltip="${escapeHtml(tooltip)}"></circle>`;
+    }).join("");
+    return `
+      ${path ? `<path d="${path}" fill="none" stroke="${item.color}" stroke-width="${isOldest ? 2.4 : 3}" ${isOldest ? "stroke-dasharray=\"8 6\"" : ""} stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${dots}
+    `;
+  }).join("");
+
+  const colorLegend = getPersonalBestSeriesDefinitions().map((item, index) => {
+    const xPosition = padding.left + index * 96;
+    return `
+      <g transform="translate(${xPosition}, 10)">
+        <line x1="0" x2="22" y1="0" y2="0" stroke="${item.color}" stroke-width="3"></line>
+        <text class="axis-label" x="28" y="4">${item.label}</text>
+      </g>
+    `;
+  }).join("");
+  const styleLegend = `
+    <g transform="translate(${padding.left + 330}, 10)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#59635b" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">Newest</text>
+    </g>
+    <g transform="translate(${padding.left + 446}, 10)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#59635b" stroke-width="2.4" stroke-dasharray="8 6"></line>
+      <circle cx="11" cy="0" r="4" fill="var(--surface)" stroke="#59635b" stroke-width="2"></circle>
+      <text class="axis-label" x="28" y="4">Oldest</text>
+    </g>
+  `;
+
+  els.heartRateRecencyChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Top 1, top 3, and top 10 heart-rate cap distance timing" data-x-scale="linear">
+      ${grid}
+      <text class="axis-label" x="${padding.left + chartWidth / 2}" y="${height - 4}" text-anchor="middle">Heart-rate cap (bpm)</text>
+      <text class="axis-label" x="10" y="16">D-day</text>
+      ${colorLegend}
+      ${styleLegend}
+      ${lines}
+    </svg>
+  `;
+}
+
+function renderHeartRateTrendChart() {
+  if (!els.heartRateTrendChart) return;
+  const targets = getHeartRateTrendTargets();
+  const selected = resolveHeartRateTrendTarget(targets);
+  renderHeartRateTrendTargetOptions(targets, selected?.name || null);
+
+  if (!selected) {
+    if (els.heartRateTrendCaption) els.heartRateTrendCaption.textContent = "";
+    return renderEmpty(els.heartRateTrendChart, "No qualifying 30-minute aerobic trend data");
+  }
+
+  const efforts = selected.trendEfforts;
+  const rollingScores = selected.rollingScores || [];
+  const dateRange = selected.trendDateRange || buildTrendDateRange(efforts);
+  const minDate = dateRange?.minDate ?? Math.min(...efforts.map((effort) => effort.recordedAt));
+  const maxDate = dateRange?.maxDate ?? Math.max(...efforts.map((effort) => effort.recordedAt));
+  const distanceValues = [
+    ...efforts.map((effort) => effort.distanceKm),
+    ...rollingScores.map((score) => score.distanceKm)
+  ];
+  const distanceDomain = buildDistanceAxisDomain(distanceValues);
+  const width = 980;
+  const height = 318;
+  const padding = { top: 48, right: 30, bottom: 42, left: 70 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const dateSpread = Math.max(maxDate - minDate, 1);
+  const x = (date) => padding.left + ((date - minDate) / dateSpread) * chartWidth;
+  const y = (distanceKm) => padding.top + ((distanceDomain.max - distanceKm) / distanceDomain.spread) * chartHeight;
+  if (els.heartRateTrendCaption) {
+    els.heartRateTrendCaption.textContent = `${formatInteger(efforts.length)} qualifying 30-minute ${efforts.length === 1 ? "effort" : "efforts"} · 42-day score`;
+  }
+
+  const xTicks = getDateTicks(minDate, maxDate);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => distanceDomain.min + ratio * distanceDomain.spread);
+  const grid = [
+    ...xTicks.map((tick) => {
+      const tickX = x(tick);
+      return `
+        <line x1="${tickX}" x2="${tickX}" y1="${padding.top}" y2="${height - padding.bottom}" stroke="#e5e9e3"></line>
+        <text class="axis-label" x="${tickX}" y="${height - 18}" text-anchor="middle">${formatDate(tick)}</text>
+      `;
+    }),
+    ...yTicks.map((tick) => {
+      const tickY = y(tick);
+      return `
+        <line x1="${padding.left}" x2="${width - padding.right}" y1="${tickY}" y2="${tickY}" stroke="#d9dfd7"></line>
+        <text class="axis-label" x="8" y="${tickY + 4}">${formatDistanceAxisTick(tick)}</text>
+      `;
+    })
+  ].join("");
+
+  const scorePath = rollingScores.length > 1
+    ? rollingScores.map((score, index) => `${index ? "L" : "M"} ${x(score.recordedAt).toFixed(1)} ${y(score.distanceKm).toFixed(1)}`).join(" ")
+    : "";
+  const dots = efforts.map((effort) => {
+    const capRatio = Number(effort.heartRateCapRatio || 0);
+    const tooltip = `${formatHeartRateCapLabel(selected)} 30-minute effort\n${formatDate(effort.startDateLocal || effort.startDate)} · ${formatNumber(effort.distanceKm, 2)} km · ${formatPaceWithUnit(effort.paceSecondsPerKm)}\n${formatNumber(effort.efficiencyMetersPerBeat, 3)} m/beat · Avg ${formatNumber(effort.averageHeartRate, 1)} bpm · ${formatInteger(Math.round(capRatio * 100))}% at/below cap\n${effort.activityName || "Untitled"}`;
+    return `<circle cx="${x(effort.recordedAt)}" cy="${y(effort.distanceKm)}" r="3.5" fill="#2f6fb4" opacity="0.5" stroke="#ffffff" stroke-width="1" data-tooltip="${escapeHtml(tooltip)}"></circle>`;
+  }).join("");
+  const scoreDots = rollingScores.map((score) => {
+    const tooltip = `42-day score ${formatHeartRateCapLabel(selected)}\n${formatDate(score.recordedAt)} · ${formatNumber(score.distanceKm, 2)} km · ${formatPaceWithUnit(score.paceSecondsPerKm)}\nMedian of top ${formatInteger(score.scoreEffortCount)} from ${formatInteger(score.count)} efforts`;
+    return `<circle cx="${x(score.recordedAt)}" cy="${y(score.distanceKm)}" r="3" fill="#24724f" data-tooltip="${escapeHtml(tooltip)}"></circle>`;
+  }).join("");
+  const legend = `
+    <g transform="translate(${padding.left}, 22)">
+      <circle cx="11" cy="0" r="4" fill="#2f6fb4" opacity="0.5"></circle>
+      <text class="axis-label" x="28" y="4">30-minute efforts</text>
+    </g>
+    <g transform="translate(${padding.left + 176}, 22)">
+      <line x1="0" x2="22" y1="0" y2="0" stroke="#24724f" stroke-width="3"></line>
+      <text class="axis-label" x="28" y="4">42-day top-3 median</text>
+    </g>
+  `;
+
+  els.heartRateTrendChart.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(`${formatHeartRateCapLabel(selected)} 30-minute aerobic distance and 42-day score by date`)}">
+      ${grid}
+      ${legend}
+      ${scorePath ? `<path d="${scorePath}" fill="none" stroke="#24724f" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>` : ""}
+      ${dots}
+      ${scoreDots}
+      <text class="axis-label" x="10" y="16">30-min km</text>
+    </svg>
+  `;
+}
+
+function getHeartRateTrendTargets() {
+  return (appState.personalBests?.heartRates || [])
+    .map((target) => {
+      const trendEfforts = (target.top || [])
+        .map((effort, index) => {
+          const startDate = effort.aerobic30StartDate;
+          const startDateLocal = effort.aerobic30StartDateLocal;
+          const recordedAt = getLocalFirstTimestamp(startDateLocal, startDate);
+          const distanceKm = Number(effort.aerobic30DistanceKm || 0);
+          const durationSeconds = Number(effort.aerobic30DurationSeconds || 0);
+          const averageHeartRate = Number(effort.aerobic30AverageHeartRate || 0);
+          if (
+            !Number.isFinite(recordedAt) ||
+            !Number.isFinite(distanceKm) ||
+            distanceKm <= 0 ||
+            !Number.isFinite(durationSeconds) ||
+            durationSeconds <= 0 ||
+            !Number.isFinite(averageHeartRate) ||
+            averageHeartRate <= 0
+          ) return null;
+          return {
+            ...effort,
+            rank: index + 1,
+            startDate,
+            startDateLocal,
+            recordedAt,
+            distanceKm,
+            durationSeconds,
+            averageHeartRate,
+            paceSecondsPerKm: Number(effort.aerobic30PaceSecondsPerKm || 0),
+            efficiencyMetersPerBeat: Number(effort.aerobic30EfficiencyMetersPerBeat || 0),
+            heartRateCapRatio: Number(effort.aerobic30HeartRateCapRatio || 0)
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.recordedAt - b.recordedAt || a.rank - b.rank);
+      return {
+        ...target,
+        trendEfforts,
+        rollingScores: buildHeartRateRollingAerobicScores(trendEfforts),
+        trendDateRange: buildTrendDateRange(trendEfforts)
+      };
+    })
+    .filter((target) => target.trendEfforts.length > 0);
+}
+
+function buildHeartRateRollingAerobicScores(efforts, windowDays = 42) {
+  const windowMs = windowDays * DAY_MS;
+  return efforts.map((effort) => {
+    const candidates = efforts
+      .filter((candidate) => candidate.recordedAt <= effort.recordedAt && candidate.recordedAt >= effort.recordedAt - windowMs)
+      .sort((a, b) => b.distanceKm - a.distanceKm || a.recordedAt - b.recordedAt);
+    const representatives = candidates.slice(0, 3);
+    const distanceKm = median(representatives.map((candidate) => candidate.distanceKm));
+    return {
+      recordedAt: effort.recordedAt,
+      distanceKm,
+      paceSecondsPerKm: distanceKm > 0 ? (30 * 60) / distanceKm : null,
+      count: candidates.length,
+      scoreEffortCount: representatives.length
+    };
+  }).filter((score) => Number.isFinite(score.distanceKm) && score.distanceKm > 0);
+}
+
+function resolveHeartRateTrendTarget(targets) {
+  if (!targets.length) {
+    appState.heartRateTrendTargetName = null;
+    return null;
+  }
+  const selected = targets.find((target) => target.name === appState.heartRateTrendTargetName);
+  if (selected) return selected;
+  const recordTargetName = appState.selectedPersonalBestTargets?.["heart-rate"];
+  const recordTarget = targets.find((target) => target.name === recordTargetName);
+  if (recordTarget) {
+    appState.heartRateTrendTargetName = recordTarget.name;
+    return recordTarget;
+  }
+  const fallback = [...targets].sort((a, b) => Number(b.count || 0) - Number(a.count || 0))[0];
+  appState.heartRateTrendTargetName = fallback.name;
+  return fallback;
+}
+
+function renderHeartRateTrendTargetOptions(targets, selectedName) {
+  if (!els.heartRateTrendTargetSelect) return;
+  els.heartRateTrendTargetSelect.disabled = !targets.length;
+  els.heartRateTrendTargetSelect.innerHTML = targets.map((target) => `
+    <option value="${escapeHtml(target.name)}"${target.name === selectedName ? " selected" : ""}>${escapeHtml(formatHeartRateCapLabel(target))}</option>
+  `).join("");
+}
+
 function renderRefreshIcon() {
   return `
     <svg class="refresh-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
@@ -3690,7 +4315,8 @@ async function handlePersonalBestToggle(event) {
   const inExclusionDistanceGrid = exclusionButton && els.personalBestGrid.contains(exclusionButton);
   const inExclusionDurationGrid = exclusionButton && els.personalBestDurationGrid?.contains(exclusionButton);
   const inExclusionPaceGrid = exclusionButton && els.personalBestPaceGrid?.contains(exclusionButton);
-  if (exclusionButton && (inExclusionDistanceGrid || inExclusionDurationGrid || inExclusionPaceGrid)) {
+  const inExclusionHeartRateGrid = exclusionButton && els.personalBestHeartRateGrid?.contains(exclusionButton);
+  if (exclusionButton && (inExclusionDistanceGrid || inExclusionDurationGrid || inExclusionPaceGrid || inExclusionHeartRateGrid)) {
     await updateRecordExclusion(
       exclusionButton.dataset.recordExclusionKey,
       exclusionButton.dataset.recordExclusionExcluded === "true"
@@ -3702,7 +4328,8 @@ async function handlePersonalBestToggle(event) {
   const inDistanceGrid = refreshButton && els.personalBestGrid.contains(refreshButton);
   const inDurationGrid = refreshButton && els.personalBestDurationGrid?.contains(refreshButton);
   const inPaceGrid = refreshButton && els.personalBestPaceGrid?.contains(refreshButton);
-  if (refreshButton && (inDistanceGrid || inDurationGrid || inPaceGrid)) {
+  const inHeartRateGrid = refreshButton && els.personalBestHeartRateGrid?.contains(refreshButton);
+  if (refreshButton && (inDistanceGrid || inDurationGrid || inPaceGrid || inHeartRateGrid)) {
     refreshActivityDetail(refreshButton.dataset.refreshActivityId);
     return;
   }
@@ -3711,7 +4338,8 @@ async function handlePersonalBestToggle(event) {
   const inTargetDistanceGrid = targetButton && els.personalBestGrid.contains(targetButton);
   const inTargetDurationGrid = targetButton && els.personalBestDurationGrid?.contains(targetButton);
   const inTargetPaceGrid = targetButton && els.personalBestPaceGrid?.contains(targetButton);
-  if (targetButton && (inTargetDistanceGrid || inTargetDurationGrid || inTargetPaceGrid)) {
+  const inTargetHeartRateGrid = targetButton && els.personalBestHeartRateGrid?.contains(targetButton);
+  if (targetButton && (inTargetDistanceGrid || inTargetDurationGrid || inTargetPaceGrid || inTargetHeartRateGrid)) {
     selectPersonalBestRecordTarget(targetButton.dataset.recordTargetType, targetButton.dataset.recordTargetName);
     return;
   }
@@ -3745,23 +4373,36 @@ async function handlePersonalBestToggle(event) {
   }
 
   const paceButton = event.target.closest("[data-pace-best-toggle]");
-  if (!paceButton || !els.personalBestPaceGrid?.contains(paceButton)) return;
+  if (paceButton && els.personalBestPaceGrid?.contains(paceButton)) {
+    const paceName = paceButton.dataset.paceBestToggle;
+    if (!paceName) return;
 
-  const paceName = paceButton.dataset.paceBestToggle;
-  if (!paceName) return;
-
-  if (appState.expandedPaceBestTargets.has(paceName)) {
-    appState.expandedPaceBestTargets.delete(paceName);
-  } else {
-    appState.expandedPaceBestTargets.add(paceName);
+    if (appState.expandedPaceBestTargets.has(paceName)) {
+      appState.expandedPaceBestTargets.delete(paceName);
+    } else {
+      appState.expandedPaceBestTargets.add(paceName);
+    }
+    renderPaceBestsView();
+    return;
   }
-  renderPaceBestsView();
+
+  const heartRateButton = event.target.closest("[data-heart-rate-best-toggle]");
+  if (!heartRateButton || !els.personalBestHeartRateGrid?.contains(heartRateButton)) return;
+  const heartRateName = heartRateButton.dataset.heartRateBestToggle;
+  if (!heartRateName) return;
+  if (appState.expandedHeartRateTargets.has(heartRateName)) {
+    appState.expandedHeartRateTargets.delete(heartRateName);
+  } else {
+    appState.expandedHeartRateTargets.add(heartRateName);
+  }
+  renderHeartRateBestsView();
 }
 
 function getPersonalBestRecordGrid(type) {
   const normalizedType = normalizePersonalBestTab(type);
   if (normalizedType === "time") return els.personalBestDurationGrid || null;
   if (normalizedType === "pace") return els.personalBestPaceGrid || null;
+  if (normalizedType === "heart-rate") return els.personalBestHeartRateGrid || null;
   return els.personalBestGrid || null;
 }
 
@@ -3786,13 +4427,16 @@ function selectPersonalBestRecordTarget(type, name) {
   if (!name) return;
   const targetListScrollLeft = getPersonalBestRecordTargetScrollLeft(normalizedType);
   if (!appState.selectedPersonalBestTargets) {
-    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null, "heart-rate": null };
   }
   appState.selectedPersonalBestTargets[normalizedType] = name;
+  if (normalizedType === "heart-rate") appState.heartRateTrendTargetName = name;
   if (normalizedType === "time") {
     renderTimeBestsView();
   } else if (normalizedType === "pace") {
     renderPaceBestsView();
+  } else if (normalizedType === "heart-rate") {
+    renderHeartRateBestsView();
   } else {
     renderPersonalBests();
   }
@@ -6240,6 +6884,104 @@ function buildPersonalBestRecencySeries(boundary) {
   }));
 }
 
+function buildHeartRateAerobicCurveSeries() {
+  const heartRates = appState.personalBests?.heartRates || [];
+  const definitions = [
+    { key: "current", label: "Recent 42d", color: "#24724f", strokeWidth: 3.2 },
+    { key: "previous", label: "Prior baseline", color: "#2f6fb4", strokeWidth: 2.6, dashArray: "8 6" }
+  ];
+  return definitions.map((item) => ({
+    ...item,
+    points: heartRates
+      .map((target) => {
+        const targetHeartRate = Number(target.targetHeartRate || 0);
+        const progress = target.aerobicProgress;
+        const period = progress?.[item.key];
+        const distanceKm = Number(period?.distanceKm || 0);
+        const paceSecondsPerKm = Number(period?.paceSecondsPerKm || 0);
+        if (
+          !period ||
+          targetHeartRate <= 0 ||
+          !Number.isFinite(distanceKm) ||
+          distanceKm <= 0 ||
+          !Number.isFinite(paceSecondsPerKm) ||
+          paceSecondsPerKm <= 0
+        ) return null;
+
+        return {
+          targetHeartRate,
+          heartRateName: formatHeartRateCapLabel(target),
+          averageHeartRate: Number(period.averageHeartRate || 0),
+          heartRateCapRatio: Number(period.capRatio || 0),
+          distanceKm,
+          durationSeconds: Number(target.aerobicDurationSeconds || 30 * 60),
+          paceSecondsPerKm,
+          efficiencyMetersPerBeat: Number(period.efficiencyMetersPerBeat || 0),
+          count: Number(period.count || 0),
+          scoreEffortCount: Number(period.scoreEffortCount || 0),
+          changePercent: progress.distanceChangePercent === null || progress.distanceChangePercent === undefined
+            ? null
+            : Number(progress.distanceChangePercent)
+        };
+      })
+      .filter(Boolean)
+  }));
+}
+
+function formatHeartRateAerobicCurveTooltip(series, point) {
+  const averageLabel = point.averageHeartRate > 0
+    ? ` · Avg ${formatNumber(point.averageHeartRate, 1)} bpm`
+    : "";
+  const efficiencyLabel = point.efficiencyMetersPerBeat > 0
+    ? ` · ${formatNumber(point.efficiencyMetersPerBeat, 3)} m/beat`
+    : "";
+  const changeLabel = series.key === "current" && Number.isFinite(point.changePercent)
+    ? `\n${formatSignedPercent(point.changePercent)} vs prior baseline`
+    : "";
+  return `${series.label} ${point.heartRateName}\n${formatNumber(point.distanceKm, 2)} km in 30:00 · ${formatPaceWithUnit(point.paceSecondsPerKm)}\n${formatInteger(point.scoreEffortCount)} of ${formatInteger(point.count)} efforts${averageLabel}${efficiencyLabel}${changeLabel}`;
+}
+
+function buildHeartRateRecencySeries(boundary) {
+  const heartRates = appState.personalBests?.heartRates || [];
+  const boundaryLabel = boundary === "oldest" ? "oldest" : "newest";
+  return getPersonalBestSeriesDefinitions().map((item) => ({
+    ...item,
+    boundary,
+    boundaryLabel,
+    points: heartRates
+      .map((target) => {
+        const selectedEffort = (target.top || [])
+          .slice(0, item.limit)
+          .map((effort, index) => ({
+            ...effort,
+            rank: index + 1,
+            recordedAt: getLocalFirstTimestamp(effort.startDateLocal, effort.startDate)
+          }))
+          .filter((effort) => Number.isFinite(effort.recordedAt))
+          .sort((a, b) => boundary === "oldest" ? a.recordedAt - b.recordedAt : b.recordedAt - a.recordedAt)[0];
+
+        const targetHeartRate = Number(target.targetHeartRate || 0);
+        const distanceKm = Number(selectedEffort?.distanceKm || 0);
+        const durationSeconds = Number(selectedEffort?.durationSeconds || selectedEffort?.movingTime || 0);
+        if (!selectedEffort || targetHeartRate <= 0 || distanceKm <= 0 || durationSeconds <= 0) return null;
+        return {
+          targetHeartRate,
+          heartRateName: formatHeartRateCapLabel(target),
+          averageHeartRate: Number(selectedEffort.averageHeartRate || 0),
+          heartRateCapRatio: Number(selectedEffort.heartRateCapRatio || 0),
+          distanceKm,
+          durationSeconds,
+          paceSecondsPerKm: Number(selectedEffort.paceSecondsPerKm || 0),
+          startDate: selectedEffort.startDate,
+          startDateLocal: selectedEffort.startDateLocal,
+          activityName: selectedEffort.activityName,
+          rank: selectedEffort.rank
+        };
+      })
+      .filter(Boolean)
+  }));
+}
+
 function buildTimeBestDistanceSeries() {
   const durations = appState.personalBests?.durations || [];
   return getPersonalBestPaceSeriesDefinitions().map((item) => ({
@@ -6461,6 +7203,16 @@ function getPaceBestTicks() {
       paceSecondsPerKm: Number(pace.paceSecondsPerKm || 0)
     }))
     .filter((pace) => pace.paceSecondsPerKm > 0);
+}
+
+function getHeartRateBestTicks() {
+  return (appState.personalBests?.heartRates || [])
+    .map((target) => ({
+      name: target.name,
+      targetHeartRate: Number(target.targetHeartRate || 0)
+    }))
+    .filter((target) => target.targetHeartRate > 0)
+    .sort((a, b) => a.targetHeartRate - b.targetHeartRate);
 }
 
 function getPaceBestAxisLabelIndexes(tickCount, maxLabels = 8) {
@@ -6813,6 +7565,15 @@ function formatDistanceTrendRate(kmPerYear) {
   return `${sign}${formatNumber(kmPerYear, 1)} km/yr`;
 }
 
+function formatHeartRateCapLabel(target) {
+  const targetHeartRate = Number(target?.targetHeartRate ?? target);
+  if (Number.isFinite(targetHeartRate) && targetHeartRate > 0) {
+    return `≤${formatInteger(Math.round(targetHeartRate))} bpm`;
+  }
+  const name = String(target?.name || "").trim();
+  return name ? `${name} cap` : "Heart-rate cap";
+}
+
 function formatDistanceAxisTick(km) {
   if (!Number.isFinite(km)) return "-";
   const absolute = Math.abs(km);
@@ -6870,6 +7631,20 @@ function formatSignedDistanceKm(value) {
   if (!Number.isFinite(value)) return "-";
   const sign = value > 0 ? "+" : "";
   return `${sign}${formatNumber(value, 1)} km`;
+}
+
+function formatSignedPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const sign = number > 0 ? "+" : number < 0 ? "−" : "";
+  return `${sign}${formatNumber(Math.abs(number), 1)}%`;
+}
+
+function formatSignedPercentagePoints(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const sign = number > 0 ? "+" : number < 0 ? "−" : "";
+  return `${sign}${formatNumber(Math.abs(number), 1)} pp`;
 }
 
 function formatSignedInteger(value) {

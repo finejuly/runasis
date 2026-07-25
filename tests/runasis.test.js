@@ -752,11 +752,11 @@ test("renderKpis prioritizes previous-period distance change", () => {
   assert.doesNotMatch(result, new RegExp(`Annual${"ized"}`));
 });
 
-test("personal best records default to common runner targets when available", () => {
+test("personal best records default to common runner targets and the representative heart-rate cap", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
-    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null };
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null, "heart-rate": null };
     ({
       distance: resolveSelectedBestRecordGroup([
         { name: "100m", top: [] },
@@ -772,14 +772,20 @@ test("personal best records default to common runner targets when available", ()
         { name: "3:30/km", top: [] },
         { name: "5:00/km", top: [] },
         { name: "6:00/km", top: [] }
-      ], "pace").name
+      ], "pace").name,
+      heartRate: resolveSelectedBestRecordGroup([
+        { name: "130 bpm", targetHeartRate: 130, top: [] },
+        { name: "155 bpm", targetHeartRate: 155, top: [] },
+        { name: "175 bpm", targetHeartRate: 175, top: [] }
+      ], "heart-rate").name
     });
   `, app);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), {
     distance: "5K",
     time: "20m",
-    pace: "5:00/km"
+    pace: "5:00/km",
+    heartRate: "155 bpm"
   });
 });
 
@@ -1712,14 +1718,15 @@ test("personalBestsFromStore computes fixed-time distance bests from streams", a
   assert.equal(vm.runInContext("mockWrittenPersonalBests.cache.sourceFingerprint", server), sourceFingerprint);
 });
 
-test("best effort target lists match configured distance, time, and pace records", () => {
+test("best effort target lists match configured distance, time, pace, and heart-rate records", () => {
   const server = loadServerContext();
 
   const result = vm.runInContext(`
     ({
       distances: PERSONAL_BEST_DISTANCE_TARGETS.map((target) => target.name),
       durations: TIME_BEST_TARGETS.map((target) => target.name),
-      paces: PACE_BEST_TARGETS.map((target) => target.name)
+      paces: PACE_BEST_TARGETS.map((target) => target.name),
+      heartRates: HEART_RATE_DISTANCE_TARGETS.map((target) => target.targetHeartRate)
     })
   `, server);
 
@@ -1777,6 +1784,10 @@ test("best effort target lists match configured distance, time, and pace records
     "6:20/km",
     "6:40/km",
     "7:00/km"
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.heartRates)), [
+    90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140,
+    145, 150, 155, 160, 165, 170, 175, 180, 185, 190
   ]);
 });
 
@@ -1938,6 +1949,205 @@ test("personalBestsFromStore computes fixed-pace distance bests from streams", a
   assert.equal(Math.round(paces["6:40/km"].top[0].distance), 13000);
   assert.equal(vm.runInContext("mockWrittenPersonalBests.paceCount", server), 14);
   assert.equal(vm.runInContext("mockWrittenPersonalBests.paces[0].top.length", server), 1);
+});
+
+test("personalBestsFromStore records the longest distance at or below each heart-rate cap without a warm-up cutoff", async () => {
+  const server = loadServerContext();
+
+  vm.runInContext(`
+    mockWrittenPersonalBests = null;
+    readJson = async (file, fallback) => {
+      const text = String(file);
+      if (text.endsWith("/raw-streams/1.json")) {
+        return {
+          time: { data: [0, 900, 1800] },
+          distance: { data: [0, 2500, 5000] },
+          heartrate: { data: [135, 135, 135] },
+          moving: { data: [true, true, true] }
+        };
+      }
+      if (text.endsWith("/raw-streams/2.json")) {
+        return {
+          time: { data: [0, 1200, 2400] },
+          distance: { data: [0, 3000, 6000] },
+          heartrate: { data: [135, 135, 135] },
+          moving: { data: [true, true, true] }
+        };
+      }
+      return fallback;
+    };
+    writeJsonAtomic = async (file, payload) => {
+      mockWrittenPersonalBests = payload;
+    };
+  `, server);
+
+  const result = await vm.runInContext(`
+    personalBestsFromStore({
+      activities: [
+        { id: 1, name: "Steady Easy", sport_type: "Run", start_date: "2026-05-01T12:00:00Z" },
+        { id: 2, name: "Longer Easy", sport_type: "Run", start_date: "2026-06-01T12:00:00Z" }
+      ],
+      detailsById: new Map(),
+      rawStreamIds: new Set(["1", "2"])
+    })
+  `, server);
+
+  assert.equal(result.heartRateActivityCount, 2);
+  assert.equal(result.heartRateEffortCount, 24);
+  assert.equal(result.heartRateCount, 12);
+  const cap135 = result.heartRates.find((target) => target.name === "135 bpm");
+  assert.equal(cap135.targetHeartRate, 135);
+  assert.equal(cap135.top[0].activityId, 2);
+  assert.equal(Math.round(cap135.top[0].distance), 6000);
+  assert.equal(Math.round(cap135.top[0].durationSeconds), 2400);
+  assert.equal(Math.round(cap135.top[0].paceSecondsPerKm), 400);
+  assert.equal(cap135.top[0].averageHeartRate, 135);
+  assert.equal(cap135.top[0].heartRateCapRatio, 1);
+  assert.equal(Math.round(cap135.top[0].aerobic30Distance), 4500);
+  assert.equal(Math.round(cap135.top[0].aerobic30DurationSeconds), 1800);
+  assert.equal(Math.round(cap135.top[1].aerobic30Distance), 5000);
+  assert.equal(cap135.top[1].aerobic30HeartRateCapRatio, 1);
+  assert.equal(cap135.aerobicProgress.status, "insufficient");
+  assert.equal(cap135.aerobicProgress.current.count, 2);
+  assert.equal(cap135.aerobicProgress.current.distanceKm, 4.75);
+  assert.equal(cap135.aerobicProgress.current.efficiencyMetersPerBeat, 1.173);
+  assert.equal(cap135.top[0].startOffset, 0);
+  assert.equal(cap135.top[0].endOffset, 2400);
+  assert.equal(cap135.top[0].recordKey, "heart-rate|135 bpm|2|0|2400");
+  assert.equal(vm.runInContext("mockWrittenPersonalBests.heartRateCount", server), 12);
+});
+
+test("heart-rate distance records count lower heart rates toward every higher cap", () => {
+  const server = loadServerContext();
+
+  const efforts = vm.runInContext(`
+    heartRateDistanceEffortsForActivity(
+      { id: 9, name: "Stepped Heart Rate", sport_type: "Run", start_date: "2026-06-01T12:00:00Z" },
+      {
+        time: { data: [0, 600, 601, 1201] },
+        distance: { data: [0, 2000, 2003, 4003] },
+        heartrate: { data: [135, 135, 140, 140] },
+        moving: { data: [true, true, true, true] }
+      }
+    )
+  `, server);
+
+  const byTarget = Object.fromEntries(efforts.map((effort) => [effort.name, effort]));
+  assert.equal(Math.round(byTarget["135 bpm"].distance), 2000);
+  assert.equal(Math.round(byTarget["135 bpm"].durationSeconds), 600);
+  assert.equal(byTarget["135 bpm"].startOffset, 0);
+  assert.equal(byTarget["135 bpm"].endOffset, 600);
+  assert.equal(Math.round(byTarget["140 bpm"].distance), 4003);
+  assert.equal(Math.round(byTarget["140 bpm"].durationSeconds), 1201);
+  assert.equal(byTarget["140 bpm"].startOffset, 0);
+  assert.equal(byTarget["140 bpm"].endOffset, 1201);
+  assert.equal(byTarget["140 bpm"].heartRateCapRatio, 1);
+});
+
+test("heart-rate cap efforts calculate fixed 30-minute efficiency and 60-minute decoupling", () => {
+  const server = loadServerContext();
+
+  const efforts = vm.runInContext(`
+    heartRateDistanceEffortsForActivity(
+      { id: 10, name: "Durability Run", sport_type: "Run", start_date: "2026-06-01T12:00:00Z" },
+      {
+        time: { data: [0, 1800, 3600] },
+        distance: { data: [0, 3600, 6600] },
+        heartrate: { data: [135, 135, 135] },
+        moving: { data: [true, true, true] }
+      }
+    )
+  `, server);
+
+  const cap135 = efforts.find((effort) => effort.name === "135 bpm");
+  assert.equal(cap135.aerobic30DistanceKm, 3.6);
+  assert.equal(Math.round(cap135.aerobic30PaceSecondsPerKm), 500);
+  assert.equal(cap135.aerobic30EfficiencyMetersPerBeat, 0.889);
+  assert.equal(cap135.durability60DistanceKm, 6.6);
+  assert.equal(cap135.durability60FirstHalfEfficiencyMetersPerBeat, 0.889);
+  assert.equal(cap135.durability60SecondHalfEfficiencyMetersPerBeat, 0.741);
+  assert.equal(cap135.durability60DecouplingPercent, 16.67);
+});
+
+test("heart-rate aerobic progress compares consecutive 42-day periods against personal variation", () => {
+  const server = loadServerContext();
+
+  const progress = vm.runInContext(`
+    summarizeHeartRateAerobicProgress([
+      {
+        aerobic30StartDate: "2026-01-01T12:00:00Z",
+        aerobic30DistanceKm: 4.0,
+        aerobic30EfficiencyMetersPerBeat: 1.0,
+        aerobic30AverageHeartRate: 145,
+        aerobic30HeartRateCapRatio: 0.95,
+        durability60StartDate: "2026-01-01T12:00:00Z",
+        durability60DistanceKm: 7.5,
+        durability60EfficiencyMetersPerBeat: 0.96,
+        durability60DecouplingPercent: 8
+      },
+      {
+        aerobic30StartDate: "2026-01-15T12:00:00Z",
+        aerobic30DistanceKm: 4.1,
+        aerobic30EfficiencyMetersPerBeat: 1.01,
+        aerobic30AverageHeartRate: 145,
+        aerobic30HeartRateCapRatio: 0.96,
+        durability60StartDate: "2026-01-15T12:00:00Z",
+        durability60DistanceKm: 7.7,
+        durability60EfficiencyMetersPerBeat: 0.98,
+        durability60DecouplingPercent: 7
+      },
+      {
+        aerobic30StartDate: "2026-02-20T12:00:00Z",
+        aerobic30DistanceKm: 4.4,
+        aerobic30EfficiencyMetersPerBeat: 1.08,
+        aerobic30AverageHeartRate: 144,
+        aerobic30HeartRateCapRatio: 0.97,
+        durability60StartDate: "2026-02-20T12:00:00Z",
+        durability60DistanceKm: 8.2,
+        durability60EfficiencyMetersPerBeat: 1.04,
+        durability60DecouplingPercent: 5
+      },
+      {
+        aerobic30StartDate: "2026-03-01T12:00:00Z",
+        aerobic30DistanceKm: 4.5,
+        aerobic30EfficiencyMetersPerBeat: 1.1,
+        aerobic30AverageHeartRate: 144,
+        aerobic30HeartRateCapRatio: 0.98,
+        durability60StartDate: "2026-03-01T12:00:00Z",
+        durability60DistanceKm: 8.4,
+        durability60EfficiencyMetersPerBeat: 1.06,
+        durability60DecouplingPercent: 4
+      }
+    ])
+  `, server);
+
+  assert.equal(progress.current.distanceKm, 4.45);
+  assert.equal(progress.previous.distanceKm, 4.05);
+  assert.equal(progress.distanceChangePercent, 9.88);
+  assert.equal(progress.efficiencyChangePercent, 8.46);
+  assert.equal(progress.previousMode, "window");
+  assert.equal(progress.status, "improving");
+  assert.equal(progress.currentDurability.decouplingPercent, 4.5);
+  assert.equal(progress.previousDurability.decouplingPercent, 7.5);
+  assert.equal(progress.decouplingChangePoints, -3);
+});
+
+test("heart-rate aerobic progress falls back to the nearest earlier qualifying efforts", () => {
+  const server = loadServerContext();
+
+  const progress = vm.runInContext(`
+    summarizeHeartRateAerobicProgress([
+      { aerobic30StartDate: "2026-01-01T12:00:00Z", aerobic30DistanceKm: 4.0, aerobic30EfficiencyMetersPerBeat: 1.0 },
+      { aerobic30StartDate: "2026-01-15T12:00:00Z", aerobic30DistanceKm: 4.2, aerobic30EfficiencyMetersPerBeat: 1.02 },
+      { aerobic30StartDate: "2026-06-01T12:00:00Z", aerobic30DistanceKm: 4.3, aerobic30EfficiencyMetersPerBeat: 1.05 },
+      { aerobic30StartDate: "2026-06-15T12:00:00Z", aerobic30DistanceKm: 4.4, aerobic30EfficiencyMetersPerBeat: 1.06 }
+    ])
+  `, server);
+
+  assert.equal(progress.previousMode, "fallback");
+  assert.equal(progress.current.distanceKm, 4.35);
+  assert.equal(progress.previous.distanceKm, 4.1);
+  assert.equal(progress.distanceChangePercent, 6.1);
 });
 
 test("personalBestsFromStore caches every computed record for lower ranks", async () => {
@@ -2128,7 +2338,11 @@ test("personalBestsFromStore reuses a fresh derived cache without rereading stre
       paceActivityCount: 0,
       paceEffortCount: 0,
       paceCount: 0,
-      paces: []
+      paces: [],
+      heartRateActivityCount: 0,
+      heartRateEffortCount: 0,
+      heartRateCount: 0,
+      heartRates: []
     };
     readJson = async (file, fallback) => {
       const text = String(file);
@@ -3100,7 +3314,7 @@ test("recent personal best series skips undated records and uses the latest date
   });
 });
 
-test("recent records appear in distance, time, and pace chart labels when enabled", () => {
+test("recent records appear in standard best curves while heart-rate progress compares 42-day periods", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
@@ -3118,6 +3332,8 @@ test("recent records appear in distance, time, and pace chart labels when enable
     els.timeBestDistanceChartCaption = captionElement();
     els.paceBestDurationChart = chartElement();
     els.paceBestDurationChartCaption = captionElement();
+    els.heartRateDistanceChart = chartElement();
+    els.heartRateDistanceChartCaption = captionElement();
     els.personalBestScaleButtons = [toggleButton({ scale: "linear" }), toggleButton({ scale: "log" })];
     els.timeBestScaleButtons = [toggleButton({ scale: "linear" }), toggleButton({ scale: "log" })];
     els.paceBestDistanceScaleButtons = [toggleButton({ scale: "linear" }), toggleButton({ scale: "log" })];
@@ -3185,22 +3401,58 @@ test("recent records appear in distance, time, and pace chart labels when enable
           ],
           median: { durationSeconds: 2370, distanceKm: 6.58, paceSecondsPerKm: 360, count: 2 }
         }
+      ],
+      heartRates: [
+        {
+          name: "135 bpm",
+          targetHeartRate: 135,
+          aerobicDurationSeconds: 1800,
+          aerobicProgress: {
+            distanceChangePercent: 3.2,
+            current: {
+              count: 2,
+              scoreEffortCount: 2,
+              distanceKm: 4.8,
+              paceSecondsPerKm: 375,
+              efficiencyMetersPerBeat: 1.1,
+              averageHeartRate: 134,
+              capRatio: 0.95
+            },
+            previous: {
+              count: 2,
+              scoreEffortCount: 2,
+              distanceKm: 4.65,
+              paceSecondsPerKm: 387,
+              efficiencyMetersPerBeat: 1.05,
+              averageHeartRate: 134,
+              capRatio: 0.94
+            }
+          },
+          top: [
+            { durationSeconds: 1200, distanceKm: 3.3, paceSecondsPerKm: 364, averageHeartRate: 135, startDate: "2026-05-01T00:00:00Z" },
+            { durationSeconds: 1180, distanceKm: 3.2, paceSecondsPerKm: 369, averageHeartRate: 135, startDate: "2026-06-12T00:00:00Z" }
+          ],
+          median: { durationSeconds: 1190, distanceKm: 3.25, paceSecondsPerKm: 366, averageHeartRate: 135, count: 2 }
+        }
       ]
     };
 
     renderPersonalBestChart();
     renderTimeBestDistanceChart();
     renderPaceBestDurationChart();
+    renderHeartRateDistanceChart();
     ({
       distance: els.personalBestChart.innerHTML,
       time: els.timeBestDistanceChart.innerHTML,
-      pace: els.paceBestDurationChart.innerHTML
+      pace: els.paceBestDurationChart.innerHTML,
+      heartRate: els.heartRateDistanceChart.innerHTML
     });
   `, app);
 
   assert.match(result.distance, /aria-label="[^"]*Recent[^"]*pace by distance"/);
   assert.match(result.time, /aria-label="[^"]*Recent[^"]*pace by time"/);
   assert.match(result.pace, /aria-label="[^"]*Recent[^"]*distance by target pace"/);
+  assert.match(result.heartRate, /aria-label="Recent 42d, Prior baseline 30-minute aerobic distance by heart-rate cap"/);
 });
 
 test("Personal Bests exposes a recent-record chart toggle", () => {
@@ -3228,10 +3480,12 @@ test("Personal Bests exposes mode switches in curve, trend, records, timing orde
   assert.deepEqual(modeOrder("distance"), ["curve", "trend", "records", "timing"]);
   assert.deepEqual(modeOrder("time"), ["curve", "trend", "records", "timing"]);
   assert.deepEqual(modeOrder("pace"), ["curve", "trend", "records", "timing"]);
+  assert.deepEqual(modeOrder("heart-rate"), ["curve", "trend", "records", "timing"]);
   assert.match(pbView, /id="recordTargetRankSelect"[\s\S]*Top 5[\s\S]*Top 10[\s\S]*Top 20/);
   assert.deepEqual(paneOrder("distance"), ["curve", "trend", "records", "timing"]);
   assert.deepEqual(paneOrder("time"), ["curve", "trend", "records", "timing"]);
   assert.deepEqual(paneOrder("pace"), ["curve", "trend", "records", "timing"]);
+  assert.deepEqual(paneOrder("heart-rate"), ["curve", "trend", "records", "timing"]);
   assert.match(pbView, /id="personalBestChart"[\s\S]*id="personalBestTrendChart"[\s\S]*id="personalBestGrid"[\s\S]*id="personalBestRecencyChart"/);
 });
 
@@ -3382,7 +3636,7 @@ test("Personal Best mode controls switch one pane at a time", () => {
   });
 });
 
-test("Personal Best mode selection is preserved across distance, time, and pace tabs", () => {
+test("Personal Best mode selection is preserved across every record tab", () => {
   const app = loadAppContext();
 
   const result = vm.runInContext(`
@@ -3404,7 +3658,7 @@ test("Personal Best mode selection is preserved across distance, time, and pace 
         classList: { toggle(name, value) { if (name === "hidden") this.owner.hidden = value; }, owner: null }
       };
     }
-    const tabs = ["distance", "time", "pace"];
+    const tabs = ["distance", "time", "pace", "heart-rate"];
     const modes = ["records", "curve", "timing", "trend"];
     const controls = tabs.flatMap((tab) => modes.map((mode) => makeControl(mode, tab)));
     const panes = tabs.flatMap((tab) => modes.map((mode) => makePane(mode, tab)));
@@ -3413,7 +3667,7 @@ test("Personal Best mode selection is preserved across distance, time, and pace 
     els.personalBestModeOptions = controls;
     els.personalBestModePanes = panes;
     els.recordTargetRankField = { classList: { toggle() {} } };
-    appState.personalBestModes = { distance: "records", time: "records", pace: "records" };
+    appState.personalBestModes = { distance: "records", time: "records", pace: "records", "heart-rate": "records" };
     appState.personalBestTab = "pace";
 
     selectPersonalBestMode("trend", "pace");
@@ -3434,7 +3688,8 @@ test("Personal Best mode selection is preserved across distance, time, and pace 
   assert.deepEqual(JSON.parse(JSON.stringify(result.modes)), {
     distance: "trend",
     time: "trend",
-    pace: "trend"
+    pace: "trend",
+    "heart-rate": "trend"
   });
   assert.equal(result.distanceTrendActive, true);
   assert.equal(result.distanceTrendPressed, "true");
@@ -3624,6 +3879,171 @@ test("renderPaceBestsView renders fixed-pace distance records from streams", () 
   assert.match(result.paceGrid, /data-pace-best-toggle="5:00\/km"/);
   assert.match(result.paceGrid, /Show More/);
   assert.doesNotMatch(result.paceGrid, /Pace Run 4/);
+});
+
+test("renderHeartRateBestsView shows capped distance curve, trend, records, and timing", () => {
+  const app = loadAppContext();
+
+  const result = vm.runInContext(`
+    els.personalBestHeartRateGrid = { innerHTML: "" };
+    els.personalBestHeartRateCaption = { textContent: "" };
+    els.heartRateProgressGrid = { innerHTML: "" };
+    els.heartRateProgressCaption = { textContent: "" };
+    els.heartRateProgressNote = { textContent: "" };
+    els.heartRateProgressTargetSelect = { disabled: false, innerHTML: "" };
+    els.heartRateDistanceChart = { innerHTML: "" };
+    els.heartRateDistanceChartCaption = { textContent: "" };
+    els.heartRateRecencyChart = { innerHTML: "" };
+    els.heartRateRecencyChartCaption = { textContent: "" };
+    els.heartRateTrendChart = { innerHTML: "" };
+    els.heartRateTrendCaption = { textContent: "" };
+    els.heartRateTrendTargetSelect = { disabled: false, innerHTML: "" };
+    appState.expandedHeartRateTargets = new Set();
+    appState.selectedPersonalBestTargets = { distance: null, time: null, pace: null, "heart-rate": null };
+    appState.heartRateTrendTargetName = null;
+    appState.excludingRecordKey = null;
+    appState.activities = [
+      { id: 1, sport_type: "Run", start_date: "2025-06-01T12:00:00Z" },
+      { id: 2, sport_type: "Run", start_date: "2026-06-01T12:00:00Z" }
+    ];
+    appState.personalBests = {
+      heartRateActivityCount: 2,
+      heartRateEffortCount: 2,
+      heartRates: [{
+        name: "135 bpm",
+        targetHeartRate: 135,
+        aerobicDurationSeconds: 1800,
+        count: 2,
+        aerobicProgress: {
+          asOf: "2026-06-01T12:10:00Z",
+          status: "improving",
+          meaningfulChangePercent: 3,
+          distanceChangePercent: 6.67,
+          efficiencyChangePercent: 5.77,
+          decouplingChangePoints: -3,
+          current: {
+            count: 2,
+            scoreEffortCount: 2,
+            distanceKm: 4.8,
+            paceSecondsPerKm: 375,
+            efficiencyMetersPerBeat: 1.1,
+            averageHeartRate: 134.5,
+            capRatio: 0.95
+          },
+          previous: {
+            count: 2,
+            scoreEffortCount: 2,
+            distanceKm: 4.5,
+            paceSecondsPerKm: 400,
+            efficiencyMetersPerBeat: 1.04,
+            averageHeartRate: 134.8,
+            capRatio: 0.94
+          },
+          currentDurability: { count: 2, decouplingPercent: 4.5, distanceKm: 9.1, efficiencyMetersPerBeat: 1.04 },
+          previousDurability: { count: 2, decouplingPercent: 7.5, distanceKm: 8.6, efficiencyMetersPerBeat: 0.98 }
+        },
+        median: {
+          count: 2,
+          targetHeartRate: 135,
+          averageHeartRate: 134.9,
+          durationSeconds: 1200,
+          distanceKm: 3.266,
+          paceSecondsPerKm: 367.5
+        },
+        top: [
+          {
+            activityId: 2,
+            activityName: "New Easy Run",
+            startDate: "2026-06-01T12:10:00Z",
+            recordKey: "heart-rate|135 bpm|2|600|1800",
+            averageHeartRate: 134.6,
+            heartRateCapRatio: 0.92,
+            aerobic30StartDate: "2026-06-01T12:10:00Z",
+            aerobic30DistanceKm: 5,
+            aerobic30DurationSeconds: 1800,
+            aerobic30PaceSecondsPerKm: 360,
+            aerobic30AverageHeartRate: 134.2,
+            aerobic30HeartRateCapRatio: 0.96,
+            aerobic30EfficiencyMetersPerBeat: 1.15,
+            durationSeconds: 1200,
+            distanceKm: 3.333,
+            paceSecondsPerKm: 360
+          },
+          {
+            activityId: 1,
+            activityName: "Old Easy Run",
+            startDate: "2025-06-01T12:10:00Z",
+            recordKey: "heart-rate|135 bpm|1|600|1800",
+            averageHeartRate: 135.2,
+            heartRateCapRatio: 0.88,
+            aerobic30StartDate: "2025-06-01T12:10:00Z",
+            aerobic30DistanceKm: 4.5,
+            aerobic30DurationSeconds: 1800,
+            aerobic30PaceSecondsPerKm: 400,
+            aerobic30AverageHeartRate: 134.8,
+            aerobic30HeartRateCapRatio: 0.94,
+            aerobic30EfficiencyMetersPerBeat: 1.04,
+            durationSeconds: 1200,
+            distanceKm: 3.2,
+            paceSecondsPerKm: 375
+          }
+        ]
+      }]
+    };
+
+    renderHeartRateBestsView();
+    ({
+      caption: els.personalBestHeartRateCaption.textContent,
+      progress: els.heartRateProgressGrid.innerHTML,
+      progressCaption: els.heartRateProgressCaption.textContent,
+      progressNote: els.heartRateProgressNote.textContent,
+      progressOptions: els.heartRateProgressTargetSelect.innerHTML,
+      grid: els.personalBestHeartRateGrid.innerHTML,
+      curve: els.heartRateDistanceChart.innerHTML,
+      curveCaption: els.heartRateDistanceChartCaption.textContent,
+      timing: els.heartRateRecencyChart.innerHTML,
+      timingCaption: els.heartRateRecencyChartCaption.textContent,
+      trend: els.heartRateTrendChart.innerHTML,
+      trendCaption: els.heartRateTrendCaption.textContent,
+      options: els.heartRateTrendTargetSelect.innerHTML
+    });
+  `, app);
+
+  assert.equal(result.caption, "2 stream activities · 2 capped distance efforts");
+  assert.equal(result.curveCaption, "1 heart-rate cap · recent vs prior baseline");
+  assert.match(result.curve, /Recent 42d/);
+  assert.match(result.curve, /Prior baseline/);
+  assert.match(result.curve, /30-min distance \(km\)/);
+  assert.match(result.curve, /Heart-rate cap \(bpm\)/);
+  assert.match(result.curve, /4\.80 km in 30:00/);
+  assert.match(result.curve, /1\.100 m\/beat/);
+  assert.match(result.progressCaption, /≤135 bpm · as of/);
+  assert.match(result.progress, /30-minute aerobic pace/);
+  assert.match(result.progress, /6:15\/km/);
+  assert.match(result.progress, /1\.100 m\/beat/);
+  assert.match(result.progress, /4\.5%/);
+  assert.match(result.progress, /Improving/);
+  assert.match(result.progressNote, /median of up to three fastest qualifying 30-minute efforts/);
+  assert.match(result.progressOptions, /<option value="135 bpm" selected>≤135 bpm<\/option>/);
+  assert.match(result.timingCaption, /^As of /);
+  assert.match(result.timing, /D-day/);
+  assert.match(result.timing, /Newest/);
+  assert.match(result.timing, /Oldest/);
+  assert.match(result.timing, /≤135 bpm/);
+  assert.match(result.timing, /3\.33 km/);
+  assert.match(result.grid, /135 bpm/);
+  assert.match(result.grid, /6:00\/km/);
+  assert.match(result.grid, /134\.6 bpm/);
+  assert.match(result.grid, />92%</);
+  assert.match(result.grid, /3\.33 km/);
+  assert.match(result.grid, /data-record-exclusion-key="heart-rate\|135 bpm\|2\|600\|1800"/);
+  assert.match(result.grid, /<th[^>]*>#<\/th>\s*<th[^>]*>Date<\/th>\s*<th[^>]*>Avg HR<\/th>\s*<th[^>]*>Distance<\/th>\s*<th[^>]*>Time<\/th>\s*<th[^>]*>Pace<\/th>\s*<th[^>]*>At\/Below<\/th>\s*<th[^>]*>Activity<\/th>/);
+  assert.equal(result.trendCaption, "2 qualifying 30-minute efforts · 42-day score");
+  assert.match(result.trend, /30-minute efforts/);
+  assert.match(result.trend, /42-day top-3 median/);
+  assert.match(result.trend, /5\.00 km · 6:00\/km/);
+  assert.match(result.trend, /1\.150 m\/beat · Avg 134\.2 bpm · 96% at\/below cap/);
+  assert.match(result.options, /<option value="135 bpm" selected>≤135 bpm<\/option>/);
 });
 
 test("renderPaceBestsView renders pace best charts like other best charts", () => {
@@ -3976,13 +4396,26 @@ test("best record types live under Personal Bests tabs", () => {
   assert.match(pbView, /data-personal-best-tab="distance"[\s\S]*>Distance</);
   assert.match(pbView, /data-personal-best-tab="time"[\s\S]*>Time</);
   assert.match(pbView, /data-personal-best-tab="pace"[\s\S]*>Pace</);
+  assert.match(pbView, /data-personal-best-tab="heart-rate"[\s\S]*>Heart Rate</);
   assert.match(pbView, /id="personalBestDistanceView"/);
   assert.match(pbView, /id="timeView"/);
   assert.match(pbView, /id="paceView"/);
+  assert.match(pbView, /id="heartRateView"/);
   assert.match(pbView, /personalBestDurationGrid/);
   assert.match(pbView, /personalBestPaceGrid/);
+  assert.match(pbView, /personalBestHeartRateGrid/);
   assert.match(pbView, /Time-Limited Bests/);
   assert.match(pbView, /Pace Bests/);
+  assert.match(pbView, /Aerobic progress and longest-distance durability/);
+  assert.match(pbView, /median of your top three 30-minute distances in each 42-day period/);
+  assert.match(pbView, /spends at least 90% of measured time at or below it/);
+  assert.match(pbView, /Distance per beat is a heart-rate efficiency proxy/);
+  assert.match(pbView, /id="heartRateProgressGrid"/);
+  assert.match(pbView, /30-Minute Aerobic Curve/);
+  assert.match(pbView, /30-Minute Aerobic Progress/);
+  assert.match(pbView, /Longest Heart-Rate Cap Records/);
+  assert.match(pbView, /Longest Record Timing/);
+  assert.doesNotMatch(pbView, /heart-rate standard deviation/);
   assert.match(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="linear"/);
   assert.match(pbView, /class="scale-option pace-distance-scale-option active"[^>]*data-scale="log"[\s\S]*>Log</);
   assert.doesNotMatch(pbView, /class="scale-option pace-distance-scale-option"[^>]*data-scale="sqrt"[\s\S]*>Sqrt</);
@@ -3994,7 +4427,7 @@ test("personal best type tabs stay in one row", () => {
   const personalBestTabsIndex = css.indexOf(".scale-toggle.personal-best-tabs");
 
   assert.ok(personalBestTabsIndex > scaleToggleIndex);
-  assert.match(css, /\.scale-toggle\.personal-best-tabs\s*{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/);
+  assert.match(css, /\.scale-toggle\.personal-best-tabs\s*{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/);
 });
 
 test("static active segmented controls include pressed state", () => {
@@ -4511,7 +4944,11 @@ test("Personal Bests starts with records and omits the coverage summary", () => 
   assert.match(personalBestView, /data-personal-best-mode-tab="distance" data-pb-pane="trend"[\s\S]*id="personalBestTrendChart"/);
   assert.match(personalBestView, /data-personal-best-mode-tab="time" data-pb-pane="records"[\s\S]*id="personalBestDurationGrid"/);
   assert.match(personalBestView, /data-personal-best-mode-tab="pace" data-pb-pane="records"[\s\S]*id="personalBestPaceGrid"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="heart-rate" data-pb-pane="curve"[\s\S]*id="heartRateDistanceChart"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="heart-rate" data-pb-pane="records"[\s\S]*id="personalBestHeartRateGrid"/);
+  assert.match(personalBestView, /data-personal-best-mode-tab="heart-rate" data-pb-pane="timing"[\s\S]*id="heartRateRecencyChart"/);
   assert.match(css, /\.scale-toggle\.personal-best-mode-tabs\s*{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/);
+  assert.match(css, /\.scale-toggle\.personal-best-mode-tabs\.heart-rate-mode-tabs\s*{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\);/);
   assert.match(css, /\.hidden\s*{[^}]*display:\s*none !important;/);
 });
 
@@ -5120,6 +5557,7 @@ test("Analysis view groups pace-by-distance, pace-by-time, and distance-by-pace 
   assert.match(analysisView, />Expected vs Current Distance by Pace</);
   assert.match(analysisView, />Distance by Pace Comparison</);
   assert.doesNotMatch(analysisView, /Distance by Time/);
+  assert.doesNotMatch(analysisView, /Time by Pace/);
   assert.match(analysisView, /id="trainingScheduleList"/);
   assert.doesNotMatch(analysisView, /Record History/);
   assert.doesNotMatch(analysisView, /id="recordHistoryTable"/);

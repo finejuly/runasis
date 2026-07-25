@@ -299,9 +299,10 @@
           <button class="scale-option personal-best-tab-option active" type="button" data-personal-best-tab="distance" aria-pressed="true">Distance</button>
           <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="time" aria-pressed="false">Time</button>
           <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="pace" aria-pressed="false">Pace</button>
+          <button class="scale-option personal-best-tab-option" type="button" data-personal-best-tab="heart-rate" aria-pressed="false">Heart Rate</button>
         </div>
         <div class="personal-best-tools">
-          <label class="field checkbox-field personal-best-recent-field">
+          <label class="field checkbox-field personal-best-recent-field" id="showRecentRecordsField">
             <input id="showRecentRecordsInput" type="checkbox">
             <span>Show recent records</span>
           </label>
@@ -501,6 +502,83 @@
                 <span id="paceBestRecencyChartCaption">D-day</span>
               </div>
               <div class="chart-box personal-best-chart" id="paceBestRecencyChart" aria-label="Pace best timing by target pace chart"></div>
+            </article>
+          </div>
+        </div>
+
+        <div class="personal-best-subview hidden" id="heartRateView" aria-label="Heart-rate cap distance records">
+          <article class="heart-rate-method-card" aria-label="Heart-rate cap distance record method">
+            <div>
+              <span class="section-kicker">Heart Rate Cap</span>
+              <h2>Aerobic progress and longest-distance durability</h2>
+            </div>
+            <p>Progress uses the median of your top three 30-minute distances in each 42-day period. When the preceding period is sparse, the three nearest earlier qualifying efforts become the baseline. A qualifying window averages at or below the selected cap and spends at least 90% of measured time at or below it. Longest-distance records remain available as a separate durability view and allow the existing 80% threshold.</p>
+            <small>Distance per beat is a heart-rate efficiency proxy, not laboratory running economy. The 60-minute drift card compares efficiency in the first and second half; lower drift is better. Heat, hills, fatigue, hydration, and sensor accuracy still matter.</small>
+          </article>
+          <article class="heart-rate-progress-panel" aria-label="Heart-rate cap aerobic progress">
+            <div class="heart-rate-progress-heading">
+              <div>
+                <span class="section-kicker">Zone 2 Progress</span>
+                <h2>Recent aerobic development</h2>
+              </div>
+              <div class="panel-actions">
+                <span id="heartRateProgressCaption"></span>
+                <label class="select-field heart-rate-progress-field">
+                  <span>HR cap</span>
+                  <select id="heartRateProgressTargetSelect" aria-label="Heart-rate cap progress target"></select>
+                </label>
+              </div>
+            </div>
+            <div class="heart-rate-progress-grid" id="heartRateProgressGrid"></div>
+            <p class="heart-rate-progress-note" id="heartRateProgressNote"></p>
+          </article>
+          <div class="personal-best-mode-tabs heart-rate-mode-tabs scale-toggle" role="group" aria-label="Heart-rate cap distance view">
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="heart-rate" data-pb-mode="curve" aria-pressed="false">Curve</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="heart-rate" data-pb-mode="trend" aria-pressed="false">Trend</button>
+            <button class="scale-option personal-best-mode-option active" type="button" data-personal-best-mode-tab="heart-rate" data-pb-mode="records" aria-pressed="true">Records</button>
+            <button class="scale-option personal-best-mode-option" type="button" data-personal-best-mode-tab="heart-rate" data-pb-mode="timing" aria-pressed="false">Timing</button>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="heart-rate" data-pb-pane="curve">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>30-Minute Aerobic Curve</h2>
+                <span id="heartRateDistanceChartCaption"></span>
+              </div>
+              <div class="chart-box personal-best-chart" id="heartRateDistanceChart" aria-label="Recent and previous 30-minute distance by heart-rate cap chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="heart-rate" data-pb-pane="trend">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>30-Minute Aerobic Progress</h2>
+                <div class="panel-actions">
+                  <span id="heartRateTrendCaption"></span>
+                  <label class="select-field personal-best-trend-field">
+                    <span>HR cap</span>
+                    <select id="heartRateTrendTargetSelect" aria-label="Heart-rate cap aerobic progress target"></select>
+                  </label>
+                </div>
+              </div>
+              <div class="chart-box personal-best-chart" id="heartRateTrendChart" aria-label="30-minute aerobic distance trend at heart-rate cap chart"></div>
+            </article>
+          </div>
+          <div class="personal-best-mode-pane" data-personal-best-mode-tab="heart-rate" data-pb-pane="records">
+            <div class="personal-best-section-heading time-best-heading">
+              <div>
+                <h2>Longest Heart-Rate Cap Records</h2>
+                <span id="personalBestHeartRateCaption">No heart-rate stream data</span>
+              </div>
+              <button class="button ghost panel-compact-button excluded-records-toggle" type="button" data-include-excluded-toggle>Include Excluded</button>
+            </div>
+            <div class="personal-best-grid" id="personalBestHeartRateGrid"></div>
+          </div>
+          <div class="personal-best-mode-pane hidden" data-personal-best-mode-tab="heart-rate" data-pb-pane="timing">
+            <article class="chart-panel personal-best-chart-panel">
+              <div class="panel-title">
+                <h2>Longest Record Timing</h2>
+                <span id="heartRateRecencyChartCaption">D-day</span>
+              </div>
+              <div class="chart-box personal-best-chart" id="heartRateRecencyChart" aria-label="Heart-rate cap distance timing chart"></div>
             </article>
           </div>
         </div>

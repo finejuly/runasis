@@ -34,7 +34,7 @@ const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
-const PERSONAL_BESTS_CACHE_VERSION = 9;
+const PERSONAL_BESTS_CACHE_VERSION = 14;
 const EXCLUDED_RECORDS_VERSION = 1;
 const ACTIVITY_STREAM_KEYS = [
   "time",
@@ -83,6 +83,23 @@ const PACE_BEST_TARGETS = [
   { name: "6:40/km", paceSecondsPerKm: 6 * 60 + 40 },
   { name: "7:00/km", paceSecondsPerKm: 7 * 60 }
 ];
+const HEART_RATE_DISTANCE_MIN_DURATION_SECONDS = 5 * 60;
+const HEART_RATE_DISTANCE_MAX_EXCURSION_SECONDS = 30;
+const HEART_RATE_DISTANCE_MIN_COVERAGE_RATIO = 0.95;
+const HEART_RATE_DISTANCE_MIN_CAP_RATIO = 0.8;
+const HEART_RATE_AEROBIC_DURATION_SECONDS = 30 * 60;
+const HEART_RATE_DURABILITY_DURATION_SECONDS = 60 * 60;
+const HEART_RATE_AEROBIC_MIN_CAP_RATIO = 0.9;
+const HEART_RATE_PROGRESS_WINDOW_DAYS = 42;
+const HEART_RATE_PROGRESS_TOP_EFFORT_COUNT = 3;
+const HEART_RATE_PROGRESS_MIN_CHANGE_PERCENT = 2;
+const HEART_RATE_DISTANCE_TARGETS = Array.from({ length: 21 }, (_, index) => {
+  const targetHeartRate = 90 + index * 5;
+  return {
+    name: `${targetHeartRate} bpm`,
+    targetHeartRate
+  };
+});
 const PERSONAL_BEST_DISTANCE_TARGETS = [
   { name: "100m", distance: 100 },
   { name: "200m", distance: 200 },
@@ -830,6 +847,16 @@ function buildPersonalBestsCacheFingerprint(store) {
     personalBestDistanceTargets: PERSONAL_BEST_DISTANCE_TARGETS,
     timeBestTargets: TIME_BEST_TARGETS,
     paceBestTargets: PACE_BEST_TARGETS,
+    heartRateDistanceTargets: HEART_RATE_DISTANCE_TARGETS,
+    heartRateDistanceMinDurationSeconds: HEART_RATE_DISTANCE_MIN_DURATION_SECONDS,
+    heartRateDistanceMaxExcursionSeconds: HEART_RATE_DISTANCE_MAX_EXCURSION_SECONDS,
+    heartRateDistanceMinCoverageRatio: HEART_RATE_DISTANCE_MIN_COVERAGE_RATIO,
+    heartRateDistanceMinCapRatio: HEART_RATE_DISTANCE_MIN_CAP_RATIO,
+    heartRateAerobicDurationSeconds: HEART_RATE_AEROBIC_DURATION_SECONDS,
+    heartRateDurabilityDurationSeconds: HEART_RATE_DURABILITY_DURATION_SECONDS,
+    heartRateAerobicMinCapRatio: HEART_RATE_AEROBIC_MIN_CAP_RATIO,
+    heartRateProgressWindowDays: HEART_RATE_PROGRESS_WINDOW_DAYS,
+    heartRateProgressTopEffortCount: HEART_RATE_PROGRESS_TOP_EFFORT_COUNT,
     updatedAt: store.updatedAt || null,
     lastSyncAt: store.lastSyncAt || null,
     lastDetailSyncAt: store.lastDetailSyncAt || null,
@@ -861,7 +888,8 @@ function isFreshPersonalBestsCache(payload, sourceFingerprint) {
     payload.cache?.sourceFingerprint === sourceFingerprint &&
     Array.isArray(payload.distances) &&
     Array.isArray(payload.durations) &&
-    Array.isArray(payload.paces)
+    Array.isArray(payload.paces) &&
+    Array.isArray(payload.heartRates)
   );
 }
 
@@ -942,6 +970,15 @@ function applyRecordExclusions(payload, excludedRecords, options = {}) {
   const distances = filterRecordGroups(payload.distances || [], excludedKeys, includeExcluded, summarizeMedianPersonalBestEffort);
   const durations = filterRecordGroups(payload.durations || [], excludedKeys, includeExcluded, summarizeMedianTimeBestEffort);
   const paces = filterRecordGroups(payload.paces || [], excludedKeys, includeExcluded, summarizeMedianPaceBestEffort);
+  const heartRates = filterRecordGroups(
+    payload.heartRates || [],
+    excludedKeys,
+    includeExcluded,
+    summarizeMedianHeartRateDistanceEffort
+  ).map((group) => ({
+    ...group,
+    aerobicProgress: summarizeHeartRateAerobicProgress(group.top || [])
+  }));
 
   return {
     ...payload,
@@ -958,7 +995,11 @@ function applyRecordExclusions(payload, excludedRecords, options = {}) {
     paceActivityCount: countUniqueRecordActivities(paces),
     paceEffortCount: countGroupRecords(paces),
     paceCount: paces.length,
-    paces
+    paces,
+    heartRateActivityCount: countUniqueRecordActivities(heartRates),
+    heartRateEffortCount: countGroupRecords(heartRates),
+    heartRateCount: heartRates.length,
+    heartRates
   };
 }
 
@@ -1005,6 +1046,7 @@ async function computePersonalBestsFromStore(store, sourceFingerprint) {
   const distanceBests = await distanceBestsFromStore(store);
   const timeBests = await timeBestsFromStore(store);
   const paceBests = await paceBestsFromStore(store);
+  const heartRateBests = await heartRateBestsFromStore(store);
   const generatedAt = new Date().toISOString();
   const payload = {
     generatedAt,
@@ -1024,7 +1066,11 @@ async function computePersonalBestsFromStore(store, sourceFingerprint) {
     paceActivityCount: paceBests.activityCount,
     paceEffortCount: paceBests.effortCount,
     paceCount: paceBests.paces.length,
-    paces: paceBests.paces
+    paces: paceBests.paces,
+    heartRateActivityCount: heartRateBests.activityCount,
+    heartRateEffortCount: heartRateBests.effortCount,
+    heartRateCount: heartRateBests.heartRates.length,
+    heartRates: heartRateBests.heartRates
   };
 
   await writeJsonAtomic(PERSONAL_BESTS_CACHE_PATH, payload);
@@ -1186,6 +1232,32 @@ async function paceBestsFromStore(store) {
   };
 }
 
+async function heartRateBestsFromStore(store) {
+  const result = await groupedStreamBestsFromStore(store, {
+    targets: HEART_RATE_DISTANCE_TARGETS,
+    computeEfforts: heartRateDistanceEffortsForActivity,
+    compareEfforts: compareHeartRateDistanceEfforts,
+    summarizeEfforts: summarizeMedianHeartRateDistanceEffort,
+    mapGroup: (target, sorted, medianEffort) => ({
+      name: target.name,
+      targetHeartRate: target.targetHeartRate,
+      minimumDurationSeconds: HEART_RATE_DISTANCE_MIN_DURATION_SECONDS,
+      aerobicDurationSeconds: HEART_RATE_AEROBIC_DURATION_SECONDS,
+      durabilityDurationSeconds: HEART_RATE_DURABILITY_DURATION_SECONDS,
+      progressWindowDays: HEART_RATE_PROGRESS_WINDOW_DAYS,
+      count: sorted.length,
+      median: medianEffort,
+      top: sorted
+    })
+  });
+
+  return {
+    activityCount: result.activityCount,
+    effortCount: result.effortCount,
+    heartRates: result.groups
+  };
+}
+
 async function groupedStreamBestsFromStore(store, { targets, computeEfforts, compareEfforts, summarizeEfforts, mapGroup }) {
   const groups = new Map(targets.map((target) => [target.name, []]));
   const activityById = activityMapFromStore(store);
@@ -1248,6 +1320,449 @@ function paceBestEffortsForActivity(activity, streams) {
       };
     })
     .filter(Boolean);
+}
+
+function heartRateDistanceEffortsForActivity(activity, streams) {
+  const series = buildHeartRateDistanceSeries(streams);
+  if (!series) return [];
+
+  const metricsByTarget = findHeartRateDistanceMetrics(series);
+  return HEART_RATE_DISTANCE_TARGETS
+    .map((target) => {
+      const metrics = metricsByTarget.get(target.name);
+      const best = metrics?.longest;
+      if (!best) return null;
+      return {
+        activityId: activity.id,
+        activityName: activity.name || "Untitled",
+        startDate: addSecondsToDateString(activity.start_date, best.startOffset),
+        startDateLocal: addSecondsToDateString(activity.start_date_local || activity.start_date, best.startOffset),
+        name: target.name,
+        targetHeartRate: target.targetHeartRate,
+        averageHeartRate: round(best.averageHeartRate, 1),
+        heartRateStdDev: round(best.heartRateStdDev, 1),
+        heartRateCapRatio: round(best.heartRateCapRatio, 3),
+        heartRateCoverageRatio: round(best.heartRateCoverageRatio, 3),
+        movingRatio: round(best.movingRatio, 3),
+        durationSeconds: best.durationSeconds,
+        movingTime: best.movingSeconds,
+        distance: best.distance,
+        distanceKm: round(best.distance / 1000, 3),
+        paceSecondsPerKm: best.paceSecondsPerKm,
+        efficiencyMetersPerBeat: round(best.efficiencyMetersPerBeat, 3),
+        ...mapHeartRateAerobic30Fields(activity, metrics.aerobic30),
+        ...mapHeartRateDurability60Fields(activity, metrics.durability60),
+        startOffset: Math.round(best.startOffset),
+        endOffset: Math.round(best.endOffset),
+        recordKey: buildRecordKey("heart-rate", target.name, activity.id, best.startOffset, best.endOffset),
+        recordType: "heart-rate"
+      };
+    })
+    .filter(Boolean);
+}
+
+function mapHeartRateAerobic30Fields(activity, effort) {
+  if (!effort) return {};
+  return {
+    aerobic30StartDate: addSecondsToDateString(activity.start_date, effort.startOffset),
+    aerobic30StartDateLocal: addSecondsToDateString(
+      activity.start_date_local || activity.start_date,
+      effort.startOffset
+    ),
+    aerobic30DurationSeconds: effort.durationSeconds,
+    aerobic30Distance: effort.distance,
+    aerobic30DistanceKm: round(effort.distance / 1000, 3),
+    aerobic30PaceSecondsPerKm: effort.paceSecondsPerKm,
+    aerobic30AverageHeartRate: round(effort.averageHeartRate, 1),
+    aerobic30HeartRateCapRatio: round(effort.heartRateCapRatio, 3),
+    aerobic30EfficiencyMetersPerBeat: round(effort.efficiencyMetersPerBeat, 3),
+    aerobic30StartOffset: Math.round(effort.startOffset),
+    aerobic30EndOffset: Math.round(effort.endOffset)
+  };
+}
+
+function mapHeartRateDurability60Fields(activity, effort) {
+  if (!effort) return {};
+  return {
+    durability60StartDate: addSecondsToDateString(activity.start_date, effort.startOffset),
+    durability60StartDateLocal: addSecondsToDateString(
+      activity.start_date_local || activity.start_date,
+      effort.startOffset
+    ),
+    durability60DurationSeconds: effort.durationSeconds,
+    durability60Distance: effort.distance,
+    durability60DistanceKm: round(effort.distance / 1000, 3),
+    durability60PaceSecondsPerKm: effort.paceSecondsPerKm,
+    durability60AverageHeartRate: round(effort.averageHeartRate, 1),
+    durability60EfficiencyMetersPerBeat: round(effort.efficiencyMetersPerBeat, 3),
+    durability60FirstHalfEfficiencyMetersPerBeat: round(effort.firstHalfEfficiencyMetersPerBeat, 3),
+    durability60SecondHalfEfficiencyMetersPerBeat: round(effort.secondHalfEfficiencyMetersPerBeat, 3),
+    durability60DecouplingPercent: round(effort.decouplingPercent, 2),
+    durability60StartOffset: Math.round(effort.startOffset),
+    durability60EndOffset: Math.round(effort.endOffset)
+  };
+}
+
+function buildHeartRateDistanceSeries(streams) {
+  const times = streams?.time?.data;
+  const distances = streams?.distance?.data;
+  const heartRates = streams?.heartrate?.data;
+  const moving = streams?.moving?.data;
+  if (!Array.isArray(times) || !Array.isArray(distances) || !Array.isArray(heartRates)) return null;
+
+  const length = Math.min(times.length, distances.length, heartRates.length);
+  const rawPoints = [];
+  for (let index = 0; index < length; index += 1) {
+    const time = Number(times[index]);
+    const distance = Number(distances[index]);
+    if (!Number.isFinite(time) || !Number.isFinite(distance) || time < 0 || distance < 0) continue;
+    const previous = rawPoints.at(-1);
+    if (previous && time <= previous.time) continue;
+    const heartRate = Number(heartRates[index]);
+    rawPoints.push({
+      time,
+      distance,
+      heartRate: isPlausibleHeartRate(heartRate) ? heartRate : null,
+      moving: Array.isArray(moving) ? Boolean(moving[index]) : null
+    });
+  }
+  if (rawPoints.length < 2) return null;
+
+  const cumulativeCapSeconds = Array(HEART_RATE_DISTANCE_TARGETS.length).fill(0);
+  const series = [{
+    time: rawPoints[0].time,
+    distance: 0,
+    heartRateIntegral: 0,
+    heartRateSquareIntegral: 0,
+    heartRateCoverageSeconds: 0,
+    movingSeconds: 0,
+    capSeconds: cumulativeCapSeconds.slice()
+  }];
+  let cumulativeDistance = 0;
+  let heartRateIntegral = 0;
+  let heartRateSquareIntegral = 0;
+  let heartRateCoverageSeconds = 0;
+  let movingSeconds = 0;
+
+  for (let index = 1; index < rawPoints.length; index += 1) {
+    const previous = rawPoints[index - 1];
+    const current = rawPoints[index];
+    const duration = current.time - previous.time;
+    if (!Number.isFinite(duration) || duration <= 0) continue;
+
+    const distanceDelta = Math.max(0, current.distance - previous.distance);
+    cumulativeDistance += distanceDelta;
+    const segmentMoving = previous.moving === null || current.moving === null
+      ? distanceDelta / duration >= 0.4
+      : previous.moving && current.moving;
+    if (segmentMoving) movingSeconds += duration;
+
+    if (previous.heartRate !== null && current.heartRate !== null) {
+      const startHeartRate = previous.heartRate;
+      const endHeartRate = current.heartRate;
+      const averageHeartRate = (startHeartRate + endHeartRate) / 2;
+      heartRateIntegral += averageHeartRate * duration;
+      heartRateSquareIntegral += (
+        startHeartRate ** 2 + startHeartRate * endHeartRate + endHeartRate ** 2
+      ) * duration / 3;
+      heartRateCoverageSeconds += duration;
+      HEART_RATE_DISTANCE_TARGETS.forEach((target, targetIndex) => {
+        cumulativeCapSeconds[targetIndex] += durationAtOrBelowHeartRate(
+          startHeartRate,
+          endHeartRate,
+          duration,
+          target.targetHeartRate
+        );
+      });
+    }
+
+    series.push({
+      time: current.time,
+      distance: cumulativeDistance,
+      heartRateIntegral,
+      heartRateSquareIntegral,
+      heartRateCoverageSeconds,
+      movingSeconds,
+      capSeconds: cumulativeCapSeconds.slice()
+    });
+  }
+
+  return series.length >= 2 ? series : null;
+}
+
+function isPlausibleHeartRate(value) {
+  return Number.isFinite(value) && value >= 40 && value <= 240;
+}
+
+function durationAtOrBelowHeartRate(startHeartRate, endHeartRate, duration, maxHeartRate) {
+  if (startHeartRate <= maxHeartRate && endHeartRate <= maxHeartRate) return duration;
+  if (startHeartRate > maxHeartRate && endHeartRate > maxHeartRate) return 0;
+  if (startHeartRate === endHeartRate) return startHeartRate <= maxHeartRate ? duration : 0;
+  const crossingRatio = Math.max(0, Math.min(1, (maxHeartRate - startHeartRate) / (endHeartRate - startHeartRate)));
+  return (startHeartRate <= maxHeartRate ? crossingRatio : 1 - crossingRatio) * duration;
+}
+
+function findHeartRateDistanceMetrics(series) {
+  const metricsByTarget = new Map();
+  HEART_RATE_DISTANCE_TARGETS.forEach((target, targetIndex) => {
+    const intervals = findHeartRateDistanceCandidateIntervals(series, targetIndex);
+    let longest = null;
+    for (const interval of intervals) {
+      const effort = summarizeHeartRateDistanceInterval(series, interval, target, targetIndex);
+      if (!effort) continue;
+      if (!longest || compareHeartRateDistanceSegments(effort, longest) < 0) {
+        longest = effort;
+      }
+    }
+
+    if (!longest) return;
+    const aerobic30 = findBestFixedDurationHeartRateSegment(
+      series,
+      intervals,
+      target,
+      targetIndex,
+      HEART_RATE_AEROBIC_DURATION_SECONDS
+    );
+    const durability60 = addHeartRateDecoupling(
+      series,
+      target,
+      targetIndex,
+      findBestFixedDurationHeartRateSegment(
+        series,
+        intervals,
+        target,
+        targetIndex,
+        HEART_RATE_DURABILITY_DURATION_SECONDS
+      )
+    );
+    metricsByTarget.set(target.name, { longest, aerobic30, durability60 });
+  });
+
+  return metricsByTarget;
+}
+
+function findLongestHeartRateDistanceSegments(series) {
+  const bestByTarget = new Map();
+  for (const [name, metrics] of findHeartRateDistanceMetrics(series)) {
+    bestByTarget.set(name, metrics.longest);
+  }
+  return bestByTarget;
+}
+
+function findBestFixedDurationHeartRateSegment(series, intervals, target, targetIndex, durationSeconds) {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return null;
+  let best = null;
+  for (const interval of intervals) {
+    const latestStart = interval.endTime - durationSeconds;
+    if (latestStart < interval.startTime) continue;
+    const startTimes = new Map();
+    const addStartTime = (value) => {
+      if (!Number.isFinite(value) || value < interval.startTime || value > latestStart) return;
+      startTimes.set(value.toFixed(3), value);
+    };
+    addStartTime(interval.startTime);
+    addStartTime(latestStart);
+    for (const point of series) {
+      addStartTime(point.time);
+      addStartTime(point.time - durationSeconds);
+    }
+
+    for (const startTime of startTimes.values()) {
+      const effort = summarizeHeartRateDistanceInterval(
+        series,
+        { startTime, endTime: startTime + durationSeconds },
+        target,
+        targetIndex,
+        { minCapRatio: HEART_RATE_AEROBIC_MIN_CAP_RATIO }
+      );
+      if (!effort) continue;
+      if (!best || compareHeartRateDistanceSegments(effort, best) < 0) best = effort;
+    }
+  }
+  return best;
+}
+
+function addHeartRateDecoupling(series, target, targetIndex, effort) {
+  if (!effort) return null;
+  const halfDuration = effort.durationSeconds / 2;
+  const options = { minCapRatio: HEART_RATE_AEROBIC_MIN_CAP_RATIO };
+  const firstHalf = summarizeHeartRateDistanceInterval(series, {
+    startTime: effort.startOffset,
+    endTime: effort.startOffset + halfDuration
+  }, target, targetIndex, options);
+  const secondHalf = summarizeHeartRateDistanceInterval(series, {
+    startTime: effort.startOffset + halfDuration,
+    endTime: effort.endOffset
+  }, target, targetIndex, options);
+  if (!firstHalf || !secondHalf) return null;
+  const firstEfficiency = firstHalf.efficiencyMetersPerBeat;
+  const secondEfficiency = secondHalf.efficiencyMetersPerBeat;
+  if (!Number.isFinite(firstEfficiency) || firstEfficiency <= 0 || !Number.isFinite(secondEfficiency)) return null;
+  return {
+    ...effort,
+    firstHalfEfficiencyMetersPerBeat: firstEfficiency,
+    secondHalfEfficiencyMetersPerBeat: secondEfficiency,
+    decouplingPercent: ((firstEfficiency - secondEfficiency) / firstEfficiency) * 100
+  };
+}
+
+function findHeartRateDistanceCandidateIntervals(series, targetIndex) {
+  const targetHeartRate = HEART_RATE_DISTANCE_TARGETS[targetIndex]?.targetHeartRate;
+  if (!Number.isFinite(targetHeartRate)) return [];
+  const intervals = new Map();
+  const addInterval = (startTime, endTime) => {
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime)) return;
+    if (endTime - startTime < HEART_RATE_DISTANCE_MIN_DURATION_SECONDS) return;
+    const key = `${startTime.toFixed(3)}|${endTime.toFixed(3)}`;
+    intervals.set(key, { startTime, endTime });
+  };
+  let strictStart = null;
+  let relaxedStart = null;
+  let lastGoodEnd = null;
+  let consecutiveExcursionSeconds = 0;
+
+  for (let index = 1; index < series.length; index += 1) {
+    const previous = series[index - 1];
+    const current = series[index];
+    const duration = current.time - previous.time;
+    if (!Number.isFinite(duration) || duration <= 0) continue;
+    const heartRateCoverageSeconds = current.heartRateCoverageSeconds - previous.heartRateCoverageSeconds;
+    const coverageRatio = heartRateCoverageSeconds / duration;
+    const movingRatio = (current.movingSeconds - previous.movingSeconds) / duration;
+    const capRatio = (current.capSeconds[targetIndex] - previous.capSeconds[targetIndex]) / duration;
+    const isWithinCapSegment = (
+      coverageRatio >= HEART_RATE_DISTANCE_MIN_COVERAGE_RATIO &&
+      movingRatio >= HEART_RATE_DISTANCE_MIN_COVERAGE_RATIO &&
+      capRatio >= HEART_RATE_DISTANCE_MIN_CAP_RATIO
+    );
+
+    if (isWithinCapSegment) {
+      if (strictStart === null) strictStart = previous.time;
+      if (relaxedStart === null) relaxedStart = previous.time;
+      lastGoodEnd = current.time;
+      consecutiveExcursionSeconds = 0;
+      continue;
+    }
+
+    if (strictStart !== null) {
+      addInterval(strictStart, previous.time);
+      strictStart = null;
+    }
+    if (relaxedStart !== null) {
+      consecutiveExcursionSeconds += duration;
+      if (consecutiveExcursionSeconds > HEART_RATE_DISTANCE_MAX_EXCURSION_SECONDS) {
+        addInterval(relaxedStart, lastGoodEnd);
+        relaxedStart = null;
+        lastGoodEnd = null;
+        consecutiveExcursionSeconds = 0;
+      }
+    }
+  }
+
+  if (strictStart !== null) addInterval(strictStart, series.at(-1).time);
+  if (relaxedStart !== null) addInterval(relaxedStart, lastGoodEnd);
+  return Array.from(intervals.values());
+}
+
+function summarizeHeartRateDistanceInterval(series, interval, target, targetIndex, options = {}) {
+  const start = interpolateHeartRateDistancePoint(series, interval.startTime);
+  const end = interpolateHeartRateDistancePoint(series, interval.endTime);
+  if (!start || !end) return null;
+
+  const durationSeconds = end.time - start.time;
+  const distance = end.distance - start.distance;
+  const heartRateCoverageSeconds = end.heartRateCoverageSeconds - start.heartRateCoverageSeconds;
+  const movingSeconds = end.movingSeconds - start.movingSeconds;
+  const heartRateCoverageRatio = heartRateCoverageSeconds / durationSeconds;
+  const movingRatio = movingSeconds / durationSeconds;
+  if (
+    durationSeconds < HEART_RATE_DISTANCE_MIN_DURATION_SECONDS ||
+    distance <= 0 ||
+    heartRateCoverageRatio < HEART_RATE_DISTANCE_MIN_COVERAGE_RATIO ||
+    movingRatio < HEART_RATE_DISTANCE_MIN_COVERAGE_RATIO
+  ) return null;
+
+  const heartRateIntegral = end.heartRateIntegral - start.heartRateIntegral;
+  const heartRateSquareIntegral = end.heartRateSquareIntegral - start.heartRateSquareIntegral;
+  const averageHeartRate = heartRateIntegral / heartRateCoverageSeconds;
+  const variance = Math.max(0, heartRateSquareIntegral / heartRateCoverageSeconds - averageHeartRate ** 2);
+  const heartRateStdDev = Math.sqrt(variance);
+  if (
+    !Number.isFinite(averageHeartRate) ||
+    averageHeartRate > target.targetHeartRate
+  ) return null;
+
+  const capSeconds = end.capSeconds[targetIndex] - start.capSeconds[targetIndex];
+  const heartRateCapRatio = capSeconds / heartRateCoverageSeconds;
+  const minCapRatio = Number.isFinite(options.minCapRatio)
+    ? options.minCapRatio
+    : HEART_RATE_DISTANCE_MIN_CAP_RATIO;
+  if (heartRateCapRatio < minCapRatio) return null;
+
+  const distanceKm = distance / 1000;
+  const paceSecondsPerKm = durationSeconds / distanceKm;
+  if (!Number.isFinite(paceSecondsPerKm) || paceSecondsPerKm < 120 || paceSecondsPerKm > 1200) return null;
+  const efficiencyMetersPerBeat = distance / (averageHeartRate * durationSeconds / 60);
+  return {
+    averageHeartRate,
+    heartRateStdDev,
+    heartRateCapRatio,
+    heartRateCoverageRatio,
+    movingRatio,
+    durationSeconds,
+    movingSeconds,
+    distance,
+    paceSecondsPerKm,
+    efficiencyMetersPerBeat,
+    startOffset: start.time,
+    endOffset: end.time
+  };
+}
+
+function interpolateHeartRateDistancePoint(series, targetTime) {
+  if (targetTime < series[0].time || targetTime > series.at(-1).time) return null;
+  if (targetTime === series[0].time) return { ...series[0], capSeconds: series[0].capSeconds.slice() };
+  if (targetTime === series.at(-1).time) return { ...series.at(-1), capSeconds: series.at(-1).capSeconds.slice() };
+
+  let low = 0;
+  let high = series.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (series[middle].time < targetTime) low = middle + 1;
+    else high = middle;
+  }
+  const upper = series[low];
+  if (upper.time === targetTime) return { ...upper, capSeconds: upper.capSeconds.slice() };
+  const lower = series[low - 1];
+  const ratio = (targetTime - lower.time) / (upper.time - lower.time);
+  const interpolate = (key) => lower[key] + (upper[key] - lower[key]) * ratio;
+  return {
+    time: targetTime,
+    distance: interpolate("distance"),
+    heartRateIntegral: interpolate("heartRateIntegral"),
+    heartRateSquareIntegral: interpolate("heartRateSquareIntegral"),
+    heartRateCoverageSeconds: interpolate("heartRateCoverageSeconds"),
+    movingSeconds: interpolate("movingSeconds"),
+    capSeconds: lower.capSeconds.map((value, index) => (
+      value + (upper.capSeconds[index] - value) * ratio
+    ))
+  };
+}
+
+function compareHeartRateDistanceSegments(a, b) {
+  return b.distance - a.distance ||
+    b.durationSeconds - a.durationSeconds ||
+    a.paceSecondsPerKm - b.paceSecondsPerKm ||
+    a.heartRateStdDev - b.heartRateStdDev ||
+    a.startOffset - b.startOffset;
+}
+
+function compareHeartRateDistanceEfforts(a, b) {
+  return b.distance - a.distance ||
+    b.durationSeconds - a.durationSeconds ||
+    Math.abs(a.averageHeartRate - a.targetHeartRate) - Math.abs(b.averageHeartRate - b.targetHeartRate) ||
+    a.heartRateStdDev - b.heartRateStdDev ||
+    new Date(a.startDate || 0) - new Date(b.startDate || 0);
 }
 
 function buildTimeDistanceSeries(streams) {
@@ -1558,6 +2073,214 @@ function summarizeMedianPaceBestEffort(efforts) {
     distanceKm: round(distanceKm, 3),
     paceSecondsPerKm
   };
+}
+
+function summarizeMedianHeartRateDistanceEffort(efforts) {
+  if (!efforts.length) return null;
+  const durationSeconds = medianNumber(efforts.map((effort) => effort.durationSeconds));
+  const movingTime = medianNumber(efforts.map((effort) => effort.movingTime));
+  const distance = medianNumber(efforts.map((effort) => effort.distance));
+  const distanceKm = Number.isFinite(distance) ? distance / 1000 : null;
+  const paceSecondsPerKm = medianNumber(efforts.map((effort) => effort.paceSecondsPerKm));
+  const averageHeartRate = medianNumber(efforts.map((effort) => effort.averageHeartRate));
+  const efficiencyMetersPerBeat = medianNumber(efforts.map((effort) => effort.efficiencyMetersPerBeat));
+  if (
+    !durationSeconds ||
+    !Number.isFinite(distance) ||
+    !Number.isFinite(paceSecondsPerKm) ||
+    !Number.isFinite(averageHeartRate)
+  ) return null;
+  return {
+    count: efforts.length,
+    targetHeartRate: Number(efforts[0]?.targetHeartRate || 0),
+    averageHeartRate: round(averageHeartRate, 1),
+    durationSeconds,
+    movingTime: Number.isFinite(movingTime) ? movingTime : durationSeconds,
+    distance,
+    distanceKm: round(distanceKm, 3),
+    paceSecondsPerKm,
+    efficiencyMetersPerBeat: Number.isFinite(efficiencyMetersPerBeat)
+      ? round(efficiencyMetersPerBeat, 3)
+      : null
+  };
+}
+
+function summarizeHeartRateAerobicProgress(efforts) {
+  const aerobicEfforts = (efforts || [])
+    .map((effort) => ({
+      ...effort,
+      recordedAt: heartRateMetricTimestamp(effort, "aerobic30"),
+      aerobic30DistanceKm: Number(effort.aerobic30DistanceKm || 0),
+      aerobic30EfficiencyMetersPerBeat: Number(effort.aerobic30EfficiencyMetersPerBeat || 0)
+    }))
+    .filter((effort) => (
+      Number.isFinite(effort.recordedAt) &&
+      effort.aerobic30DistanceKm > 0 &&
+      effort.aerobic30EfficiencyMetersPerBeat > 0
+    ));
+  if (!aerobicEfforts.length) return null;
+
+  const asOf = Math.max(...aerobicEfforts.map((effort) => effort.recordedAt));
+  const windowMs = HEART_RATE_PROGRESS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const currentStart = asOf - windowMs;
+  const previousStart = currentStart - windowMs;
+  const currentEfforts = aerobicEfforts.filter((effort) => effort.recordedAt >= currentStart && effort.recordedAt <= asOf);
+  const previousWindowEfforts = aerobicEfforts.filter((effort) => (
+    effort.recordedAt >= previousStart && effort.recordedAt < currentStart
+  ));
+  const previousFallbackEfforts = aerobicEfforts
+    .filter((effort) => effort.recordedAt < currentStart)
+    .sort((a, b) => b.recordedAt - a.recordedAt)
+    .slice(0, HEART_RATE_PROGRESS_TOP_EFFORT_COUNT);
+  const previousMode = previousWindowEfforts.length >= 2 ? "window" : "fallback";
+  const previousEfforts = previousMode === "window" ? previousWindowEfforts : previousFallbackEfforts;
+  const current = summarizeHeartRateAerobicPeriod(currentEfforts);
+  const previous = summarizeHeartRateAerobicPeriod(previousEfforts);
+  const distanceChangePercent = percentageChange(current?.distanceKm, previous?.distanceKm);
+  const efficiencyChangePercent = percentageChange(
+    current?.efficiencyMetersPerBeat,
+    previous?.efficiencyMetersPerBeat
+  );
+  const variabilityPercent = heartRateAerobicVariabilityPercent([...currentEfforts, ...previousEfforts]);
+  const meaningfulChangePercent = Math.max(
+    HEART_RATE_PROGRESS_MIN_CHANGE_PERCENT,
+    Number.isFinite(variabilityPercent) ? variabilityPercent : 0
+  );
+  let status = "insufficient";
+  if (current?.scoreEffortCount >= 2 && previous?.scoreEffortCount >= 2 && Number.isFinite(distanceChangePercent)) {
+    status = distanceChangePercent > meaningfulChangePercent
+      ? "improving"
+      : distanceChangePercent < -meaningfulChangePercent
+        ? "declining"
+        : "stable";
+  }
+
+  const currentDurability = summarizeHeartRateDurabilityPeriod(efforts, currentStart, asOf, true);
+  const previousDurability = summarizeHeartRateDurabilityPeriod(efforts, previousStart, currentStart, false)
+    || summarizeHeartRateDurabilityBaseline(efforts, currentStart);
+  const decouplingChangePoints = (
+    Number.isFinite(currentDurability?.decouplingPercent) &&
+    Number.isFinite(previousDurability?.decouplingPercent)
+  )
+    ? currentDurability.decouplingPercent - previousDurability.decouplingPercent
+    : null;
+
+  return {
+    asOf: new Date(asOf).toISOString(),
+    windowDays: HEART_RATE_PROGRESS_WINDOW_DAYS,
+    topEffortCount: HEART_RATE_PROGRESS_TOP_EFFORT_COUNT,
+    currentStart: new Date(currentStart).toISOString(),
+    previousStart: new Date(previousStart).toISOString(),
+    previousMode,
+    current,
+    previous,
+    distanceChangePercent: Number.isFinite(distanceChangePercent) ? round(distanceChangePercent, 2) : null,
+    efficiencyChangePercent: Number.isFinite(efficiencyChangePercent) ? round(efficiencyChangePercent, 2) : null,
+    variabilityPercent: Number.isFinite(variabilityPercent) ? round(variabilityPercent, 2) : null,
+    meaningfulChangePercent: round(meaningfulChangePercent, 2),
+    status,
+    currentDurability,
+    previousDurability,
+    decouplingChangePoints: Number.isFinite(decouplingChangePoints)
+      ? round(decouplingChangePoints, 2)
+      : null
+  };
+}
+
+function summarizeHeartRateAerobicPeriod(efforts) {
+  if (!efforts.length) return null;
+  const representativeEfforts = [...efforts]
+    .sort((a, b) => b.aerobic30DistanceKm - a.aerobic30DistanceKm || a.recordedAt - b.recordedAt)
+    .slice(0, HEART_RATE_PROGRESS_TOP_EFFORT_COUNT);
+  const distanceKm = medianNumber(representativeEfforts.map((effort) => effort.aerobic30DistanceKm));
+  const efficiencyMetersPerBeat = medianNumber(
+    representativeEfforts.map((effort) => effort.aerobic30EfficiencyMetersPerBeat)
+  );
+  const averageHeartRate = medianNumber(representativeEfforts.map((effort) => effort.aerobic30AverageHeartRate));
+  const capRatio = medianNumber(representativeEfforts.map((effort) => effort.aerobic30HeartRateCapRatio));
+  return {
+    count: efforts.length,
+    scoreEffortCount: representativeEfforts.length,
+    distanceKm: round(distanceKm, 3),
+    paceSecondsPerKm: HEART_RATE_AEROBIC_DURATION_SECONDS / distanceKm,
+    efficiencyMetersPerBeat: round(efficiencyMetersPerBeat, 3),
+    averageHeartRate: Number.isFinite(averageHeartRate) ? round(averageHeartRate, 1) : null,
+    capRatio: Number.isFinite(capRatio) ? round(capRatio, 3) : null
+  };
+}
+
+function summarizeHeartRateDurabilityPeriod(efforts, startTime, endTime, includeEnd) {
+  const durabilityEfforts = (efforts || [])
+    .map((effort) => ({
+      recordedAt: heartRateMetricTimestamp(effort, "durability60"),
+      decouplingPercent: Number(effort.durability60DecouplingPercent),
+      distanceKm: Number(effort.durability60DistanceKm || 0),
+      efficiencyMetersPerBeat: Number(effort.durability60EfficiencyMetersPerBeat || 0)
+    }))
+    .filter((effort) => (
+      Number.isFinite(effort.recordedAt) &&
+      effort.recordedAt >= startTime &&
+      (includeEnd ? effort.recordedAt <= endTime : effort.recordedAt < endTime) &&
+      Number.isFinite(effort.decouplingPercent) &&
+      effort.distanceKm > 0
+    ));
+  return summarizeHeartRateDurabilityEfforts(durabilityEfforts);
+}
+
+function summarizeHeartRateDurabilityBaseline(efforts, beforeTime) {
+  const durabilityEfforts = (efforts || [])
+    .map((effort) => ({
+      recordedAt: heartRateMetricTimestamp(effort, "durability60"),
+      decouplingPercent: Number(effort.durability60DecouplingPercent),
+      distanceKm: Number(effort.durability60DistanceKm || 0),
+      efficiencyMetersPerBeat: Number(effort.durability60EfficiencyMetersPerBeat || 0)
+    }))
+    .filter((effort) => (
+      Number.isFinite(effort.recordedAt) &&
+      effort.recordedAt < beforeTime &&
+      Number.isFinite(effort.decouplingPercent) &&
+      effort.distanceKm > 0
+    ))
+    .sort((a, b) => b.recordedAt - a.recordedAt)
+    .slice(0, HEART_RATE_PROGRESS_TOP_EFFORT_COUNT);
+  return summarizeHeartRateDurabilityEfforts(durabilityEfforts);
+}
+
+function summarizeHeartRateDurabilityEfforts(durabilityEfforts) {
+  if (!durabilityEfforts.length) return null;
+  return {
+    count: durabilityEfforts.length,
+    decouplingPercent: round(medianNumber(durabilityEfforts.map((effort) => effort.decouplingPercent)), 2),
+    distanceKm: round(medianNumber(durabilityEfforts.map((effort) => effort.distanceKm)), 3),
+    efficiencyMetersPerBeat: round(
+      medianNumber(durabilityEfforts.map((effort) => effort.efficiencyMetersPerBeat)),
+      3
+    )
+  };
+}
+
+function heartRateMetricTimestamp(effort, prefix) {
+  const value = effort?.[`${prefix}StartDateLocal`] || effort?.[`${prefix}StartDate`];
+  const timestamp = new Date(value || 0).getTime();
+  return Number.isFinite(timestamp) ? timestamp : NaN;
+}
+
+function percentageChange(current, previous) {
+  const currentValue = Number(current);
+  const previousValue = Number(previous);
+  if (!Number.isFinite(currentValue) || !Number.isFinite(previousValue) || previousValue <= 0) return null;
+  return ((currentValue / previousValue) - 1) * 100;
+}
+
+function heartRateAerobicVariabilityPercent(efforts) {
+  const values = efforts
+    .map((effort) => Number(effort.aerobic30DistanceKm || 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (values.length < 3) return null;
+  const center = medianNumber(values);
+  if (!Number.isFinite(center) || center <= 0) return null;
+  const medianAbsoluteDeviation = medianNumber(values.map((value) => Math.abs(value - center)));
+  return (1.4826 * medianAbsoluteDeviation / center) * 100;
 }
 
 function addSecondsToDateString(value, seconds) {
