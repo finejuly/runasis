@@ -991,7 +991,6 @@ function buildPersonalBestsCacheFingerprint(store) {
     heartRateAerobicMinCapRatio: HEART_RATE_AEROBIC_MIN_CAP_RATIO,
     heartRateProgressWindowDays: HEART_RATE_PROGRESS_WINDOW_DAYS,
     heartRateProgressTopEffortCount: HEART_RATE_PROGRESS_TOP_EFFORT_COUNT,
-    updatedAt: store.updatedAt || null,
     lastSyncAt: store.lastSyncAt || null,
     lastDetailSyncAt: store.lastDetailSyncAt || null,
     activities,

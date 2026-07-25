@@ -138,6 +138,7 @@ const appState = {
   allActivityVisibleLimit: DEFAULT_ACTIVITY_VISIBLE_LIMIT,
   csrfToken: "",
   loading: false,
+  personalBestsLoading: false,
   syncing: false,
   detailSyncing: false,
   refreshingActivityId: null,
@@ -1045,17 +1046,27 @@ async function loadData() {
     if (status.authenticated === false) {
       appState.activities = [];
       appState.personalBests = null;
+      setPersonalBestsLoading(false);
       render();
       return;
     }
 
     const payload = await fetchJson("/api/activities");
-    const personalBests = await fetchJson(personalBestsApiUrl());
     appState.status = payload.status;
     appState.csrfToken = payload.status?.csrfToken || appState.csrfToken;
     appState.activities = payload.activities || [];
-    appState.personalBests = personalBests;
+    setPersonalBestsLoading(true);
+    setLoading(false);
     render();
+
+    try {
+      appState.personalBests = await fetchJson(personalBestsApiUrl());
+    } catch (error) {
+      toast(error.message || "Could not load personal bests.");
+    } finally {
+      setPersonalBestsLoading(false);
+      render();
+    }
   } catch (error) {
     toast(error.message || "Could not load data.");
   } finally {
@@ -1738,6 +1749,11 @@ function buildCommonPersonalBestSummary(personalBests = appState.personalBests) 
 
 function renderCommonPersonalBestSummary() {
   if (!els.commonPbSummaryList) return;
+  if (appState.personalBestsLoading && !appState.personalBests) {
+    if (els.commonPbCaption) els.commonPbCaption.textContent = "Loading personal bests";
+    els.commonPbSummaryList.innerHTML = `<div class="activity-empty-state">Calculating personal bests in the background</div>`;
+    return;
+  }
   const rows = buildCommonPersonalBestSummary(appState.personalBests);
   if (els.commonPbCaption) {
     els.commonPbCaption.textContent = rows.length ? `${formatInteger(rows.length)} common targets` : "No best efforts";
@@ -7883,6 +7899,11 @@ function setLoading(loading) {
   updateActionButtons();
 }
 
+function setPersonalBestsLoading(loading) {
+  appState.personalBestsLoading = loading;
+  updateActionButtons();
+}
+
 function setSyncing(syncing) {
   appState.syncing = syncing;
   updateActionButtons();
@@ -7913,7 +7934,7 @@ function setConfigSaving(configSaving) {
 
 function updateActionButtons() {
   const status = appState.status || {};
-  const busy = appState.loading || appState.syncing || appState.detailSyncing || appState.configSaving || Boolean(appState.refreshingActivityId) || Boolean(appState.excludingRecordKey);
+  const busy = appState.loading || appState.personalBestsLoading || appState.syncing || appState.detailSyncing || appState.configSaving || Boolean(appState.refreshingActivityId) || Boolean(appState.excludingRecordKey);
   const authenticated = status.authenticated !== false;
 
   els.connectButton.disabled = busy || status.configured === false;

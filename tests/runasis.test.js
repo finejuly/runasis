@@ -2436,6 +2436,117 @@ test("personalBestsFromStore reuses a fresh derived cache without rereading stre
   assert.equal(checks.readPaths.filter((file) => file.includes("/raw-streams/")).length, 0);
 });
 
+test("personal best cache fingerprint ignores unrelated store writes", () => {
+  const server = loadServerContext();
+
+  const fingerprints = vm.runInContext(`
+    (() => {
+      const store = {
+        activities: [{ id: 1, name: "Run", sport_type: "Run", distance: 5000, moving_time: 1500 }],
+        detailsById: new Map(),
+        rawStreamIds: new Set(["1"]),
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        lastSyncAt: "2026-06-01T00:00:00.000Z",
+        lastDetailSyncAt: "2026-06-01T00:00:00.000Z"
+      };
+      return {
+        original: buildPersonalBestsCacheFingerprint(store),
+        authOrJobWrite: buildPersonalBestsCacheFingerprint({
+          ...store,
+          updatedAt: "2026-06-02T00:00:00.000Z"
+        }),
+        activitySync: buildPersonalBestsCacheFingerprint({
+          ...store,
+          lastSyncAt: "2026-06-02T00:00:00.000Z"
+        })
+      };
+    })()
+  `, server);
+
+  assert.equal(fingerprints.original, fingerprints.authOrJobWrite);
+  assert.notEqual(fingerprints.original, fingerprints.activitySync);
+});
+
+test("initial load renders activities before personal bests finish", async () => {
+  const app = loadAppContext();
+
+  const result = await vm.runInContext(`
+    (async () => {
+      const events = [];
+      let resolvePersonalBests;
+      const personalBestsGate = new Promise((resolve) => {
+        resolvePersonalBests = resolve;
+      });
+      fetchJson = async (url) => {
+        if (url === "/api/status") {
+          return { authenticated: true, configured: true, connected: true, csrfToken: "token" };
+        }
+        if (url === "/api/activities") {
+          return {
+            activities: [{ id: 1, name: "Loaded Run" }],
+            status: { authenticated: true, configured: true, connected: true, activityCount: 1 }
+          };
+        }
+        if (url === "/api/personal-bests") return personalBestsGate;
+        throw new Error("Unexpected URL " + url);
+      };
+      setLoading = (loading) => {
+        appState.loading = loading;
+        events.push({ type: "loading", loading });
+      };
+      setPersonalBestsLoading = (loading) => {
+        appState.personalBestsLoading = loading;
+        events.push({ type: "personalBestsLoading", loading });
+      };
+      render = () => {
+        events.push({
+          type: "render",
+          activityCount: appState.activities.length,
+          hasPersonalBests: Boolean(appState.personalBests),
+          personalBestsLoading: appState.personalBestsLoading
+        });
+      };
+      toast = (message) => {
+        events.push({ type: "toast", message });
+      };
+
+      const loadingPromise = loadData();
+      for (let index = 0; index < 6; index += 1) await Promise.resolve();
+      const interim = {
+        activityCount: appState.activities.length,
+        hasPersonalBests: Boolean(appState.personalBests),
+        personalBestsLoading: appState.personalBestsLoading,
+        renderedActivities: events.some((event) => (
+          event.type === "render" &&
+          event.activityCount === 1 &&
+          event.personalBestsLoading === true
+        ))
+      };
+
+      resolvePersonalBests({ distances: [{ name: "5K", top: [] }] });
+      await loadingPromise;
+      return {
+        interim,
+        finalActivityCount: appState.activities.length,
+        finalHasPersonalBests: Boolean(appState.personalBests),
+        finalPersonalBestsLoading: appState.personalBestsLoading
+      };
+    })()
+  `, app);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    interim: {
+      activityCount: 1,
+      hasPersonalBests: false,
+      personalBestsLoading: true,
+      renderedActivities: true
+    },
+    finalActivityCount: 1,
+    finalHasPersonalBests: true,
+    finalPersonalBestsLoading: false
+  });
+});
+
 test("topbar omits eyebrow copy", () => {
   const html = fs.readFileSync(path.join(ROOT, "public/index.html"), "utf8");
 
