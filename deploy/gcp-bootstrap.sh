@@ -8,13 +8,26 @@ set -euo pipefail
 : "${STRAVA_CLIENT_SECRET:?Set STRAVA_CLIENT_SECRET.}"
 
 RUNASIS_REGION="${RUNASIS_REGION:-us-west1}"
-RUNASIS_SERVICE="${RUNASIS_SERVICE:-runasis}"
+RUNASIS_SERVICE="${RUNASIS_SERVICE:-runasis-api}"
 RUNASIS_BUCKET="${RUNASIS_BUCKET:-${GOOGLE_CLOUD_PROJECT}-runasis-data}"
 RUNASIS_QUEUE="${RUNASIS_QUEUE:-runasis-sync}"
 RUNASIS_APP_SA_NAME="${RUNASIS_APP_SA_NAME:-runasis-app}"
 RUNASIS_TASK_SA_NAME="${RUNASIS_TASK_SA_NAME:-runasis-tasks}"
 RUNASIS_APP_SA="${RUNASIS_APP_SA_NAME}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
 RUNASIS_TASK_SA="${RUNASIS_TASK_SA_NAME}@${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com"
+
+retry_command() {
+  local attempt=1
+  local max_attempts=12
+  until "$@"; do
+    if (( attempt >= max_attempts )); then
+      return 1
+    fi
+    echo "Waiting for Google Cloud IAM propagation (attempt ${attempt}/${max_attempts})..."
+    sleep 5
+    attempt=$((attempt + 1))
+  done
+}
 
 case "${RUNASIS_PUBLIC_ORIGIN}" in
   https://*) ;;
@@ -56,18 +69,18 @@ if ! gcloud iam service-accounts describe "${RUNASIS_TASK_SA}" >/dev/null 2>&1; 
     --display-name="Runasis Cloud Tasks caller"
 fi
 
-gcloud projects add-iam-policy-binding "${GOOGLE_CLOUD_PROJECT}" \
+retry_command gcloud projects add-iam-policy-binding "${GOOGLE_CLOUD_PROJECT}" \
   --member="serviceAccount:${RUNASIS_APP_SA}" \
   --role="roles/datastore.user" \
   --condition=None
-gcloud projects add-iam-policy-binding "${GOOGLE_CLOUD_PROJECT}" \
+retry_command gcloud projects add-iam-policy-binding "${GOOGLE_CLOUD_PROJECT}" \
   --member="serviceAccount:${RUNASIS_APP_SA}" \
   --role="roles/cloudtasks.enqueuer" \
   --condition=None
-gcloud storage buckets add-iam-policy-binding "gs://${RUNASIS_BUCKET}" \
+retry_command gcloud storage buckets add-iam-policy-binding "gs://${RUNASIS_BUCKET}" \
   --member="serviceAccount:${RUNASIS_APP_SA}" \
   --role="roles/storage.objectAdmin"
-gcloud iam service-accounts add-iam-policy-binding "${RUNASIS_TASK_SA}" \
+retry_command gcloud iam service-accounts add-iam-policy-binding "${RUNASIS_TASK_SA}" \
   --member="serviceAccount:${RUNASIS_APP_SA}" \
   --role="roles/iam.serviceAccountUser"
 
@@ -88,7 +101,7 @@ ensure_secret() {
     gcloud secrets create "${name}" --replication-policy=automatic
   fi
   printf '%s' "${value}" | gcloud secrets versions add "${name}" --data-file=-
-  gcloud secrets add-iam-policy-binding "${name}" \
+  retry_command gcloud secrets add-iam-policy-binding "${name}" \
     --member="serviceAccount:${RUNASIS_APP_SA}" \
     --role="roles/secretmanager.secretAccessor"
 }
@@ -104,14 +117,18 @@ gcloud run deploy "${RUNASIS_SERVICE}" \
   --source=. \
   --region="${RUNASIS_REGION}" \
   --service-account="${RUNASIS_APP_SA}" \
-  --allow-unauthenticated \
+  --no-invoker-iam-check \
+  --default-url \
+  --ingress=all \
   --cpu=1 \
   --memory=2Gi \
   --concurrency=8 \
   --min-instances=0 \
   --max-instances=1 \
   --timeout=1800 \
-  --set-env-vars="RUNASIS_BOOTSTRAP=1,RUNASIS_DEPLOYMENT_MODE=cloud,RUNASIS_STORAGE_BACKEND=gcp,RUNASIS_OWNER_ID=primary,RUNASIS_STORAGE_BUCKET=${RUNASIS_BUCKET},RUNASIS_PUBLIC_ORIGIN=${RUNASIS_PUBLIC_ORIGIN},STRAVA_REDIRECT_URI=${RUNASIS_PUBLIC_ORIGIN}/auth/strava/callback,RUNASIS_ALLOWED_ATHLETE_ID=${RUNASIS_ALLOWED_ATHLETE_ID},RUNASIS_TASK_LOCATION=${RUNASIS_REGION},RUNASIS_TASK_QUEUE=${RUNASIS_QUEUE},RUNASIS_TASK_SERVICE_ACCOUNT=${RUNASIS_TASK_SA}" \
+  --startup-probe="httpGet.path=/healthz,httpGet.port=8080,timeoutSeconds=10,periodSeconds=10,failureThreshold=12" \
+  --readiness-probe="httpGet.path=/healthz,httpGet.port=8080,timeoutSeconds=10,periodSeconds=10,failureThreshold=3,successThreshold=1" \
+  --set-env-vars="RUNASIS_BOOTSTRAP=1,GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT},RUNASIS_DEPLOYMENT_MODE=cloud,RUNASIS_STORAGE_BACKEND=gcp,RUNASIS_OWNER_ID=primary,RUNASIS_STORAGE_BUCKET=${RUNASIS_BUCKET},RUNASIS_PUBLIC_ORIGIN=${RUNASIS_PUBLIC_ORIGIN},STRAVA_REDIRECT_URI=${RUNASIS_PUBLIC_ORIGIN}/auth/strava/callback,RUNASIS_ALLOWED_ATHLETE_ID=${RUNASIS_ALLOWED_ATHLETE_ID},RUNASIS_TASK_LOCATION=${RUNASIS_REGION},RUNASIS_TASK_QUEUE=${RUNASIS_QUEUE},RUNASIS_TASK_SERVICE_ACCOUNT=${RUNASIS_TASK_SA}" \
   --set-secrets="STRAVA_CLIENT_ID=runasis-strava-client-id:latest,STRAVA_CLIENT_SECRET=runasis-strava-client-secret:latest,RUNASIS_SESSION_SECRET=runasis-session-secret:latest"
 
 RUNASIS_CLOUD_RUN_URL="$(gcloud run services describe "${RUNASIS_SERVICE}" \
@@ -122,7 +139,7 @@ gcloud run services update "${RUNASIS_SERVICE}" \
   --region="${RUNASIS_REGION}" \
   --update-env-vars="RUNASIS_CLOUD_RUN_URL=${RUNASIS_CLOUD_RUN_URL},RUNASIS_TASK_AUDIENCE=${RUNASIS_CLOUD_RUN_URL}" \
   --remove-env-vars="RUNASIS_BOOTSTRAP"
-gcloud run services add-iam-policy-binding "${RUNASIS_SERVICE}" \
+retry_command gcloud run services add-iam-policy-binding "${RUNASIS_SERVICE}" \
   --region="${RUNASIS_REGION}" \
   --member="serviceAccount:${RUNASIS_TASK_SA}" \
   --role="roles/run.invoker"

@@ -66,7 +66,7 @@ export STRAVA_CLIENT_SECRET="your-strava-client-secret"
 
 ```bash
 export RUNASIS_REGION="us-west1"
-export RUNASIS_SERVICE="runasis"
+export RUNASIS_SERVICE="runasis-api"
 export RUNASIS_BUCKET="${GOOGLE_CLOUD_PROJECT}-runasis-data"
 export RUNASIS_QUEUE="runasis-sync"
 ```
@@ -108,10 +108,10 @@ vercel --prod
 
 ```bash
 curl -i "https://runasis-example.vercel.app/api/status"
-curl -i "https://runasis-xxxxx.us-west1.run.app/healthz"
+curl -i "https://runasis-api-xxxxx.us-west1.run.app/api/status"
 ```
 
-첫 번째 응답은 로그인 전 상태만 보여야 하고, 두 번째 응답은 `{"ok":true}`여야 한다.
+두 응답 모두 로그인 전 공개 상태만 보여야 한다. `/healthz`는 Cloud Run의 내부 시작·준비 검사에 사용한다.
 
 ## 4. 기존 로컬 데이터 이전
 

@@ -1,0 +1,8 @@
+# Deploy only the static frontend build inputs.
+/*
+!public
+!scripts
+scripts/*
+!scripts/build-vercel.js
+!package.json
+!vercel.json

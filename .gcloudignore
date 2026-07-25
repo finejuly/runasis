@@ -1,0 +1,9 @@
+# Upload only the Cloud Run container build inputs.
+/*
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!server.js
+!lib
+!public
