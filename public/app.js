@@ -1039,6 +1039,16 @@ function isValidRiegelExponent(value) {
 async function loadData() {
   setLoading(true);
   try {
+    const status = await fetchJson("/api/status");
+    appState.status = status;
+    appState.csrfToken = status.csrfToken || "";
+    if (status.authenticated === false) {
+      appState.activities = [];
+      appState.personalBests = null;
+      render();
+      return;
+    }
+
     const payload = await fetchJson("/api/activities");
     const personalBests = await fetchJson(personalBestsApiUrl());
     appState.status = payload.status;
@@ -1072,6 +1082,18 @@ async function syncActivities() {
   setSyncing(true);
   try {
     const result = await fetchJson("/api/sync", { method: "POST", body: "{}" });
+    if (result.queued) {
+      appState.status = result.status;
+      toast("Sync started in the background.");
+      const finalStatus = await pollSyncJob(result.jobId);
+      if (finalStatus.syncJob?.state === "failed") {
+        throw new Error(finalStatus.syncJob.error?.message || "Background sync failed.");
+      }
+      await loadData();
+      toast("Sync complete.");
+      return;
+    }
+
     const pendingDetails = Number(result.status?.activityDetails?.pendingRunCount || 0);
     const pendingRawDetails = Number(result.status?.activityDetails?.pendingRawRunCount || 0);
     const pendingRawStreams = Number(result.status?.activityDetails?.pendingRawStreamRunCount || 0);
@@ -1094,6 +1116,26 @@ async function syncActivities() {
     setDetailSyncing(false);
     setSyncing(false);
   }
+}
+
+async function pollSyncJob(jobId, timeoutMs = 30 * 60 * 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => window.setTimeout(resolve, 2000));
+    const payload = await fetchJson("/api/sync-job");
+    const job = payload.syncJob;
+    const status = {
+      ...(appState.status || {}),
+      syncJob: job
+    };
+    appState.status = status;
+    renderStatus();
+    updateActionButtons();
+    if (!job || job.id !== jobId || ["completed", "failed"].includes(job.state)) {
+      return status;
+    }
+  }
+  throw new Error("Background sync is still running. You can refresh this page later.");
 }
 
 async function syncActivityDetails() {
@@ -1284,6 +1326,8 @@ function renderStatus() {
   if (!status.configured) {
     els.connectionStatus.textContent = "Setup Needed";
     els.connectionStatus.classList.add("missing");
+  } else if (status.authenticated === false) {
+    els.connectionStatus.textContent = "Sign In";
   } else if (status.connected) {
     els.connectionStatus.textContent = "Connected";
     els.connectionStatus.classList.add("connected");
@@ -1717,8 +1761,9 @@ function renderOnboardingStatus(status) {
   const hasStatus = Boolean(appState.status);
   const configured = status.configured !== false && status.configured !== undefined;
   const connected = Boolean(status.connected);
+  const authenticated = status.authenticated !== false;
   const imported = Number(status.runCount || status.activityCount || 0) > 0;
-  const shouldShow = hasStatus && (!configured || !connected || !imported);
+  const shouldShow = hasStatus && (!configured || !authenticated || !connected || !imported);
 
   els.onboardingPanel.classList.toggle("hidden", !shouldShow);
   els.setupForm?.classList.toggle("hidden", configured || !shouldShow);
@@ -1726,6 +1771,8 @@ function renderOnboardingStatus(status) {
 
   if (!configured) {
     els.onboardingMessage.textContent = "Paste the Client ID and Client Secret from your Strava app, then save them locally.";
+  } else if (!authenticated) {
+    els.onboardingMessage.textContent = "Connect with the allowed Strava account to open this private dashboard.";
   } else if (!connected) {
     els.onboardingMessage.textContent = "Credentials are saved. Connect to Strava so Runasis can read your activities.";
   } else {
@@ -7854,10 +7901,11 @@ function setConfigSaving(configSaving) {
 function updateActionButtons() {
   const status = appState.status || {};
   const busy = appState.loading || appState.syncing || appState.detailSyncing || appState.configSaving || Boolean(appState.refreshingActivityId) || Boolean(appState.excludingRecordKey);
+  const authenticated = status.authenticated !== false;
 
   els.connectButton.disabled = busy || status.configured === false;
   els.syncButton.disabled = busy || !status.connected;
-  els.clearButton.disabled = busy;
+  els.clearButton.disabled = busy || !authenticated;
   els.stravaConfigSaveButton.disabled = busy;
   const hasImportedActivities = Number(status.activityCount || status.runCount || 0) > 0;
   els.syncButton.textContent = appState.syncing || appState.detailSyncing
@@ -7919,6 +7967,7 @@ function showAuthResult() {
     invalid_state: "Could not verify authentication state.",
     missing_code: "Authentication code is missing.",
     denied: "Strava connection was canceled.",
+    forbidden: "This Strava account is not allowed to open Runasis.",
     token_error: "Token exchange failed."
   };
   window.history.replaceState({}, document.title, window.location.pathname);

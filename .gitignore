@@ -13,5 +13,6 @@ data/**/*.json
 data/strava/
 data/strava-store.json
 node_modules/
+.vercel/
 Runasis.app/
 .build/

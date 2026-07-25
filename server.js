@@ -28,12 +28,15 @@ loadEnvFile();
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 const JSON_BODY_LIMIT_BYTES = 64 * 1024;
+const STORAGE_BACKEND = normalizeStorageBackend(process.env.RUNASIS_STORAGE_BACKEND || "local");
+const IS_CLOUD_MODE = process.env.RUNASIS_DEPLOYMENT_MODE === "cloud" || Boolean(process.env.K_SERVICE);
 const REQUESTED_PORT = Number(process.env.PORT || 3000);
-const HOST = resolveHost(process.env.HOST || "127.0.0.1");
+const HOST = resolveHost(process.env.HOST || (IS_CLOUD_MODE ? "0.0.0.0" : "127.0.0.1"));
 const STRICT_PORT = process.env.STRICT_PORT === "1";
 let activePort = REQUESTED_PORT;
 const MAX_SYNC_PAGES = Number(process.env.STRAVA_MAX_SYNC_PAGES || 200);
 const MAX_DETAIL_SYNC_ACTIVITIES = normalizePositiveInteger(process.env.STRAVA_MAX_DETAIL_SYNC_ACTIVITIES) || 40;
+const MAX_DETAIL_NO_PROGRESS_BATCHES = 3;
 const PERSONAL_BESTS_CACHE_VERSION = 14;
 const EXCLUDED_RECORDS_VERSION = 1;
 const ACTIVITY_STREAM_KEYS = [
@@ -134,6 +137,9 @@ const contentTypes = {
 
 const authStates = new Map();
 const csrfToken = crypto.randomBytes(32).toString("hex");
+let cloudRepository;
+let cloudAuth;
+let cloudTaskQueue;
 
 function ensureSupportedRuntime() {
   const major = Number(process.versions.node.split(".")[0]);
@@ -144,12 +150,60 @@ function ensureSupportedRuntime() {
 }
 
 function resolveHost(host) {
+  if (IS_CLOUD_MODE && host === "0.0.0.0") return host;
   if (isLoopbackHostname(host) || process.env.RUNASIS_ALLOW_UNSAFE_HOST === "1") {
     return host;
   }
 
   console.error(`Runasis error: HOST must be localhost or a loopback address. Current: ${host}`);
   process.exit(1);
+}
+
+function normalizeStorageBackend(value) {
+  const backend = String(value || "").trim().toLowerCase();
+  if (backend === "local" || backend === "gcp") return backend;
+  throw new Error("RUNASIS_STORAGE_BACKEND must be either local or gcp.");
+}
+
+function usesCloudStorage() {
+  return STORAGE_BACKEND === "gcp";
+}
+
+function getCloudRepository() {
+  if (!usesCloudStorage()) return null;
+  if (!cloudRepository) {
+    cloudRepository = require("./lib/gcp-repository").createGcpRepository();
+  }
+  return cloudRepository;
+}
+
+function getCloudAuth() {
+  if (!cloudAuth) cloudAuth = require("./lib/cloud-auth");
+  return cloudAuth;
+}
+
+function getSessionSecret() {
+  return getCloudAuth().assertSessionSecret(process.env.RUNASIS_SESSION_SECRET);
+}
+
+function getAllowedAthleteId() {
+  const id = String(process.env.RUNASIS_ALLOWED_ATHLETE_ID || "").trim();
+  if (!/^\d+$/.test(id)) {
+    throw new Error("RUNASIS_ALLOWED_ATHLETE_ID must be set to your numeric Strava athlete id.");
+  }
+  return id;
+}
+
+function usesCloudTasks() {
+  return IS_CLOUD_MODE && Boolean(process.env.RUNASIS_TASK_QUEUE);
+}
+
+function getCloudTaskQueue() {
+  if (!usesCloudTasks()) return null;
+  if (!cloudTaskQueue) {
+    cloudTaskQueue = require("./lib/task-queue").createCloudTaskQueue();
+  }
+  return cloudTaskQueue;
 }
 
 function loadEnvFile() {
@@ -231,6 +285,12 @@ function normalizeStravaConfigInput(body) {
 }
 
 async function saveStravaConfig(body) {
+  if (IS_CLOUD_MODE) {
+    const error = new Error("Strava credentials are managed as Cloud Run secrets.");
+    error.statusCode = 403;
+    throw error;
+  }
+
   const config = normalizeStravaConfigInput(body);
   let existingText = "";
   try {
@@ -286,16 +346,37 @@ function resolveRedirectUri() {
 
   try {
     const url = new URL(configured);
+    if (IS_CLOUD_MODE) {
+      const publicOrigin = getPublicOrigin();
+      if (url.protocol === "https:" &&
+          url.pathname === "/auth/strava/callback" &&
+          (!publicOrigin || url.origin === publicOrigin)) {
+        return url.toString();
+      }
+      throw new Error("Invalid cloud redirect URI.");
+    }
     const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
     if (isLocal && url.pathname === "/auth/strava/callback") {
       url.port = String(activePort);
       return url.toString();
     }
   } catch {
+    if (IS_CLOUD_MODE) return "";
     return fallback;
   }
 
   return process.env.RUNASIS_ALLOW_UNSAFE_REDIRECT === "1" ? configured : fallback;
+}
+
+function getPublicOrigin() {
+  const value = String(process.env.RUNASIS_PUBLIC_ORIGIN || "").trim().replace(/\/+$/, "");
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.pathname === "/" ? url.origin : "";
+  } catch {
+    return "";
+  }
 }
 
 function emptyStore() {
@@ -313,12 +394,22 @@ function emptyStore() {
     lastSyncSummary: null,
     lastDetailSyncAt: null,
     lastDetailSyncSummary: null,
+    syncJob: null,
     createdAt: now,
     updatedAt: now
   };
 }
 
 async function readStore() {
+  if (usesCloudStorage()) {
+    const snapshot = await getCloudRepository().readSnapshot({
+      auth: emptyAuthStore(),
+      syncState: emptySyncState(),
+      activityIndex: emptyActivityIndex()
+    });
+    return buildStore(snapshot);
+  }
+
   await ensureStoreMigrated();
 
   const [auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds] = await Promise.all([
@@ -333,8 +424,15 @@ async function readStore() {
   return buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds, rawStreamIds });
 }
 
+async function readSyncJob() {
+  if (usesCloudStorage()) return getCloudRepository().readSyncJob();
+  return (await readStore()).syncJob || null;
+}
+
 async function writeStore(store) {
-  await ensureDataDirs();
+  if (!usesCloudStorage()) {
+    await ensureDataDirs();
+  }
 
   const now = new Date().toISOString();
   const auth = {
@@ -351,6 +449,7 @@ async function writeStore(store) {
     lastSyncSummary: store.lastSyncSummary || null,
     lastDetailSyncAt: store.lastDetailSyncAt || null,
     lastDetailSyncSummary: store.lastDetailSyncSummary || null,
+    syncJob: store.syncJob || null,
     createdAt: store.createdAt || now,
     updatedAt: now
   };
@@ -361,11 +460,15 @@ async function writeStore(store) {
     updatedAt: now
   };
 
-  await Promise.all([
-    writeJsonAtomic(AUTH_PATH, auth),
-    writeJsonAtomic(SYNC_STATE_PATH, syncState),
-    writeJsonAtomic(ACTIVITIES_INDEX_PATH, activityIndex)
-  ]);
+  if (usesCloudStorage()) {
+    await getCloudRepository().writeSnapshot({ auth, syncState, activityIndex });
+  } else {
+    await Promise.all([
+      writeJsonAtomic(AUTH_PATH, auth),
+      writeJsonAtomic(SYNC_STATE_PATH, syncState),
+      writeJsonAtomic(ACTIVITIES_INDEX_PATH, activityIndex)
+    ]);
+  }
 
   return buildStore({
     auth,
@@ -395,6 +498,7 @@ function emptySyncState() {
     lastSyncSummary: null,
     lastDetailSyncAt: null,
     lastDetailSyncSummary: null,
+    syncJob: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -423,6 +527,7 @@ function buildStore({ auth, syncState, activityIndex, detailsById, rawDetailIds,
     lastSyncSummary: syncState.lastSyncSummary || null,
     lastDetailSyncAt: syncState.lastDetailSyncAt || null,
     lastDetailSyncSummary: syncState.lastDetailSyncSummary || null,
+    syncJob: syncState.syncJob || null,
     createdAt: auth.createdAt || activityIndex.createdAt || syncState.createdAt || new Date().toISOString(),
     updatedAt: [auth.updatedAt, activityIndex.updatedAt, syncState.updatedAt].filter(Boolean).sort().at(-1) || null
   };
@@ -578,18 +683,42 @@ function normalizeActivityId(value) {
 }
 
 async function writeActivityDetail(id, detail) {
+  if (usesCloudStorage()) {
+    await getCloudRepository().writeActivityDetail(id, detail);
+    return;
+  }
   await writeJsonAtomic(activityDataPath(DETAILS_DIR, id), detail);
 }
 
 async function writeRawActivityDetail(id, detail) {
+  if (usesCloudStorage()) {
+    await getCloudRepository().writeRawActivityDetail(id, detail);
+    return;
+  }
   await writeJsonAtomic(activityDataPath(RAW_DETAILS_DIR, id), detail);
 }
 
 async function writeRawActivityStream(id, streams) {
+  if (usesCloudStorage()) {
+    await getCloudRepository().writeRawActivityStream(id, streams);
+    return;
+  }
   await writeJsonAtomic(activityDataPath(RAW_STREAMS_DIR, id), streams);
 }
 
+async function readRawActivityStream(id) {
+  if (usesCloudStorage()) {
+    return getCloudRepository().readRawActivityStream(id);
+  }
+  return readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
+}
+
 async function clearStore() {
+  if (usesCloudStorage()) {
+    await getCloudRepository().clear();
+    return writeStore(emptyStore());
+  }
+
   await fs.rm(STRAVA_DATA_DIR, { recursive: true, force: true });
   const empty = await writeStore(emptyStore());
   await writeJsonAtomic(LEGACY_STORE_PATH, {
@@ -612,7 +741,9 @@ function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(body)
+    "content-length": Buffer.byteLength(body),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff"
   });
   res.end(body);
 }
@@ -625,8 +756,8 @@ function sendText(res, statusCode, text, headers = {}) {
   res.end(text);
 }
 
-function redirect(res, location) {
-  res.writeHead(302, { location });
+function redirect(res, location, headers = {}) {
+  res.writeHead(302, { location, ...headers });
   res.end();
 }
 
@@ -708,7 +839,7 @@ function sanitizeActivityDetailError(activity, error, failedAt) {
   });
 }
 
-function statusFromStore(store) {
+function statusFromStore(store, options = {}) {
   const runs = store.activities.filter(isRun);
   const latest = store.activities
     .map((activity) => activity.start_date)
@@ -718,6 +849,7 @@ function statusFromStore(store) {
   return {
     configured: getConfig().configured,
     connected: Boolean(store.token?.refresh_token),
+    authenticated: options.authenticated ?? true,
     athlete: store.athlete ? {
       id: store.athlete.id,
       username: store.athlete.username,
@@ -736,11 +868,13 @@ function statusFromStore(store) {
     lastSyncSummary: store.lastSyncSummary,
     lastDetailSyncAt: store.lastDetailSyncAt,
     lastDetailSyncSummary: store.lastDetailSyncSummary,
+    syncJob: store.syncJob || null,
     activityDetails: detailStatusFromStore(store),
-    csrfToken,
+    csrfToken: options.csrfToken ?? (IS_CLOUD_MODE ? null : csrfToken),
     redirectUri: getConfig().redirectUri,
-    dataRoot: path.relative(ROOT, STRAVA_DATA_DIR),
-    dataFile: path.relative(ROOT, ACTIVITIES_INDEX_PATH)
+    storageBackend: STORAGE_BACKEND,
+    dataRoot: usesCloudStorage() ? `gs://${process.env.RUNASIS_STORAGE_BUCKET || ""}` : path.relative(ROOT, STRAVA_DATA_DIR),
+    dataFile: usesCloudStorage() ? "Firestore/runasisUsers" : path.relative(ROOT, ACTIVITIES_INDEX_PATH)
   };
 }
 
@@ -876,7 +1010,9 @@ function hashJson(value) {
 }
 
 async function readPersonalBestsCache(sourceFingerprint) {
-  const payload = await readJson(PERSONAL_BESTS_CACHE_PATH, null);
+  const payload = usesCloudStorage()
+    ? await getCloudRepository().readPersonalBestsCache()
+    : await readJson(PERSONAL_BESTS_CACHE_PATH, null);
   if (!isFreshPersonalBestsCache(payload, sourceFingerprint)) return null;
   return payload;
 }
@@ -894,7 +1030,9 @@ function isFreshPersonalBestsCache(payload, sourceFingerprint) {
 }
 
 async function readExcludedRecords() {
-  const payload = await readJson(EXCLUDED_RECORDS_PATH, emptyExcludedRecords());
+  const payload = usesCloudStorage()
+    ? await getCloudRepository().readExcludedRecords(emptyExcludedRecords())
+    : await readJson(EXCLUDED_RECORDS_PATH, emptyExcludedRecords());
   return normalizeExcludedRecords(payload);
 }
 
@@ -938,7 +1076,11 @@ async function setRecordExcluded(recordKeyValue, excluded) {
   } else {
     delete excludedRecords.records[recordKey];
   }
-  await writeJsonAtomic(EXCLUDED_RECORDS_PATH, excludedRecords);
+  if (usesCloudStorage()) {
+    await getCloudRepository().writeExcludedRecords(excludedRecords);
+  } else {
+    await writeJsonAtomic(EXCLUDED_RECORDS_PATH, excludedRecords);
+  }
 
   return {
     ok: true,
@@ -1043,10 +1185,11 @@ function countUniqueRecordActivities(groups) {
 }
 
 async function computePersonalBestsFromStore(store, sourceFingerprint) {
-  const distanceBests = await distanceBestsFromStore(store);
-  const timeBests = await timeBestsFromStore(store);
-  const paceBests = await paceBestsFromStore(store);
-  const heartRateBests = await heartRateBestsFromStore(store);
+  const analysisStore = usesCloudStorage() ? await preloadRawStreams(store) : store;
+  const distanceBests = await distanceBestsFromStore(analysisStore);
+  const timeBests = await timeBestsFromStore(analysisStore);
+  const paceBests = await paceBestsFromStore(analysisStore);
+  const heartRateBests = await heartRateBestsFromStore(analysisStore);
   const generatedAt = new Date().toISOString();
   const payload = {
     generatedAt,
@@ -1073,8 +1216,27 @@ async function computePersonalBestsFromStore(store, sourceFingerprint) {
     heartRates: heartRateBests.heartRates
   };
 
-  await writeJsonAtomic(PERSONAL_BESTS_CACHE_PATH, payload);
+  if (usesCloudStorage()) {
+    await getCloudRepository().writePersonalBestsCache(payload);
+  } else {
+    await writeJsonAtomic(PERSONAL_BESTS_CACHE_PATH, payload);
+  }
   return payload;
+}
+
+async function preloadRawStreams(store, concurrency = 8) {
+  const ids = Array.from(rawStreamIdsFromStore(store), String);
+  const rawStreamsById = new Map();
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, ids.length) }, async () => {
+    while (nextIndex < ids.length) {
+      const id = ids[nextIndex];
+      nextIndex += 1;
+      rawStreamsById.set(id, await readRawActivityStream(id));
+    }
+  });
+  await Promise.all(workers);
+  return { ...store, rawStreamsById };
 }
 
 async function distanceBestsFromStore(store) {
@@ -1269,7 +1431,9 @@ async function groupedStreamBestsFromStore(store, { targets, computeEfforts, com
     const activity = activityById.get(id);
     if (!activity || !isRun(activity)) continue;
 
-    const streams = await readJson(activityDataPath(RAW_STREAMS_DIR, id), null);
+    const streams = store.rawStreamsById?.has(id)
+      ? store.rawStreamsById.get(id)
+      : await readRawActivityStream(id);
     const efforts = computeEfforts(activity, streams) || [];
     if (!efforts.length) continue;
 
@@ -2377,6 +2541,53 @@ function getHeader(req, name) {
   return headers[lowerName] || headers[name] || "";
 }
 
+function cloudSessionFromRequest(req) {
+  if (!IS_CLOUD_MODE) return null;
+  const token = getCloudAuth().sessionTokenFromRequest(req);
+  const payload = getCloudAuth().verifySession(getSessionSecret(), token, getAllowedAthleteId());
+  return payload ? { payload, token } : null;
+}
+
+function requireCloudSession(req) {
+  if (!IS_CLOUD_MODE) return null;
+  const session = cloudSessionFromRequest(req);
+  if (session) return session;
+  const error = new Error("Sign in with the allowed Strava account.");
+  error.statusCode = 401;
+  throw error;
+}
+
+function statusForRequest(store, req) {
+  if (!IS_CLOUD_MODE) return statusFromStore(store);
+  const session = requireCloudSession(req);
+  return statusFromStore(store, {
+    authenticated: true,
+    csrfToken: getCloudAuth().csrfTokenForSession(getSessionSecret(), session.token)
+  });
+}
+
+function statusPayloadForRequest(status, req) {
+  if (!IS_CLOUD_MODE) return status;
+  const session = requireCloudSession(req);
+  return {
+    ...status,
+    authenticated: true,
+    csrfToken: getCloudAuth().csrfTokenForSession(getSessionSecret(), session.token)
+  };
+}
+
+function publicCloudStatus() {
+  return {
+    configured: getConfig().configured,
+    connected: false,
+    authenticated: false,
+    athlete: null,
+    csrfToken: null,
+    redirectUri: getConfig().redirectUri,
+    storageBackend: STORAGE_BACKEND
+  };
+}
+
 function assertTrustedRequest(req) {
   if (!isAllowedHostHeader(getHeader(req, "host"))) {
     const error = new Error("Forbidden host.");
@@ -2387,24 +2598,31 @@ function assertTrustedRequest(req) {
   if (!isStateChangingMethod(req.method)) return;
 
   const origin = getHeader(req, "origin");
-  if (origin && !isAllowedLocalOrigin(origin)) {
+  if (origin && !isAllowedBrowserOrigin(origin)) {
     const error = new Error("Forbidden origin.");
     error.statusCode = 403;
     throw error;
   }
 
   const referer = getHeader(req, "referer");
-  if (!origin && referer && !isAllowedLocalOrigin(referer)) {
+  if (!origin && referer && !isAllowedBrowserOrigin(referer)) {
     const error = new Error("Forbidden referer.");
     error.statusCode = 403;
     throw error;
   }
 
-  if (String(req.url || "").startsWith("/api/") && getHeader(req, "x-runasis-csrf") !== csrfToken) {
+  if (String(req.url || "").startsWith("/api/") && !isValidCsrfRequest(req)) {
     const error = new Error("Missing CSRF token.");
     error.statusCode = 403;
     throw error;
   }
+}
+
+function isValidCsrfRequest(req) {
+  const supplied = getHeader(req, "x-runasis-csrf");
+  if (!IS_CLOUD_MODE) return supplied === csrfToken;
+  const session = requireCloudSession(req);
+  return supplied === getCloudAuth().csrfTokenForSession(getSessionSecret(), session.token);
 }
 
 function isStateChangingMethod(method) {
@@ -2412,9 +2630,25 @@ function isStateChangingMethod(method) {
 }
 
 function isAllowedHostHeader(hostHeader) {
+  if (IS_CLOUD_MODE) {
+    try {
+      return Boolean(new URL(`http://${hostHeader}`).hostname);
+    } catch {
+      return false;
+    }
+  }
   const parsed = parseLocalUrlHost(hostHeader);
   if (!parsed || !isLoopbackHostname(parsed.hostname)) return false;
   return !parsed.port || Number(parsed.port) === activePort;
+}
+
+function isAllowedBrowserOrigin(value) {
+  if (!IS_CLOUD_MODE) return isAllowedLocalOrigin(value);
+  try {
+    return new URL(value).origin === getPublicOrigin();
+  } catch {
+    return false;
+  }
 }
 
 function isAllowedLocalOrigin(value) {
@@ -2459,9 +2693,14 @@ function cleanupStates() {
 
 function buildStravaAuthorizeUrl(scope) {
   const config = getConfig();
-  const state = crypto.randomBytes(16).toString("hex");
-  cleanupStates();
-  authStates.set(state, Date.now());
+  let state;
+  if (IS_CLOUD_MODE) {
+    state = getCloudAuth().createOAuthState(getSessionSecret());
+  } else {
+    state = crypto.randomBytes(16).toString("hex");
+    cleanupStates();
+    authStates.set(state, Date.now());
+  }
 
   const url = new URL("https://www.strava.com/oauth/authorize");
   url.searchParams.set("client_id", config.clientId);
@@ -2786,6 +3025,238 @@ async function syncActivityDetails(options = {}) {
   return { summary, status: statusFromStore(store) };
 }
 
+async function queueCloudSync(options = {}) {
+  let store = await readStore();
+  const activeJob = store.syncJob;
+  if (activeJob && ["queued", "running"].includes(activeJob.state)) {
+    return {
+      queued: true,
+      jobId: activeJob.id,
+      status: statusFromStore(store)
+    };
+  }
+
+  const now = new Date().toISOString();
+  const job = {
+    id: crypto.randomUUID(),
+    state: "queued",
+    phase: "activities",
+    step: 0,
+    detailNoProgressCount: 0,
+    options: normalizeSyncJobOptions(options),
+    queuedAt: now,
+    startedAt: null,
+    updatedAt: now,
+    completedAt: null,
+    error: null,
+    warning: null
+  };
+  store = await writeStore({ ...store, syncJob: job });
+
+  try {
+    await enqueueSyncJob(job);
+  } catch (error) {
+    await updateSyncJob(job.id, {
+      state: "failed",
+      updatedAt: new Date().toISOString(),
+      error: sanitizeJobError(error)
+    });
+    throw error;
+  }
+
+  return {
+    queued: true,
+    jobId: job.id,
+    status: statusFromStore(store)
+  };
+}
+
+function normalizeSyncJobOptions(options) {
+  return {
+    after: normalizeEpoch(options?.after),
+    before: normalizeEpoch(options?.before)
+  };
+}
+
+async function enqueueSyncJob(job, delaySeconds = 0) {
+  return getCloudTaskQueue().enqueue({
+    jobId: job.id,
+    phase: job.phase,
+    step: job.step,
+    options: job.options || {}
+  }, { delaySeconds });
+}
+
+async function updateSyncJob(jobId, patch) {
+  const store = await readStore();
+  if (store.syncJob?.id !== jobId) return store;
+  return writeStore({
+    ...store,
+    syncJob: {
+      ...store.syncJob,
+      ...patch
+    }
+  });
+}
+
+async function queueNextSyncPhase(jobId, phase, delaySeconds = 0) {
+  let store = await readStore();
+  if (store.syncJob?.id !== jobId) return null;
+  const now = new Date().toISOString();
+  const job = {
+    ...store.syncJob,
+    state: "queued",
+    phase,
+    step: Number(store.syncJob.step || 0) + 1,
+    updatedAt: now,
+    error: null
+  };
+  store = await writeStore({ ...store, syncJob: job });
+  await enqueueSyncJob(job, delaySeconds);
+  return store;
+}
+
+async function runCloudSyncTask(payload) {
+  const jobId = String(payload?.jobId || "");
+  const phase = String(payload?.phase || "");
+  const step = Number(payload?.step);
+  if (!jobId || !["activities", "details", "recompute"].includes(phase) || !Number.isInteger(step) || step < 0) {
+    const error = new Error("Invalid sync task payload.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let store = await readStore();
+  const job = store.syncJob;
+  if (!job || job.id !== jobId || job.state === "completed") {
+    return { ok: true, ignored: true };
+  }
+
+  if (job.phase !== phase || Number(job.step) !== step) {
+    if (["queued", "failed"].includes(job.state)) {
+      const recoveredJob = {
+        ...job,
+        state: "queued",
+        updatedAt: new Date().toISOString(),
+        error: null
+      };
+      await writeStore({ ...store, syncJob: recoveredJob });
+      await enqueueSyncJob(recoveredJob);
+      return { ok: true, recovered: true };
+    }
+    return { ok: true, ignored: true };
+  }
+
+  const startedAt = job.startedAt || new Date().toISOString();
+  store = await writeStore({
+    ...store,
+    syncJob: {
+      ...job,
+      state: "running",
+      startedAt,
+      updatedAt: new Date().toISOString(),
+      error: null
+    }
+  });
+
+  try {
+    if (phase === "activities") {
+      const result = await syncActivities(job.options || {});
+      const detailStatus = result.status.activityDetails || {};
+      const hasPendingDetails = [
+        detailStatus.pendingRunCount,
+        detailStatus.pendingRawRunCount,
+        detailStatus.pendingRawStreamRunCount
+      ].some((value) => Number(value || 0) > 0);
+      await queueNextSyncPhase(jobId, hasPendingDetails ? "details" : "recompute");
+      return { ok: true, phase, summary: result.summary };
+    }
+
+    if (phase === "details") {
+      const result = await syncActivityDetails();
+      const next = planNextDetailSyncBatch(result.summary, job.detailNoProgressCount);
+      await updateSyncJob(jobId, {
+        detailNoProgressCount: next.noProgressCount,
+        warning: next.warning
+      });
+      await queueNextSyncPhase(jobId, next.phase, next.delaySeconds);
+      return { ok: true, phase, summary: result.summary };
+    }
+
+    await personalBestsFromStore(await readStore());
+    await updateSyncJob(jobId, {
+      state: "completed",
+      phase: "complete",
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      error: null
+    });
+    return { ok: true, phase };
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || null;
+    const retryable = !statusCode || statusCode === 429 || statusCode >= 500;
+    await updateSyncJob(jobId, {
+      state: retryable ? "queued" : "failed",
+      updatedAt: new Date().toISOString(),
+      error: sanitizeJobError(error),
+      retrying: retryable
+    });
+    throw error;
+  }
+}
+
+function planNextDetailSyncBatch(summary = {}, previousNoProgressCount = 0) {
+  const remaining = Math.max(0, Number(summary.remaining) || 0);
+  const previous = Math.max(0, Number(previousNoProgressCount) || 0);
+  if (remaining === 0) {
+    return {
+      phase: "recompute",
+      delaySeconds: 0,
+      noProgressCount: 0,
+      warning: null
+    };
+  }
+
+  if (summary.stoppedReason === "rate_limited") {
+    return {
+      phase: "details",
+      delaySeconds: 15 * 60,
+      noProgressCount: previous,
+      warning: null
+    };
+  }
+
+  const progress = ["fetched", "rawBackfilled", "rawStreamsFetched"]
+    .reduce((total, key) => total + Math.max(0, Number(summary[key]) || 0), 0);
+  const noProgressCount = progress > 0 ? 0 : previous + 1;
+  if (noProgressCount >= MAX_DETAIL_NO_PROGRESS_BATCHES) {
+    return {
+      phase: "recompute",
+      delaySeconds: 0,
+      noProgressCount,
+      warning: {
+        code: "detail_sync_stalled",
+        remaining,
+        message: `${remaining} activity details remain after repeated attempts.`
+      }
+    };
+  }
+
+  return {
+    phase: "details",
+    delaySeconds: progress > 0 ? 1 : 30,
+    noProgressCount,
+    warning: null
+  };
+}
+
+function sanitizeJobError(error) {
+  return {
+    statusCode: Number(error?.statusCode) || null,
+    message: String(error?.message || "Sync task failed").slice(0, 500)
+  };
+}
+
 function needsActivityDataSync(id, detailsById, rawDetailIds, rawStreamIds) {
   return !isSuccessfulActivityDetail(detailsById.get(id)) || !rawDetailIds.has(id) || !rawStreamIds.has(id);
 }
@@ -2902,10 +3373,13 @@ async function handleAuthCallback(req, res, url) {
 
   const state = url.searchParams.get("state");
   const code = url.searchParams.get("code");
-  if (!state || !authStates.has(state)) {
+  const validState = IS_CLOUD_MODE
+    ? Boolean(state && getCloudAuth().verifyOAuthState(getSessionSecret(), state))
+    : Boolean(state && authStates.has(state));
+  if (!validState) {
     return redirect(res, "/?auth=invalid_state");
   }
-  authStates.delete(state);
+  if (!IS_CLOUD_MODE) authStates.delete(state);
 
   if (!code) {
     return redirect(res, "/?auth=missing_code");
@@ -2916,6 +3390,11 @@ async function handleAuthCallback(req, res, url) {
       grant_type: "authorization_code",
       code
     });
+    if (IS_CLOUD_MODE && String(token.athlete?.id || "") !== getAllowedAthleteId()) {
+      return redirect(res, "/?auth=forbidden", {
+        "set-cookie": getCloudAuth().clearSessionCookie()
+      });
+    }
     const scope = url.searchParams.get("scope") || token.scope || "";
     const store = await readStore();
     await writeStore({
@@ -2930,6 +3409,12 @@ async function handleAuthCallback(req, res, url) {
         expires_in: token.expires_in
       }
     });
+    if (IS_CLOUD_MODE) {
+      const session = getCloudAuth().createSession(getSessionSecret(), token.athlete.id);
+      return redirect(res, "/?auth=connected", {
+        "set-cookie": getCloudAuth().sessionCookie(session)
+      });
+    }
     return redirect(res, "/?auth=connected");
   } catch (err) {
     return redirect(res, `/?auth=token_error&reason=${encodeURIComponent(err.message)}`);
@@ -2938,8 +3423,17 @@ async function handleAuthCallback(req, res, url) {
 
 async function handleApi(req, res, url) {
   if (url.pathname === "/api/status" && req.method === "GET") {
+    if (IS_CLOUD_MODE && !cloudSessionFromRequest(req)) {
+      return sendJson(res, 200, publicCloudStatus());
+    }
     const store = await readStore();
-    return sendJson(res, 200, statusFromStore(store));
+    return sendJson(res, 200, statusForRequest(store, req));
+  }
+
+  requireCloudSession(req);
+
+  if (url.pathname === "/api/sync-job" && req.method === "GET") {
+    return sendJson(res, 200, { syncJob: await readSyncJob() });
   }
 
   if (url.pathname === "/api/activities" && req.method === "GET") {
@@ -2947,7 +3441,7 @@ async function handleApi(req, res, url) {
     const detailsById = store.detailsById || new Map();
     return sendJson(res, 200, {
       activities: store.activities.map((activity) => activityListItemFromStore(activity, detailsById)),
-      status: statusFromStore(store)
+      status: statusForRequest(store, req)
     });
   }
 
@@ -2967,25 +3461,28 @@ async function handleApi(req, res, url) {
     const store = await readStore();
     return sendJson(res, 200, {
       ok: true,
-      status: statusFromStore(store)
+      status: statusForRequest(store, req)
     });
   }
 
   if (url.pathname === "/api/sync" && req.method === "POST") {
     const body = await parseJsonBody(req);
-    const result = await syncActivities(body);
-    return sendJson(res, 200, result);
+    const result = usesCloudTasks() ? await queueCloudSync(body) : await syncActivities(body);
+    result.status = statusPayloadForRequest(result.status, req);
+    return sendJson(res, usesCloudTasks() ? 202 : 200, result);
   }
 
   if (url.pathname === "/api/activity-details/sync" && req.method === "POST") {
     const body = await parseJsonBody(req);
     const result = await syncActivityDetails(body);
+    result.status = statusPayloadForRequest(result.status, req);
     return sendJson(res, 200, result);
   }
 
   if (url.pathname === "/api/activity-details/refresh" && req.method === "POST") {
     const body = await parseJsonBody(req);
     const result = await refreshActivityDetail(body.activityId);
+    result.status = statusPayloadForRequest(result.status, req);
     return sendJson(res, 200, result);
   }
 
@@ -2995,6 +3492,16 @@ async function handleApi(req, res, url) {
   }
 
   return sendJson(res, 404, { error: "Not found" });
+}
+
+async function handleInternalTask(req, res, url) {
+  if (!usesCloudTasks() || url.pathname !== "/internal/tasks/sync" || req.method !== "POST") {
+    return sendJson(res, 404, { error: "Not found" });
+  }
+  if (!await getCloudTaskQueue().verifyRequest(req)) {
+    return sendJson(res, 401, { error: "Invalid task identity." });
+  }
+  return sendJson(res, 200, await runCloudSyncTask(await parseJsonBody(req)));
 }
 
 function round(value, digits) {
@@ -3009,7 +3516,14 @@ async function serveStatic(req, res, url) {
   try {
     const body = await fs.readFile(filePath);
     const ext = path.extname(filePath);
-    res.writeHead(200, { "content-type": contentTypes[ext] || "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": contentTypes[ext] || "application/octet-stream",
+      "content-security-policy": "default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+      "permissions-policy": "camera=(), microphone=(), geolocation=()",
+      "referrer-policy": "same-origin",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY"
+    });
     res.end(body);
   } catch (error) {
     if (error.code === "ENOENT") return sendText(res, 404, "Not found");
@@ -3042,8 +3556,12 @@ async function handleRequest(req, res) {
   try {
     assertTrustedRequest(req);
     url = new URL(req.url, `http://${req.headers.host || `localhost:${activePort}`}`);
+    if (url.pathname === "/healthz" && req.method === "GET") {
+      return sendJson(res, 200, { ok: true });
+    }
     if (url.pathname === "/auth/strava/start") return await handleAuthStart(req, res, url);
     if (url.pathname === "/auth/strava/callback") return await handleAuthCallback(req, res, url);
+    if (url.pathname.startsWith("/internal/")) return await handleInternalTask(req, res, url);
     if (url.pathname.startsWith("/api/")) return await handleApi(req, res, url);
     return await serveStatic(req, res, url);
   } catch (error) {
@@ -3056,14 +3574,36 @@ async function handleRequest(req, res) {
   }
 }
 
+function validateCloudConfiguration() {
+  if (!IS_CLOUD_MODE) return;
+  if (!usesCloudStorage()) {
+    throw new Error("Cloud mode requires RUNASIS_STORAGE_BACKEND=gcp.");
+  }
+  if (!getPublicOrigin()) {
+    throw new Error("RUNASIS_PUBLIC_ORIGIN must be an HTTPS origin.");
+  }
+  if (!getConfig().configured || !getConfig().redirectUri) {
+    throw new Error("Valid Strava credentials and STRAVA_REDIRECT_URI are required.");
+  }
+  getSessionSecret();
+  getAllowedAthleteId();
+  getCloudRepository();
+  const bootstrapping = process.env.RUNASIS_BOOTSTRAP === "1";
+  if (!usesCloudTasks() && !bootstrapping) {
+    throw new Error("Cloud mode requires RUNASIS_TASK_QUEUE.");
+  }
+  if (!bootstrapping) getCloudTaskQueue();
+}
+
 function startServer(port, attemptsLeft = 20) {
+  validateCloudConfiguration();
   activePort = port;
   const server = http.createServer(handleRequest);
   server.listen(port, HOST);
 
   server.once("listening", () => {
     const config = getConfig();
-    console.log(`Runasis is running at http://localhost:${port}`);
+    console.log(`Runasis is running at ${IS_CLOUD_MODE ? `${HOST}:${port}` : `http://localhost:${port}`}`);
     console.log(`Strava redirect URI: ${config.redirectUri}`);
     if (port !== REQUESTED_PORT) {
       console.log(`Port ${REQUESTED_PORT} was unavailable, so Runasis used ${port}.`);
@@ -3071,7 +3611,7 @@ function startServer(port, attemptsLeft = 20) {
     if (!config.configured) {
       console.log("Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET in .env to connect Strava.");
     }
-    if (config.redirectUri && !config.redirectUri.includes(`:${port}/`)) {
+    if (!IS_CLOUD_MODE && config.redirectUri && !config.redirectUri.includes(`:${port}/`)) {
       console.log("STRAVA_REDIRECT_URI is set manually; make sure it matches the running port.");
     }
   });

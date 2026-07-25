@@ -1,0 +1,11 @@
+.env
+.git
+.gitignore
+.vercel
+data
+deploy
+docs
+node_modules
+scripts
+tests
+npm-debug.log

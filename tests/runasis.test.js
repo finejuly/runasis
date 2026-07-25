@@ -159,6 +159,32 @@ function makeResponse() {
   };
 }
 
+test("background detail sync pauses on rate limits and cannot loop forever without progress", () => {
+  const server = loadServerContext();
+  const rateLimited = vm.runInContext(
+    "planNextDetailSyncBatch({ remaining: 4, stoppedReason: 'rate_limited' }, 1)",
+    server
+  );
+  assert.equal(rateLimited.phase, "details");
+  assert.equal(rateLimited.delaySeconds, 15 * 60);
+  assert.equal(rateLimited.noProgressCount, 1);
+
+  const stalled = vm.runInContext(
+    "planNextDetailSyncBatch({ remaining: 2, failed: 2 }, 2)",
+    server
+  );
+  assert.equal(stalled.phase, "recompute");
+  assert.equal(stalled.warning.code, "detail_sync_stalled");
+  assert.equal(stalled.warning.remaining, 2);
+
+  const progressing = vm.runInContext(
+    "planNextDetailSyncBatch({ remaining: 2, fetched: 1 }, 2)",
+    server
+  );
+  assert.equal(progressing.phase, "details");
+  assert.equal(progressing.noProgressCount, 0);
+});
+
 async function callApi(server, pathname, method = "GET", options = {}) {
   const req = makeRequest({
     method,

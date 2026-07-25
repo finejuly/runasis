@@ -4,9 +4,9 @@
 
 # Runasis
 
-Runasis is an unofficial running dashboard for [Strava](https://www.strava.com/). It brings your running history into a local app, then turns it into clear summaries, personal-best charts, and race-time projections.
+Runasis is an unofficial running dashboard for [Strava](https://www.strava.com/). It brings your running history into a private app, then turns it into clear summaries, personal-best charts, and race-time projections.
 
-It is built for runners who want to understand their own training history without uploading data to another service. Your Strava API credentials, tokens, and activity data stay on your machine.
+Local mode keeps your Strava API credentials, tokens, and activity data on your machine. An optional single-user cloud mode hosts the static frontend on Vercel and stores private data in your own Google Cloud project.
 
 ## Example Screens
 
@@ -104,6 +104,12 @@ Rebuilding the wrapper requires Xcode Command Line Tools.
 
 ## Development
 
+Install dependencies:
+
+```bash
+npm install
+```
+
 Run the app:
 
 ```bash
@@ -116,4 +122,8 @@ Run tests:
 npm test
 ```
 
-Runasis currently uses Node.js built-ins only, so there are no package dependencies to install.
+## Optional Cloud Deployment
+
+The supported cloud layout uses Vercel, Cloud Run, Firestore, Cloud Storage, Cloud Tasks, Secret Manager, and service-account IAM. It does not require Cloud SQL. See [deploy/README.md](deploy/README.md) for the architecture, bootstrap command, Vercel proxy setup, cost notes, and local-data migration.
+
+Cloud Scheduler, Strava Webhook ingestion, and Firebase Auth are intentionally deferred.

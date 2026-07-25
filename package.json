@@ -7,9 +7,18 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "build:vercel": "node scripts/build-vercel.js",
+    "migrate:gcp": "node scripts/migrate-local-data-to-gcp.js",
+    "migrate:gcp:apply": "node scripts/migrate-local-data-to-gcp.js --apply"
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^8.7.0",
+    "@google-cloud/storage": "^7.21.0",
+    "@google-cloud/tasks": "^6.2.3",
+    "google-auth-library": "^10.9.1"
   }
 }
