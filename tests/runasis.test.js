@@ -185,6 +185,48 @@ test("background detail sync pauses on rate limits and cannot loop forever witho
   assert.equal(progressing.noProgressCount, 0);
 });
 
+test("background sync polling retries a transient 429 response", async () => {
+  const app = loadAppContext();
+  const delays = [];
+  let requestCount = 0;
+  app.window.setTimeout = (callback, delay) => {
+    delays.push(delay);
+    callback();
+  };
+  app.fetch = async () => {
+    requestCount += 1;
+    if (requestCount === 1) {
+      return {
+        ok: false,
+        status: 429,
+        async json() {
+          return {};
+        }
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          syncJob: {
+            id: "job-1",
+            state: "completed"
+          }
+        };
+      }
+    };
+  };
+  app.renderStatus = () => {};
+  app.updateActionButtons = () => {};
+
+  const status = await app.pollSyncJob("job-1", 1000);
+
+  assert.equal(requestCount, 2);
+  assert.deepEqual(delays, [2000, 5000]);
+  assert.equal(status.syncJob.state, "completed");
+});
+
 async function callApi(server, pathname, method = "GET", options = {}) {
   const req = makeRequest({
     method,

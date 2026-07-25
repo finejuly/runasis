@@ -1120,9 +1120,20 @@ async function syncActivities() {
 
 async function pollSyncJob(jobId, timeoutMs = 30 * 60 * 1000) {
   const startedAt = Date.now();
+  let delayMs = 2000;
   while (Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => window.setTimeout(resolve, 2000));
-    const payload = await fetchJson("/api/sync-job");
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    let payload;
+    try {
+      payload = await fetchJson("/api/sync-job");
+      delayMs = 2000;
+    } catch (error) {
+      if (error.statusCode === 429) {
+        delayMs = Math.min(Math.max(delayMs * 2, 5000), 15000);
+        continue;
+      }
+      throw error;
+    }
     const job = payload.syncJob;
     const status = {
       ...(appState.status || {}),
@@ -1284,7 +1295,9 @@ async function fetchJson(url, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || `Request failed (${response.status})`);
+    const error = new Error(payload.error || `Request failed (${response.status})`);
+    error.statusCode = response.status;
+    throw error;
   }
   return payload;
 }
